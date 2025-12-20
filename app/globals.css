@@ -1,8 +1,21 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Design System Colors from Figma */
+  --bg-dark: #010501;
+  --bg-semi: #0b0f0a;
+  --bg-cards: #121712;
+  --bg-cta: #081f02;
+  --bg-shade-40: #156200;
+  --stroke: #1f261e;
+  --primary-cta: #b1f128;
+  --body-text: #b5b5b5;
+  --title-text: #ffffff;
+  --mute-text: #7c7c7c;
+  --error-status: #ff5c5c;
+  
+  --background: #010501;
+  --foreground: #ffffff;
 }
 
 @theme inline {
@@ -12,15 +25,126 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+}
+
+/* Custom gradient utilities for background elements */
+.bg-gradient-radial {
+  background: radial-gradient(circle, var(--tw-gradient-stops));
+}
+
+/* Marquee animation for mobile status bar - Continuous flow */
+@keyframes marquee {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-33.333%);
+  }
+}
+
+.animate-marquee {
+  animation: marquee 25s linear infinite;
+  will-change: transform;
+}
+
+/* Smooth expand / collapse utility for limit details */
+.limit-collapse {
+  transition: max-height 200ms ease-out, opacity 200ms ease-out;
+  overflow: hidden;
+}
+
+/* Smooth expand / collapse utility for When Price and Expires sections */
+.section-collapse {
+  transition: max-height 300ms ease-out, opacity 300ms ease-out, display 300ms ease-out;
+  overflow: hidden;
+}
+
+/* When collapsed, ensure no spacing and no interaction */
+.section-collapse.max-h-0 {
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+}
+
+/* Toast animation */
+@keyframes toast-slide-in {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.toast-enter {
+  animation: toast-slide-in 0.3s ease-out;
+}
+
+/* Bottom sheet slide animations */
+@keyframes slide-in-from-bottom {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+@keyframes slide-out-to-bottom {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(100%);
+  }
+}
+
+.slide-in-from-bottom {
+  animation: slide-in-from-bottom 0.3s ease-out;
+}
+
+.slide-out-to-bottom {
+  animation: slide-out-to-bottom 0.3s ease-in;
+}
+
+/* Hide scrollbar but keep functionality */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+/* Custom scrollbar styling for token list */
+.token-list-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: #1f261e #0b0f0a;
+}
+
+.token-list-scrollbar::-webkit-scrollbar {
+  width: 8px;
+  display: block !important;
+}
+
+.token-list-scrollbar::-webkit-scrollbar-track {
+  background: #0b0f0a;
+  border-radius: 4px;
+}
+
+.token-list-scrollbar::-webkit-scrollbar-thumb {
+  background: #1f261e;
+  border-radius: 4px;
+}
+
+.token-list-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #2a3229;
 }
