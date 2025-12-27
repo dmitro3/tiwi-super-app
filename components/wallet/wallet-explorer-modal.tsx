@@ -91,13 +91,19 @@ export default function WalletExplorerModal({
         onWalletConnect?.(installedWallet.id);
         onOpenChange(false);
       } else {
-        // Not installed - try to find install URL from supported wallets
+        // Not installed - try to find install URL from supported wallets first
         const walletInfo = getWalletById(wallet.id);
         if (walletInfo?.installUrl) {
           window.open(walletInfo.installUrl, '_blank', 'noopener,noreferrer');
+        } else if ('app' in wallet && wallet.app?.browser) {
+          // For WalletConnect wallets, prefer app.browser (extension install link)
+          window.open(wallet.app.browser, '_blank', 'noopener,noreferrer');
         } else if (wallet.homepage) {
           // Fallback to homepage
           window.open(wallet.homepage, '_blank', 'noopener,noreferrer');
+        } else {
+          // Last resort: try to construct install URL from wallet name
+          console.warn('[WalletExplorerModal] No install URL found for wallet:', wallet.name);
         }
       }
     }
@@ -129,7 +135,7 @@ export default function WalletExplorerModal({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         showCloseButton={false}
-        className="bg-[#0b0f0a] border border-[#1f261e] rounded-2xl sm:rounded-3xl p-0 max-w-[calc(100vw-2rem)] sm:max-w-[600px] w-full overflow-hidden"
+        className="bg-[#0b0f0a] border border-[#1f261e] rounded-2xl sm:rounded-3xl p-0 max-w-[calc(100vw-2rem)] sm:max-w-[550px] w-full overflow-hidden"
       >
         {/* Header */}
         <div className="flex items-center justify-between px-4 sm:px-6 py-3 sm:py-4 shrink-0 w-full border-b border-[#1f261e]">
@@ -238,7 +244,7 @@ export default function WalletExplorerModal({
                   <button
                     key={wallet.id}
                     onClick={() => handleWalletClick(wallet)}
-                    className="w-full flex items-center gap-3 p-4 rounded-xl border border-[#1f261e] hover:border-[#b1f128] transition-colors bg-[#121712] hover:bg-[#1a1f1a] text-left"
+                    className="w-full flex items-center gap-3 p-4 rounded-xl border border-[#1f261e] hover:border-[#b1f128] transition-colors bg-[#121712] hover:bg-[#1a1f1a] text-left cursor-pointer"
                   >
                     <div className="relative size-10 sm:size-12 shrink-0">
                       <Image
@@ -291,7 +297,7 @@ export default function WalletExplorerModal({
                     <button
                       key={wallet.id}
                       onClick={() => handleWalletClick(wallet)}
-                      className="w-full flex items-center gap-3 p-4 rounded-xl border border-[#1f261e] hover:border-[#b1f128] transition-colors bg-[#121712] hover:bg-[#1a1f1a] text-left"
+                      className="w-full flex items-center gap-3 p-4 rounded-xl border border-[#1f261e] hover:border-[#b1f128] transition-colors bg-[#121712] hover:bg-[#1a1f1a] text-left cursor-pointer"
                     >
                       <div className="relative size-10 sm:size-12 shrink-0">
                         <Image

@@ -91,7 +91,7 @@ export default function ConnectWalletModal({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         showCloseButton={false}
-        className="bg-[#0b0f0a] border border-[#1f261e] rounded-2xl sm:rounded-3xl p-0 max-w-[calc(100vw-2rem)] sm:max-w-[503px] w-full overflow-hidden"
+        className="bg-[#0b0f0a] border border-[#1f261e] rounded-2xl sm:rounded-3xl p-0 max-w-[calc(100vw-2rem)] sm:max-w-[550px] w-full overflow-hidden"
       >
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 shrink-0 w-full border-b border-[#1f261e]">
@@ -181,14 +181,15 @@ export default function ConnectWalletModal({
                     );
                   })}
                   
-                  {/* More Button */}
+                  {/* 100+ Button */}
                   <button
                     onClick={handleMoreClick}
-                    className="bg-[#121712] flex items-center justify-center overflow-hidden p-4 rounded-xl shrink-0 hover:bg-[#1a1f1a] transition-colors cursor-pointer border border-[#1f261e] hover:border-[#b1f128] min-w-[80px]"
+                    className="bg-[#121712] flex items-center justify-center overflow-hidden p-4 rounded-xl shrink-0 hover:bg-[#1a1f1a] transition-colors cursor-pointer border border-[#1f261e] hover:border-[#b1f128]"
                     aria-label="View more wallets"
+                    style={{ minHeight: '80px', minWidth: '80px' }}
                   >
                     <span className="font-medium text-[#b5b5b5] hover:text-[#b1f128] text-sm transition-colors">
-                      More
+                      100+
                     </span>
                   </button>
                 </>
