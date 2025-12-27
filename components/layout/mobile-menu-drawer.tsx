@@ -16,6 +16,7 @@ const navItems: NavItem[] = [
   { label: "Pool", href: "/pool" },
   { label: "Earn", href: "/earn" },
   { label: "Portfolio", href: "/portfolio" },
+  { label: "Settings", href: "/settings" },
 ];
 
 interface MobileMenuDrawerProps {
