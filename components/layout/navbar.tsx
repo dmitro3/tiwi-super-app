@@ -7,9 +7,13 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useWalletConnection } from "@/hooks/useWalletConnection";
 import ConnectWalletModal from "@/components/wallet/connect-wallet-modal";
+import WalletExplorerModal from "@/components/wallet/wallet-explorer-modal";
+import ChainSelectionModal from "@/components/wallet/chain-selection-modal";
 import WalletConnectedToast from "@/components/wallet/wallet-connected-toast";
 import { MobileMenuDrawer } from "./mobile-menu-drawer";
 import { useRouter } from "next/navigation";
+import type { WalletProvider } from "@/lib/wallet/detection/types";
+import type { WalletConnectWallet } from "@/lib/wallet/services/wallet-explorer-service";
 
 interface NavItem {
   label: string;
@@ -31,11 +35,17 @@ export default function Navbar() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const {
     isModalOpen,
+    isExplorerOpen,
+    isChainSelectionOpen,
     isToastOpen,
     connectedAddress,
+    pendingWallet,
     openModal,
     closeModal,
+    openExplorer,
+    closeExplorer,
     connectWallet,
+    selectChain,
     closeToast,
   } = useWalletConnection();
 
@@ -168,7 +178,30 @@ export default function Navbar() {
         open={isModalOpen}
         onOpenChange={closeModal}
         onWalletConnect={connectWallet}
+        onOpenExplorer={openExplorer}
       />
+
+      {/* Wallet Explorer Modal */}
+      <WalletExplorerModal
+        open={isExplorerOpen}
+        onOpenChange={closeExplorer}
+        onWalletConnect={connectWallet}
+      />
+
+      {/* Chain Selection Modal */}
+      {pendingWallet && (
+        <ChainSelectionModal
+          open={isChainSelectionOpen}
+          onOpenChange={(open) => {
+            if (!open) {
+              // Reset pending wallet when closing
+              // This is handled in the hook, but we need to close the modal
+            }
+          }}
+          wallet={pendingWallet as WalletProvider}
+          onChainSelect={selectChain}
+        />
+      )}
 
       {/* Wallet Connected Toast */}
       {connectedAddress && (
