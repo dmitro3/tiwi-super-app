@@ -4,8 +4,8 @@ import "./globals.css";
 import Navbar from "@/components/layout/navbar";
 import StatusBar from "@/components/layout/status-bar";
 import GlobalBackground from "@/components/layout/global-background";
-import { QueryProvider } from "@/lib/frontend/providers/query-provider";
 import { PrefetchProvider } from "@/components/prefetch/prefetch-provider";
+import { WalletProviders } from "@/lib/frontend/providers/wallet-providers";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -36,7 +36,7 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        <QueryProvider>
+        <WalletProviders>
           <PrefetchProvider>
             <div className="min-h-screen bg-[#010501] relative">
               {/* Global Background System - Applied to all pages */}
@@ -50,7 +50,7 @@ export default function RootLayout({
               </div>
             </div>
           </PrefetchProvider>
-        </QueryProvider>
+        </WalletProviders>
       </body>
     </html>
   );

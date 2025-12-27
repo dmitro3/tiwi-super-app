@@ -210,6 +210,31 @@ body {
   background: #2a3229;
 }
 
+/* Custom scrollbar styling for wallet modals */
+.wallet-modal-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: #1f261e #0b0f0a;
+}
+
+.wallet-modal-scrollbar::-webkit-scrollbar {
+  width: 8px;
+  display: block !important;
+}
+
+.wallet-modal-scrollbar::-webkit-scrollbar-track {
+  background: #0b0f0a;
+  border-radius: 4px;
+}
+
+.wallet-modal-scrollbar::-webkit-scrollbar-thumb {
+  background: #1f261e;
+  border-radius: 4px;
+}
+
+.wallet-modal-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #2a3229;
+}
+
 /* Custom scrollbar styling for market table - Tiwi Protocol design */
 .market-table-scrollbar {
   scrollbar-width: thin;
