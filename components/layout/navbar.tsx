@@ -6,6 +6,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useWalletConnection } from "@/hooks/useWalletConnection";
+import { useWallet } from "@/lib/wallet/hooks/useWallet";
 import ConnectWalletModal from "@/components/wallet/connect-wallet-modal";
 import WalletExplorerModal from "@/components/wallet/wallet-explorer-modal";
 import ChainSelectionModal from "@/components/wallet/chain-selection-modal";
@@ -13,6 +14,8 @@ import WalletConnectedToast from "@/components/wallet/wallet-connected-toast";
 import { MobileMenuDrawer } from "./mobile-menu-drawer";
 import type { WalletProvider } from "@/lib/wallet/detection/types";
 import type { WalletConnectWallet } from "@/lib/wallet/services/wallet-explorer-service";
+import { getWalletById } from "@/lib/wallet/detection/detector";
+import { getWalletIconUrl } from "@/lib/wallet/services/wallet-explorer-service";
 
 interface NavItem {
   label: string;
@@ -31,6 +34,7 @@ const navItems: NavItem[] = [
 export default function Navbar() {
   const pathname = usePathname();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isWalletMenuOpen, setIsWalletMenuOpen] = useState(false);
   const {
     isModalOpen,
     isExplorerOpen,
@@ -45,7 +49,9 @@ export default function Navbar() {
     connectWallet,
     selectChain,
     closeToast,
+    handleChainModalBack,
   } = useWalletConnection();
+  const wallet = useWallet();
 
   const handleConnect = () => {
     openModal();
@@ -66,6 +72,40 @@ export default function Navbar() {
 
   const handleCloseMenu = () => {
     setIsMenuOpen(false);
+  };
+
+  // Format address like Figma: 0x061...T432
+  const formatWalletAddress = (address: string): string => {
+    if (!address || address.length <= 10) return address;
+    // Remove 0x prefix if present
+    const withoutPrefix = address.startsWith("0x") ? address.slice(2) : address;
+    if (withoutPrefix.length <= 7) return address;
+    // Take first 3 chars and last 4 chars, keep 0x prefix
+    return `0x${withoutPrefix.slice(0, 3)}...${withoutPrefix.slice(-4)}`;
+  };
+
+  // Get wallet icon for connected wallet
+  const getWalletIcon = (): string => {
+    if (!wallet.primaryWallet) return '/assets/icons/wallet/wallet-04.svg';
+    
+    const walletInfo = getWalletById(wallet.primaryWallet.provider);
+    if (walletInfo?.imageId) {
+      try {
+        return getWalletIconUrl(walletInfo.imageId, 'sm');
+      } catch (error) {
+        console.error('[Navbar] Error generating wallet icon URL:', error);
+      }
+    }
+    return '/assets/icons/wallet/wallet-04.svg';
+  };
+
+  const handleWalletMenuToggle = () => {
+    setIsWalletMenuOpen(!isWalletMenuOpen);
+  };
+
+  const handleDisconnect = async () => {
+    await wallet.disconnect();
+    setIsWalletMenuOpen(false);
   };
 
   return (
@@ -109,65 +149,202 @@ export default function Navbar() {
             })}
           </div>
 
-          {/* Connect Button - Desktop */}
-          <div className="hidden md:flex items-center gap-1.5 sm:gap-2">
-            <button
-              onClick={handleSettings}
-              className="bg-[#081f02] p-2.5 sm:p-3 rounded-full hover:opacity-90 transition-opacity"
-              aria-label="Settings"
-            >
-              <Image
-                src="/assets/icons/settings.svg"
-                alt="Settings"
-                width={24}
-                height={24}
-                className="[&_path]:stroke-[#b1f128] w-5 h-5 sm:w-6 sm:h-6"
-              />
-            </button>
-            <Button
-              onClick={handleConnect}
-              className="text-sm lg:text-base px-4 lg:px-6 py-2 lg:py-3 cursor-pointer"
-            >
-              Connect
-            </Button>
+          {/* Wallet UI - Desktop */}
+          <div className="hidden md:flex items-center gap-2">
+            {wallet.isConnected && connectedAddress ? (
+              <>
+                {/* Share Knowledge Icon (Settings) - Green border */}
+                <button
+                  onClick={handleSettings}
+                  className="bg-[#0d3600] border-[3px] border-[#b1f128] p-3 rounded-full hover:opacity-90 transition-opacity cursor-pointer"
+                  aria-label="Settings"
+                >
+                  <Image
+                    src="/assets/icons/share-knowledge.svg"
+                    alt="Settings"
+                    width={24}
+                    height={24}
+                    className="w-6 h-6"
+                  />
+                </button>
+                
+                {/* Settings Icon */}
+                <button
+                  onClick={handleSettings}
+                  className="bg-[#081f02] p-3 rounded-full hover:opacity-90 transition-opacity cursor-pointer"
+                  aria-label="Settings"
+                >
+                  <Image
+                    src="/assets/icons/settings-03.svg"
+                    alt="Settings"
+                    width={24}
+                    height={24}
+                    className="w-6 h-6"
+                  />
+                </button>
+                
+                {/* Wallet Address Button with Icon Inside */}
+                <div className="relative">
+                  <button
+                    onClick={handleWalletMenuToggle}
+                    className="bg-[#081f02] flex gap-2.5 items-center justify-center pl-2 pr-4 py-2 rounded-full hover:opacity-90 transition-opacity cursor-pointer"
+                    aria-label="Wallet menu"
+                  >
+                    <div className="relative size-8">
+                      <Image
+                        src={getWalletIcon()}
+                        alt="Wallet"
+                        width={32}
+                        height={32}
+                        className="w-full h-full object-contain rounded-full"
+                        onError={(e) => {
+                          e.currentTarget.src = '/assets/icons/wallet/wallet-04.svg';
+                        }}
+                      />
+                    </div>
+                    <p className="font-semibold text-lg text-white tracking-[0.018px]">
+                      {formatWalletAddress(connectedAddress)}
+                    </p>
+                    <div className="relative size-6">
+                      <Image
+                        src="/assets/icons/arrow-down-01.svg"
+                        alt="Dropdown"
+                        width={24}
+                        height={24}
+                        className="w-full h-full object-contain"
+                      />
+                    </div>
+                  </button>
+                  
+                  {/* Wallet Dropdown Menu */}
+                  {isWalletMenuOpen && (
+                    <div className="absolute right-0 top-full mt-2 bg-[#0b0f0a] border border-[#1f261e] rounded-xl p-2 min-w-[200px] z-50">
+                      <button
+                        onClick={handleDisconnect}
+                        className="w-full text-left px-4 py-2 text-white hover:bg-[#121712] rounded-lg transition-colors"
+                      >
+                        Disconnect
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </>
+            ) : (
+              <>
+                <button
+                  onClick={handleSettings}
+                  className="bg-[#081f02] p-2.5 sm:p-3 rounded-full hover:opacity-90 transition-opacity"
+                  aria-label="Settings"
+                >
+                  <Image
+                    src="/assets/icons/settings.svg"
+                    alt="Settings"
+                    width={24}
+                    height={24}
+                    className="[&_path]:stroke-[#b1f128] w-5 h-5 sm:w-6 sm:h-6"
+                  />
+                </button>
+                <Button
+                  onClick={handleConnect}
+                  className="text-sm lg:text-base px-4 lg:px-6 py-2 lg:py-3 cursor-pointer"
+                >
+                  Connect
+                </Button>
+              </>
+            )}
           </div>
 
-          {/* Mobile Right Side - Connect Button and Menu */}
-          <div className="md:hidden flex items-center gap-2">
-            <Button onClick={handleConnect} className="text-sm px-4 py-2 cursor-pointer">
-              Connect
-            </Button>
-            <button
-              onClick={handleMenu}
-              className="bg-[#081f02] p-2.5 rounded-full hover:opacity-90 transition-opacity cursor-pointer"
-              aria-label={isMenuOpen ? "Close menu" : "Open menu"}
-            >
-              {isMenuOpen ? (
-                <svg
-                  width="20"
-                  height="20"
-                  viewBox="0 0 16 16"
-                  fill="none"
-                  className="w-5 h-5"
+          {/* Mobile Right Side - Wallet UI or Connect Button and Menu */}
+          <div className="md:hidden flex items-center gap-3">
+            {wallet.isConnected && connectedAddress ? (
+              <>
+                {/* Wallet Address Button */}
+                <div className="relative">
+                  <button
+                    onClick={handleWalletMenuToggle}
+                    className="bg-[#0b0f0a] flex gap-2.5 items-center px-4 py-1.5 rounded-full hover:opacity-90 transition-opacity cursor-pointer"
+                    aria-label="Wallet menu"
+                  >
+                    <p className="font-medium text-sm text-[#b5b5b5]">
+                      {formatWalletAddress(connectedAddress)}
+                    </p>
+                    <div className="relative size-4">
+                      <Image
+                        src="/assets/icons/arrow-down-01-mobile.svg"
+                        alt="Dropdown"
+                        width={16}
+                        height={16}
+                        className="w-full h-full object-contain"
+                      />
+                    </div>
+                  </button>
+                  
+                  {/* Wallet Dropdown Menu */}
+                  {isWalletMenuOpen && (
+                    <div className="absolute right-0 top-full mt-2 bg-[#0b0f0a] border border-[#1f261e] rounded-xl p-2 min-w-[200px] z-50">
+                      <button
+                        onClick={handleDisconnect}
+                        className="w-full text-left px-4 py-2 text-white hover:bg-[#121712] rounded-lg transition-colors"
+                      >
+                        Disconnect
+                      </button>
+                    </div>
+                  )}
+                </div>
+                
+                {/* Hamburger Menu */}
+                <button
+                  onClick={handleMenu}
+                  className="p-1.5 rounded-lg hover:opacity-90 transition-opacity cursor-pointer"
+                  aria-label={isMenuOpen ? "Close menu" : "Open menu"}
                 >
-                  <path
-                    d="M12 4L4 12M4 4L12 12"
-                    stroke="#b5b5b5"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
+                  <Image
+                    src="/assets/icons/menu.svg"
+                    alt="Menu"
+                    width={24}
+                    height={24}
+                    className="h-6 w-6"
                   />
-                </svg>
-              ) : (
-                <Image
-                  src="/assets/icons/menu.svg"
-                  alt="Menu"
-                  width={20}
-                  height={20}
-                  className="h-5 w-5"
-                />
-              )}
-            </button>
+                </button>
+              </>
+            ) : (
+              <>
+                <Button onClick={handleConnect} className="text-sm px-4 py-2 cursor-pointer">
+                  Connect
+                </Button>
+                <button
+                  onClick={handleMenu}
+                  className="bg-[#081f02] p-2.5 rounded-full hover:opacity-90 transition-opacity cursor-pointer"
+                  aria-label={isMenuOpen ? "Close menu" : "Open menu"}
+                >
+                  {isMenuOpen ? (
+                    <svg
+                      width="20"
+                      height="20"
+                      viewBox="0 0 16 16"
+                      fill="none"
+                      className="w-5 h-5"
+                    >
+                      <path
+                        d="M12 4L4 12M4 4L12 12"
+                        stroke="#b5b5b5"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  ) : (
+                    <Image
+                      src="/assets/icons/menu.svg"
+                      alt="Menu"
+                      width={20}
+                      height={20}
+                      className="h-5 w-5"
+                    />
+                  )}
+                </button>
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -193,12 +370,13 @@ export default function Navbar() {
           open={isChainSelectionOpen}
           onOpenChange={(open) => {
             if (!open) {
-              // Reset pending wallet when closing
-              // This is handled in the hook, but we need to close the modal
+              // Close the modal completely
+              handleChainModalBack();
             }
           }}
           wallet={pendingWallet as WalletProvider}
           onChainSelect={selectChain}
+          onBack={handleChainModalBack}
         />
       )}
 
@@ -217,6 +395,14 @@ export default function Navbar() {
         open={isMenuOpen}
         onClose={handleCloseMenu}
       />
+      
+      {/* Click outside to close wallet menu */}
+      {isWalletMenuOpen && (
+        <div
+          className="fixed inset-0 z-40"
+          onClick={() => setIsWalletMenuOpen(false)}
+        />
+      )}
     </nav>
   );
 }

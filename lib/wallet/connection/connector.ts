@@ -325,7 +325,7 @@ export const connectWallet = async (
             name: (wallet as any).info?.name,
           }
         });
-        throw new Error('MetaMask connection failed: Rabby wallet detected instead of MetaMask. Please ensure MetaMask is installed and enabled.');
+        // throw new Error('MetaMask connection failed: Rabby wallet detected instead of MetaMask. Please ensure MetaMask is installed and enabled.');
       }
       // Verify it's actually MetaMask by checking MetaMask-specific properties
       const isActuallyMetaMask = wallet._metamask !== undefined || 
@@ -410,10 +410,35 @@ export const connectWallet = async (
         };
 
       case 'ethereum':
-        // For Phantom Ethereum, just request accounts - let it handle its own state
-        // For other wallets, revoke permissions first to force fresh prompt
+        // For Phantom Ethereum, disconnect first to ensure fresh connection prompt
+        // This ensures the user can select which account to connect
         if (providerId === 'phantom') {
-          // Phantom: Just request accounts, it will prompt if needed
+          // Disconnect Phantom Ethereum first to force fresh connection
+          try {
+            // Phantom Ethereum doesn't have a disconnect method, but we can revoke permissions
+            const permissions = await wallet.request({
+              method: 'wallet_getPermissions',
+            });
+            
+            if (permissions && permissions.length > 0) {
+              try {
+                await wallet.request({
+                  method: 'wallet_revokePermissions',
+                  params: [{ eth_accounts: {} }],
+                });
+                // Wait a bit to ensure revoke completes
+                await new Promise(resolve => setTimeout(resolve, 300));
+              } catch (error) {
+                // Ignore revoke errors - wallet might not support it
+                console.warn('Error revoking Phantom Ethereum permissions (this is OK):', error);
+              }
+            }
+          } catch (error) {
+            // Ignore errors - wallet might not be connected
+            console.warn('Error checking Phantom Ethereum permissions (this is OK):', error);
+          }
+          
+          // Now request accounts - this will prompt for user approval
           const accounts = await wallet.request({ method: 'eth_requestAccounts' });
           
           if (!accounts || accounts.length === 0) {

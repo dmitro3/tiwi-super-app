@@ -18,6 +18,7 @@ export interface WalletState {
 export interface WalletStore extends WalletState {
   // Actions
   connect: (walletId: string, chain: 'ethereum' | 'solana') => Promise<void>;
+  setAccount: (account: WalletAccount) => void; // Set account directly without connecting
   disconnect: () => Promise<void>;
   setSecondaryWallet: (wallet: WalletAccount | null) => void;
   setSecondaryAddress: (address: string | null) => void;

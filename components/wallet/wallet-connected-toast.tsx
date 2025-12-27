@@ -22,7 +22,7 @@ export default function WalletConnectedToast({
     // Remove 0x prefix, take first 3 chars, then last 4 chars
     const withoutPrefix = addr.startsWith("0x") ? addr.slice(2) : addr;
     if (withoutPrefix.length <= 7) return addr;
-    return `0x${withoutPrefix.slice(0, 3)}...${withoutPrefix.slice(-4)}`;
+    return `${withoutPrefix.slice(0, 3)}...${withoutPrefix.slice(-4)}`;
   };
 
   // Auto-dismiss after duration

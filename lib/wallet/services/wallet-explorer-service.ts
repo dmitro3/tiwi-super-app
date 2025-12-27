@@ -135,6 +135,7 @@ export async function searchWallets(query: string): Promise<WalletConnectWallet[
  * Get wallet icon URL from WalletConnect Explorer API
  */
 export function getWalletIconUrl(imageId: string, size: 'sm' | 'md' | 'lg' = 'md'): string {
+  console.log("🚀 ~ getWalletIconUrl ~ imageId:", imageId)
   // Validate imageId before constructing URL
   if (!imageId || typeof imageId !== 'string' || imageId.trim() === '') {
     throw new Error('Invalid imageId: imageId must be a non-empty string');

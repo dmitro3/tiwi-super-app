@@ -10,6 +10,7 @@ import { persist } from 'zustand/middleware';
 import type { WalletAccount } from '../connection/types';
 import { connectWallet, disconnectWallet as disconnectWalletConnector } from '../connection/connector';
 import type { WalletStore } from './types';
+import { mapWalletIdToProviderId } from '../utils/wallet-id-mapper';
 
 const WALLET_STORAGE_KEY = 'tiwi_connected_wallet';
 const SECONDARY_WALLET_STORAGE_KEY = 'tiwi_secondary_wallet';
@@ -34,18 +35,29 @@ export const useWalletStore = create<WalletStore>()(
           const currentWallet = get().primaryWallet;
           if (currentWallet) {
             try {
-              await disconnectWalletConnector(currentWallet.provider, currentWallet.chain);
+              // Map wallet ID to provider ID for disconnection
+              const mappedProviderId = mapWalletIdToProviderId(currentWallet.provider);
+              await disconnectWalletConnector(mappedProviderId, currentWallet.chain);
             } catch (error) {
               // Ignore disconnect errors
               console.warn('Error disconnecting existing wallet:', error);
             }
           }
 
-          // Connect to new wallet
-          const account = await connectWallet(walletId, chain);
+          // Map wallet ID to provider ID expected by connector
+          const providerId = mapWalletIdToProviderId(walletId);
+          
+          // Connect to new wallet using mapped provider ID
+          const account = await connectWallet(providerId, chain);
+          
+          // Store the original wallet ID (not the provider ID) for consistency
+          const accountWithOriginalId: WalletAccount = {
+            ...account,
+            provider: walletId, // Keep original wallet ID
+          };
           
           set({
-            primaryWallet: account,
+            primaryWallet: accountWithOriginalId,
             isConnecting: false,
             error: null,
           });
@@ -59,12 +71,22 @@ export const useWalletStore = create<WalletStore>()(
         }
       },
 
+      setAccount: (account: WalletAccount) => {
+        set({
+          primaryWallet: account,
+          isConnecting: false,
+          error: null,
+        });
+      },
+
       disconnect: async () => {
         const currentWallet = get().primaryWallet;
         
         if (currentWallet) {
           try {
-            await disconnectWalletConnector(currentWallet.provider, currentWallet.chain);
+            // Map wallet ID to provider ID for disconnection
+            const mappedProviderId = mapWalletIdToProviderId(currentWallet.provider);
+            await disconnectWalletConnector(mappedProviderId, currentWallet.chain);
           } catch (error) {
             console.warn('Error disconnecting wallet:', error);
           }

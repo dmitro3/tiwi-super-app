@@ -7,6 +7,11 @@ import type { WalletType } from "@/components/wallet/connect-wallet-modal";
 import type { WalletProvider } from "@/lib/wallet/detection/types";
 import type { WalletConnectWallet } from "@/lib/wallet/services/wallet-explorer-service";
 import type { WalletChain } from "@/lib/wallet/connection/types";
+import { mapWalletIdToProviderId } from "@/lib/wallet/utils/wallet-id-mapper";
+import { useConnect, useDisconnect, useConfig } from "wagmi";
+import { getAccount } from "@wagmi/core";
+import { connectWallet as connectWalletConnector } from "@/lib/wallet/connection/connector";
+import { useWalletStore } from "@/lib/wallet/state/store";
 
 interface UseWalletConnectionReturn {
   isModalOpen: boolean;
@@ -22,6 +27,7 @@ interface UseWalletConnectionReturn {
   connectWallet: (type: WalletType | WalletConnectWallet) => Promise<void>;
   selectChain: (chain: WalletChain) => Promise<void>;
   closeToast: () => void;
+  handleChainModalBack: () => void;
 }
 
 // Map WalletType to wallet ID and chain (for hardcoded types)
@@ -66,12 +72,16 @@ function isMultiChainWallet(wallet: WalletProvider | WalletConnectWallet | null)
 
 export function useWalletConnection(): UseWalletConnectionReturn {
   const wallet = useWallet();
+  const wagmiConfig = useConfig();
+  const { connect: wagmiConnect, connectors: wagmiConnectors } = useConnect();
+  const { disconnect: wagmiDisconnect } = useDisconnect();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isExplorerOpen, setIsExplorerOpen] = useState(false);
   const [isChainSelectionOpen, setIsChainSelectionOpen] = useState(false);
   const [isToastOpen, setIsToastOpen] = useState(false);
   const [pendingWallet, setPendingWallet] = useState<WalletProvider | WalletConnectWallet | null>(null);
   const [pendingWalletId, setPendingWalletId] = useState<string | null>(null);
+  const [previousModalState, setPreviousModalState] = useState<'connect' | 'explorer' | null>(null);
 
   const openModal = useCallback(() => {
     setIsModalOpen(true);
@@ -99,6 +109,7 @@ export function useWalletConnection(): UseWalletConnectionReturn {
         if (isMultiChainWallet(wcWallet)) {
           setPendingWallet(wcWallet);
           setPendingWalletId(wcWallet.id);
+          setPreviousModalState('explorer'); // Remember we came from explorer modal
           setIsChainSelectionOpen(true);
           setIsExplorerOpen(false);
           return;
@@ -141,6 +152,7 @@ export function useWalletConnection(): UseWalletConnectionReturn {
       if (isMultiChainWallet(walletProvider)) {
         setPendingWallet(walletProvider);
         setPendingWalletId(type);
+        setPreviousModalState('connect'); // Remember we came from connect modal
         setIsChainSelectionOpen(true);
         setIsModalOpen(false);
         return;
@@ -172,15 +184,131 @@ export function useWalletConnection(): UseWalletConnectionReturn {
     if (!pendingWalletId) return;
 
     try {
-      await wallet.connect(pendingWalletId, chain);
+      // Map wallet ID to provider ID
+      const providerId = mapWalletIdToProviderId(pendingWalletId);
+      
+      // For MetaMask on Ethereum, use Wagmi's MetaMask connector specifically
+      // This ensures we use MetaMask's own provider and avoid OKX/Rabby conflicts
+      if (chain === 'ethereum' && providerId === 'metamask') {
+        try {
+          // Find Wagmi's MetaMask connector
+          const metamaskConnector = wagmiConnectors.find((c: any) => {
+            const id = (c.id || '').toLowerCase();
+            const name = (c.name || '').toLowerCase();
+            const type = (c.type || '').toLowerCase();
+            return id.includes('metamask') || 
+                   name.includes('metamask') ||
+                   type === 'metamask' ||
+                   c.id === 'metaMask' ||
+                   c.id === 'metaMaskSDK';
+          });
+          
+          if (metamaskConnector) {
+            console.log('[useWalletConnection] Using Wagmi MetaMask connector for MetaMask connection');
+            
+            // Disconnect any existing wallet first
+            if (wallet.primaryWallet) {
+              try {
+                await wallet.disconnect();
+              } catch (error) {
+                console.warn('Error disconnecting existing wallet:', error);
+              }
+            }
+            
+            // Connect using Wagmi's MetaMask connector
+            await wagmiConnect({ connector: metamaskConnector });
+            
+            // Get the connected account directly from Wagmi core (synchronous after connection)
+            // This is more reliable than waiting for React hooks to update
+            const wagmiAccount = getAccount(wagmiConfig);
+            let address: string;
+            
+            if (!wagmiAccount.address) {
+              // If address not immediately available, wait a bit and try again
+              await new Promise(resolve => setTimeout(resolve, 300));
+              const retryAccount = getAccount(wagmiConfig);
+              if (!retryAccount.address) {
+                throw new Error('Failed to get account address from MetaMask connector. Please try again.');
+              }
+              address = retryAccount.address;
+            } else {
+              address = wagmiAccount.address;
+            }
+            
+            // Update wallet store with the connected account directly
+            // Don't call wallet.connect() as it will try to connect again via connector
+            // Instead, use the store's setAccount method to set the account directly
+            const account: WalletAccount = {
+              address: address,
+              chain: 'ethereum',
+              provider: pendingWalletId, // Keep original wallet ID
+            };
+            
+            // Use the store's setAccount method directly
+            useWalletStore.getState().setAccount(account);
+            
+            setIsToastOpen(true);
+            setIsChainSelectionOpen(false);
+            setPendingWallet(null);
+            setPendingWalletId(null);
+            setPreviousModalState(null);
+            return;
+          } else {
+            // Fallback to custom connection if connector not found
+            console.warn('[useWalletConnection] Wagmi MetaMask connector not found, using custom connection');
+            await wallet.connect(pendingWalletId, chain);
+          }
+        } catch (wagmiError: any) {
+          console.error('[useWalletConnection] Wagmi MetaMask connection failed, trying custom connection:', wagmiError);
+          // Fallback to custom connection
+          await wallet.connect(pendingWalletId, chain);
+        }
+      } else {
+        // For other wallets (non-MetaMask or Solana), use the custom connection logic
+        // Disconnect any existing wallet first (like tiwi-test)
+        if (wallet.primaryWallet) {
+          try {
+            await wallet.disconnect();
+            // Also disconnect from Wagmi if it was an EVM wallet
+            if (wallet.primaryWallet.chain === 'ethereum') {
+              try {
+                wagmiDisconnect();
+              } catch (wagmiError) {
+                // Ignore Wagmi disconnect errors
+              }
+            }
+          } catch (error) {
+            console.warn('Error disconnecting existing wallet:', error);
+          }
+        }
+        
+        await wallet.connect(pendingWalletId, chain);
+      }
+      
       setIsToastOpen(true);
       setIsChainSelectionOpen(false);
       setPendingWallet(null);
       setPendingWalletId(null);
+      setPreviousModalState(null);
     } catch (error: any) {
       console.error('Error connecting wallet:', error);
     }
-  }, [wallet, pendingWalletId]);
+  }, [wallet, pendingWalletId, wagmiConfig, wagmiConnect, wagmiConnectors, wagmiDisconnect]);
+
+  const handleChainModalBack = useCallback(() => {
+    setIsChainSelectionOpen(false);
+    setPendingWallet(null);
+    setPendingWalletId(null);
+    
+    // Restore previous modal state
+    if (previousModalState === 'connect') {
+      setIsModalOpen(true);
+    } else if (previousModalState === 'explorer') {
+      setIsExplorerOpen(true);
+    }
+    
+    setPreviousModalState(null);
+  }, [previousModalState]);
 
   const closeToast = useCallback(() => {
     setIsToastOpen(false);
@@ -200,5 +328,6 @@ export function useWalletConnection(): UseWalletConnectionReturn {
     connectWallet: connectWalletHandler,
     selectChain,
     closeToast,
+    handleChainModalBack, // Export the back handler
   };
 }
