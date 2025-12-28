@@ -22,7 +22,7 @@ const recommendedPools: Pool[] = [
 
 export default function RecommendedPools() {
   return (
-    <div className="flex flex-col gap-4 items-start px-10 py-0 relative shrink-0 w-full">
+    <div className="flex flex-col gap-4 items-start px-4 py-0 relative shrink-0 w-full">
       {/* Header */}
       <div className="flex gap-2.5 h-6 items-center px-0 py-2 relative shrink-0 w-full">
         <div className="flex gap-2.5 h-6 items-center relative shrink-0">
@@ -35,7 +35,7 @@ export default function RecommendedPools() {
         </div>
       </div>
 
-      {/* Pool Grid - 2 columns */}
+      {/* Pool Grid - 2 columns with proper gap matching Figma */}
       <div className="grid grid-cols-2 gap-4 items-start relative shrink-0 w-full">
         {recommendedPools.map((pool, index) => (
           <PoolCard

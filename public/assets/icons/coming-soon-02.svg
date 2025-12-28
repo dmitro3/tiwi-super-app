@@ -1,0 +1,11 @@
+<svg preserveAspectRatio="none" width="100%" height="100%" overflow="visible" style="display: block;" viewBox="0 0 192 192" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g id="coming-soon-02">
+<path id="Vector" d="M144.083 59.9167L156 48M164 108C164 145.555 133.555 176 96 176C58.4446 176 28 145.555 28 108C28 70.4446 58.4446 40 96 40C133.555 40 164 70.4446 164 108Z" stroke="var(--stroke-0, #B1F128)" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+<g id="Vector_2">
+<path d="M96 152C71.6994 152 52 132.301 52 108C52 83.6992 71.6994 64 96 64" fill="var(--fill-0, #498F00)"/>
+<path d="M96 152C71.6994 152 52 132.301 52 108C52 83.6992 71.6994 64 96 64" stroke="var(--stroke-0, #B1F128)" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+<path id="Vector_3" d="M116 16H76" stroke="var(--stroke-0, #B1F128)" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+<path id="Vector_4" d="M96 108L124 80" stroke="var(--stroke-0, #B1F128)" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</svg>

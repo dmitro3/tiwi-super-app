@@ -33,12 +33,12 @@ export default function GlobalBackground() {
   }, []);
 
   // Figma asset URLs (updated with latest asset IDs)
-  const centralVectorUrl = "https://www.figma.com/api/mcp/asset/eda55875-a2ea-4c53-ad04-d7d81a14432c";
+  const centralVectorUrl = "/assets/background/gradient-vector-large.svg";
   const footerImageUrl = "https://www.figma.com/api/mcp/asset/47e59de7-fc86-4517-85a8-0e5294bba63a";
 
-  // Dimensions from Figma (at 1728px reference)
-  const centralVectorWidth = 367.244;
-  const centralVectorHeight = 563;
+  // Dimensions from Figma (at 1728px reference) - Increased size for better visibility
+  const centralVectorWidth = 550; // Increased from 367.244 (~1.9x larger)
+  const centralVectorHeight = 845; // Increased from 563 (~1.9x larger, maintaining aspect ratio)
   const footerImageWidth = 454;
   const footerImageHeight = 302;
 
@@ -54,7 +54,7 @@ export default function GlobalBackground() {
   // Spacing between images should scale proportionally
 
   return (
-    <div className="fixed inset-0 pointer-events-none overflow-visible z-0" aria-hidden="true">
+    <div className="fixed inset-0 pointer-events-none overflow-visible z-10" aria-hidden="true">
       {/* Base Layer - Dark Background (handled by layout, but ensuring it's here) */}
       <div className="absolute inset-0 bg-[#010501]" />
 
@@ -63,7 +63,7 @@ export default function GlobalBackground() {
         className="absolute left-1/2"
         style={{
           left: `calc(50% - ${0.62 * scale}px)`,
-          top: `calc(55% + ${250 * scale}px)`,
+          top: `calc(50% + ${150 * scale}px)`,
           transform: `translate(-50%, -50%) scale(${scale})`,
           width: `${centralVectorWidth}px`,
           height: `${centralVectorHeight}px`,
@@ -90,7 +90,7 @@ export default function GlobalBackground() {
           - For viewport: position from bottom, convert negative to positive
       */}
       <div
-        className="absolute left-1/2 bottom-0"
+        className="absolute left-1/2 bottom-0 z-0"
         style={{
           transform: `translateX(-50%)`,
           // Position container so images are visible at bottom
@@ -113,13 +113,13 @@ export default function GlobalBackground() {
         >
           {/* Image 14 - Right side of group */}
           <div
-            className="absolute blur-[2px]"
+            className="absolute"
             style={{
               right: `${250 * scale}px`,
               width: `${(footerImageWidth * scale)}px`,
               height: `${(footerImageHeight * scale)}px`,
-              opacity: 0.24,
-              // filter: "blur(2px)", // Apply blur directly to the container
+              opacity: 0.5,
+              filter: "blur(2px)"
             }}
           >
             <Image
@@ -138,13 +138,15 @@ export default function GlobalBackground() {
               left: `${300 * scale}px`,
               width: `${footerImageWidth * scale}px`,
               height: `${footerImageHeight * scale}px`,
-              filter: "blur(2px)", // Apply blur directly to the container
             }}
           >
             <div className="rotate-180 scale-y-[-1] relative w-full h-full bg-transparent">
               <div
                 className="relative w-full h-full bg-transparent"
-                style={{ opacity: 0.24 }}
+                style={{
+                  opacity: 0.5,
+                  filter: "blur(2px)"
+                }}
               >
                 <Image
                   src="/assets/images/image 14.svg"
@@ -174,13 +176,15 @@ export default function GlobalBackground() {
               left: 0,
               width: `${footerImageWidth * scale}px`,
               height: `${footerImageHeight * scale}px`,
-              filter: "blur(2px)", // Apply blur directly to the container
             }}
           >
             <div className="rotate-180 scale-y-[-1] relative w-full h-full ">
               <div
                 className="relative w-full h-full"
-                style={{ opacity: 0.15 }}
+                style={{
+                  opacity: 0.5,
+                  filter: "blur(2px)"
+                }}
               >
                 <Image
                   src="/assets/images/image 16.svg"
@@ -200,8 +204,8 @@ export default function GlobalBackground() {
               left: `${321 * scale}px`,
               width: `${footerImageWidth * scale}px`,
               height: `${footerImageHeight * scale}px`,
-              opacity: 0.15,
-              filter: "blur(2px)", // Apply blur directly to the container
+              opacity: 0.5,
+              filter: "blur(2px)"
             }}
           >
             <Image

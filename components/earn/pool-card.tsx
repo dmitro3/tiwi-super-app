@@ -24,7 +24,7 @@ export default function PoolCard({
         {/* Header with token icon, name, and arrow */}
         <div className="flex gap-2.5 items-center relative shrink-0 w-full">
           <div className="flex gap-1 items-center relative shrink-0">
-            <div className="relative shrink-0 size-8">
+            <div className="relative shrink-0 size-7 2xl:size-8">
               <Image
                 src={tokenIcon}
                 alt={tokenName}
@@ -60,7 +60,7 @@ export default function PoolCard({
         </div>
         
         {/* APY */}
-        <p className="font-['Manrope',sans-serif] font-medium leading-normal relative shrink-0 text-2xl text-white w-full whitespace-pre-wrap">
+        <p className="font-['Manrope',sans-serif] font-medium leading-normal relative shrink-0 text-xl 2xl:text-2xl  text-white w-full whitespace-pre-wrap">
           {apy}
         </p>
       </div>

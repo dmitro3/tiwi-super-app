@@ -1,11 +1,15 @@
+"use client";
 import Image from "next/image";
 import { SIDEBAR_ICONS, SOCIAL_ICONS } from "@/lib/home/mock-data";
 import { useMemo } from "react";
+import { useRouter } from "next/navigation";
+
 
 type SidebarItem = {
     label: string;
     icon: string;
     badge?: string;
+    link: string;
 };
 
 interface SidebarProps {
@@ -14,20 +18,21 @@ interface SidebarProps {
 }
 
 export function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
+    const router = useRouter()
     const quickActions = useMemo<SidebarItem[]>(
         () => [
-            { label: "Swap", icon: SIDEBAR_ICONS.swap },
-            { label: "Stake", icon: SIDEBAR_ICONS.stake },
-            { label: "History", icon: SIDEBAR_ICONS.history },
-            { label: "Lend", icon: SIDEBAR_ICONS.lend, badge: "Coming soon" },
+            { label: "Swap", icon: SIDEBAR_ICONS.swap, link: '/swap' },
+            { label: "Stake", icon: SIDEBAR_ICONS.stake, link: '/earn' },
+            { label: "History", icon: SIDEBAR_ICONS.history, link: '/portfolio' },
+            { label: "Lend", icon: SIDEBAR_ICONS.lend, badge: "Coming soon", link: '/lend' },
         ],
         []
     );
 
     const footerLinks = useMemo<SidebarItem[]>(
         () => [
-            { label: "Download App", icon: SIDEBAR_ICONS.download },
-            { label: "Support Hub", icon: SIDEBAR_ICONS.support },
+            { label: "Download App", icon: SIDEBAR_ICONS.download, link: "#" },
+            { label: "Support Hub", icon: SIDEBAR_ICONS.support, link: "#" },
         ],
         []
     );
@@ -56,7 +61,8 @@ export function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
                     {quickActions.map((item) => (
                         <button
                             key={item.label}
-                            className="flex items-center gap-3 px-2 py-3 hover:bg-[#0b0f0a] rounded-lg transition-colors text-left"
+                            onClick={() => router.push(item.link)}
+                            className="flex items-center gap-3 px-2 py-3 hover:bg-[#0b0f0a] rounded-lg transition-colors text-left cursor-pointer"
                         >
                             <Image src={item.icon} alt={item.label} width={24} height={24} />
                             {!collapsed && (

@@ -172,12 +172,12 @@ export default function ConnectWalletModal({
                     }
                     
                     return (
-                      <ExternalWalletIcon
+              <ExternalWalletIcon
                         key={wallet.id}
                         icon={iconUrl}
                         name={wallet.name}
                         onClick={() => handleWalletClick(wallet)}
-                      />
+              />
                     );
                   })}
                   

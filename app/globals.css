@@ -175,6 +175,22 @@ body {
   animation: slide-out-to-bottom 0.3s ease-in;
 }
 
+/* Staking detail view slide-in animation */
+@keyframes staking-detail-slide-in {
+  from {
+    transform: translateY(20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.staking-detail-enter {
+  animation: staking-detail-slide-in 0.4s ease-out;
+}
+
 /* Hide scrollbar but keep functionality */
 .scrollbar-hide {
   -ms-overflow-style: none;
