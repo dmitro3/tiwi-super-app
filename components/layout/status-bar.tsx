@@ -2,23 +2,26 @@
 
 import Image from "next/image";
 import { useChains } from "@/hooks/useChains";
+import { useTWCPrice } from "@/hooks/useTWCPrice";
 import Skeleton from "@/components/ui/skeleton";
 
 interface StatusBarProps {
   smartMarketsCount?: number;
-  twcPrice?: string;
-  twcChange?: string;
-  twcChangeType?: "positive" | "negative";
 }
 
 export default function StatusBar({
   smartMarketsCount = 20,
-  twcPrice = "$0.095",
-  twcChange = "-12.1%",
-  twcChangeType = "negative",
 }: StatusBarProps) {
   const { chains, isLoading: isLoadingChains } = useChains();
+  const { data: twcData, isLoading: isLoadingTWC } = useTWCPrice();
   const activeChainsCount = chains.length;
+  
+  // Format TWC price and change
+  const twcPrice = twcData?.price || "$0.00";
+  const twcChange = twcData 
+    ? `${twcData.priceChange24h >= 0 ? '+' : ''}${twcData.priceChange24h.toFixed(2)}%`
+    : "0.00%";
+  const twcChangeType = twcData?.changeType || "negative";
   const chainIcons = [1, 2, 3, 4, 5, 6, 7, 8, 9];
   const ammIcons = [1, 2, 3, 4, 5, 6, 7];
 
@@ -45,14 +48,23 @@ export default function StatusBar({
           className="rounded-full w-5 h-5"
         />
         <span className="text-white font-semibold text-xs">TWC</span>
-        <span className="text-[#b5b5b5] font-medium text-xs">{twcPrice}</span>
-        <span
-          className={`font-medium text-xs ${
-            twcChangeType === "positive" ? "text-[#4ade80]" : "text-[#ff5c5c]"
-          }`}
-        >
-          {twcChange}
-        </span>
+        {isLoadingTWC ? (
+          <>
+            <Skeleton className="h-3 w-10" />
+            <Skeleton className="h-3 w-10" />
+          </>
+        ) : (
+          <>
+            <span className="text-[#b5b5b5] font-medium text-xs">{twcPrice}</span>
+            <span
+              className={`font-medium text-xs ${
+                twcChangeType === "positive" ? "text-[#4ade80]" : "text-[#ff5c5c]"
+              }`}
+            >
+              {twcChange}
+            </span>
+          </>
+        )}
       </div>
       <div className="h-10 w-px bg-[#1f261e]"></div>
       <div className="flex items-center -space-x-1.5">
@@ -120,18 +132,27 @@ export default function StatusBar({
                   className="rounded-full w-5 h-5 sm:w-6 sm:h-6"
                 />
                 <span className="text-white font-semibold text-xs sm:text-sm">TWC</span>
-                <span className="text-[#b5b5b5] font-medium text-xs sm:text-sm">
-                  {twcPrice}
-                </span>
-                <span
-                  className={`font-medium text-xs sm:text-sm ${
-                    twcChangeType === "positive"
-                      ? "text-[#4ade80]"
-                      : "text-[#ff5c5c]"
-                  }`}
-                >
-                  {twcChange}
-                </span>
+                {isLoadingTWC ? (
+                  <>
+                    <Skeleton className="h-4 w-12" />
+                    <Skeleton className="h-4 w-12" />
+                  </>
+                ) : (
+                  <>
+                    <span className="text-[#b5b5b5] font-medium text-xs sm:text-sm">
+                      {twcPrice}
+                    </span>
+                    <span
+                      className={`font-medium text-xs sm:text-sm ${
+                        twcChangeType === "positive"
+                          ? "text-[#4ade80]"
+                          : "text-[#ff5c5c]"
+                      }`}
+                    >
+                      {twcChange}
+                    </span>
+                  </>
+                )}
               </div>
               <div className="hidden sm:block h-10 sm:h-11 md:h-12 w-px bg-[#1f261e]"></div>
               {/* Chain Icons */}

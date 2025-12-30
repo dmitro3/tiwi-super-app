@@ -50,6 +50,19 @@ export class TokenEnrichmentService {
   }
 
   /**
+   * Enrich router formats only in background (non-blocking, fire-and-forget)
+   * 
+   * DexScreener data (price, change, volume, liquidity) is already included synchronously.
+   * This only enriches router formats for routing compatibility.
+   */
+  enrichRouterFormatsInBackground(tokens: NormalizedToken[]): void {
+    // Fire-and-forget: don't await, don't block
+    this.enrichRouterFormats(tokens).catch(error => {
+      console.warn('[TokenEnrichmentService] Background router format enrichment failed:', error);
+    });
+  }
+
+  /**
    * Get router format for a token (on-demand, blocking)
    * 
    * Use this when routing and enrichment is not ready.
@@ -95,6 +108,51 @@ export class TokenEnrichmentService {
     }
     
     return enriched;
+  }
+
+  /**
+   * Internal: Enrich router formats only (for background enrichment)
+   */
+  private async enrichRouterFormats(tokens: NormalizedToken[]): Promise<void> {
+    // Only enrich router formats, not DexScreener data (already included)
+    const enrichPromises = tokens.map(token => this.enrichRouterFormatsOnly(token));
+    await Promise.allSettled(enrichPromises);
+  }
+
+  /**
+   * Internal: Enrich router formats only (no DexScreener data)
+   */
+  private async enrichRouterFormatsOnly(token: NormalizedToken): Promise<void> {
+    const routerFormats: EnrichedToken['routerFormats'] = {};
+    
+    // Check router providers for token compatibility
+    const routerProviders = this.registry.getRouterProviders();
+    
+    // Check each router provider
+    await Promise.allSettled(
+      routerProviders.map(async (provider: BaseTokenProvider) => {
+        try {
+          const format = await this.checkRouterProvider(provider, token);
+          if (format) {
+            const providerName = provider.name;
+            if (providerName === 'lifi') {
+              routerFormats.lifi = format as { chainId: number; address: string };
+            } else if (providerName === 'squid') {
+              routerFormats.squid = format as { chainId: string; address: string };
+            } else if (providerName === 'relay') {
+              routerFormats.relay = format as { chainId: string; address: string };
+            } else if (providerName === 'jupiter') {
+              routerFormats.jupiter = format as { mint: string };
+            }
+          }
+        } catch (error) {
+          // Silent failure for individual providers
+        }
+      })
+    );
+    
+    // Note: We don't update the token here since this is background enrichment
+    // The router formats will be fetched on-demand when needed
   }
 
   /**

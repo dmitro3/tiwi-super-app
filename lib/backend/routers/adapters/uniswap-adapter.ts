@@ -164,7 +164,7 @@ export class UniswapAdapter extends BaseRouter {
       const priceImpact = this.calculatePriceImpact(amountIn, amountOut, path.length);
       
       // Normalize to RouterRoute format
-      return this.normalizeRoute(
+      const normalizedRoute = this.normalizeRoute(
         fromChainId,
         toChainId,
         params.fromToken,
@@ -177,6 +177,8 @@ export class UniswapAdapter extends BaseRouter {
         priceImpact,
         params.slippage || 0.5
       );
+      console.log("🚀 ~ UniswapAdapter ~ getRoute ~ normalizedRoute:", normalizedRoute)
+      return normalizedRoute;
     } catch (error: any) {
       // If error indicates no route, return null (not an error)
       if (error?.message?.includes('INSUFFICIENT_OUTPUT_AMOUNT') || 

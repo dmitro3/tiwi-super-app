@@ -15,6 +15,10 @@ export interface Token {
   usdValue?: string;
   price?: string;
   chainBadge?: string;
+  priceChange24h?: number;   // 24h price change percentage (e.g., -12.1)
+  volume24h?: number;        // 24h trading volume
+  liquidity?: number;        // Liquidity in USD
+  marketCap?: number;        // Market capitalization
 }
 
 export interface Chain {

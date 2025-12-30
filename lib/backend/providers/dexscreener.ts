@@ -37,6 +37,12 @@ interface DexScreenerPair {
   };
   priceNative: string;
   priceUsd: string;
+  priceChange?: {
+    h24?: number;  // 24h price change percentage
+    m5?: number;
+    h1?: number;
+    h6?: number;
+  };
   liquidity?: {
     usd?: number;
     base?: number;
@@ -128,6 +134,12 @@ export class DexScreenerProvider extends BaseTokenProvider {
       vmType: canonicalChain.type === 'EVM' ? 'evm' : undefined,
       chainBadge: canonicalChain.name.toLowerCase(),
       chainName: canonicalChain.name,
+      // Include enriched data from DexScreener
+      volume24h: token.volume24h,
+      liquidity: token.liquidity,
+      marketCap: token.marketCap,
+      priceChange24h: token.priceChange24h,
+      holders: token.holders,
     };
   }
 
@@ -201,11 +213,11 @@ export class DexScreenerProvider extends BaseTokenProvider {
           
           // Extract tokens from pair (baseToken and quoteToken)
           const tokensToAdd = [
-            { token: pair.baseToken, price: pair.priceUsd, liquidity: pair.liquidity, volume: pair.volume, logo: logoURI },
-            { token: pair.quoteToken, price: pair.priceUsd, liquidity: pair.liquidity, volume: pair.volume, logo: logoURI },
+            { token: pair.baseToken, price: pair.priceUsd, liquidity: pair.liquidity, volume: pair.volume, priceChange: pair.priceChange, fdv: pair.fdv, logo: logoURI },
+            { token: pair.quoteToken, price: pair.priceUsd, liquidity: pair.liquidity, volume: pair.volume, priceChange: pair.priceChange, fdv: pair.fdv, logo: logoURI },
           ];
           
-          for (const { token, price, liquidity, volume, logo } of tokensToAdd) {
+          for (const { token, price, liquidity, volume, priceChange, fdv, logo } of tokensToAdd) {
             // Map DexScreener chain slug to canonical chain ID
             const canonicalChain = getCanonicalChainByProviderId('dexscreener', pair.chainId);
             if (!canonicalChain) continue;
@@ -227,6 +239,8 @@ export class DexScreenerProvider extends BaseTokenProvider {
               priceUSD: price || '0',
               liquidity: liquidity?.usd,
               volume24h: volume?.h24,
+              priceChange24h: priceChange?.h24, // 24h price change percentage
+              marketCap: fdv, // Use FDV as market cap approximation
             });
           }
         }
@@ -280,11 +294,11 @@ export class DexScreenerProvider extends BaseTokenProvider {
         
         for (const pair of chainPairs.slice(0, limit * 2)) { // Get more pairs to extract more tokens
           const tokensToAdd = [
-            { token: pair.baseToken, price: pair.priceUsd, liquidity: pair.liquidity, volume: pair.volume },
-            { token: pair.quoteToken, price: pair.priceUsd, liquidity: pair.liquidity, volume: pair.volume },
+            { token: pair.baseToken, price: pair.priceUsd, liquidity: pair.liquidity, volume: pair.volume, priceChange: pair.priceChange, fdv: pair.fdv },
+            { token: pair.quoteToken, price: pair.priceUsd, liquidity: pair.liquidity, volume: pair.volume, priceChange: pair.priceChange, fdv: pair.fdv },
           ];
           
-          for (const { token, price, liquidity, volume } of tokensToAdd) {
+          for (const { token, price, liquidity, volume, priceChange, fdv } of tokensToAdd) {
             const key = `${chainId}:${token.address.toLowerCase()}`;
             if (seenTokens.has(key)) continue;
             seenTokens.add(key);
@@ -299,6 +313,8 @@ export class DexScreenerProvider extends BaseTokenProvider {
               priceUSD: price || '0',
               liquidity: liquidity?.usd,
               volume24h: volume?.h24,
+              priceChange24h: priceChange?.h24, // 24h price change percentage
+              marketCap: fdv, // Use FDV as market cap approximation
             });
             
             if (tokens.length >= limit) break;

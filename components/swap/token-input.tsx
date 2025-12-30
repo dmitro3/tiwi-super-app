@@ -155,8 +155,13 @@ export default function TokenInput({
                     height={16}
                     className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0"
                   />
-                  <span className="text-[#b5b5b5] font-medium text-xs sm:text-sm text-right truncate max-w-[120px] sm:max-w-[160px]">
-                    {balance}
+                  <span className="text-[#b5b5b5] font-medium text-xs sm:text-sm text-right min-w-0 flex items-center gap-1">
+                    <span className="truncate inline-block max-w-[60px] sm:max-w-[100px] md:max-w-[130px]">
+                      {balance}
+                    </span>
+                    {token?.symbol && (
+                      <span className="whitespace-nowrap shrink-0">{token.symbol}</span>
+                    )}
                   </span>
                 </>
               )}

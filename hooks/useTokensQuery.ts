@@ -18,14 +18,14 @@ import type { Token } from '@/lib/frontend/types/tokens';
  * Ensures consistent cache keys across the app
  */
 export function getTokensQueryKey(params: FetchTokensParams = {}): readonly unknown[] {
-  const { chains, query, limit } = params;
+  const { chains, query, limit, address } = params;
   
   // Normalize chains array for consistent keys (sort to avoid order issues)
   const normalizedChains = chains && chains.length > 0 
     ? [...chains].sort((a, b) => a - b).join(',')
     : 'all';
   
-  return ['tokens', { chains: normalizedChains, query: query?.trim() || '', limit }] as const;
+  return ['tokens', { chains: normalizedChains, query: query?.trim() || '', address: address?.trim() || '', limit }] as const;
 }
 
 // ============================================================================

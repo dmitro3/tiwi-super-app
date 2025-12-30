@@ -117,7 +117,7 @@ export class LiFiAdapter extends BaseRouter {
           order: this.mapOrderPreference(params.order),
           slippage: params.slippage || 0.5,
         } as any);
-        console.log("🚀 ~ LiFiAdapter ~ getRoute ~ getQuote:", getQuote)
+        console.log("🚀 ~ LiFiAdapter ~ getRoute ~ getQuote:", quote)
         
         // Convert quote (LiFiStep) to RouteExtended format
         // A quote is essentially a single-step route

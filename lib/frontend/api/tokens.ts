@@ -19,6 +19,7 @@ export interface FetchTokensParams {
   chains?: number[];
   query?: string;
   limit?: number;
+  address?: string;  // Token contract address for specific token lookup
 }
 
 /**
@@ -31,7 +32,7 @@ export interface FetchTokensParams {
  * @returns Promise resolving to transformed tokens
  */
 export async function fetchTokens(params: FetchTokensParams = {}): Promise<Token[]> {
-  const { chains, query, limit } = params;
+  const { chains, query, limit, address } = params;
   
   // Build API URL
   const url = new URL('/api/v1/tokens', window.location.origin);
@@ -42,6 +43,9 @@ export async function fetchTokens(params: FetchTokensParams = {}): Promise<Token
   }
   if (query && query.trim()) {
     url.searchParams.set('query', query.trim());
+  }
+  if (address && address.trim()) {
+    url.searchParams.set('address', address.trim());
   }
   if (limit) {
     url.searchParams.set('limit', limit.toString());
@@ -108,6 +112,10 @@ function transformToken(backendToken: NormalizedToken): Token {
     chain,
     chainId: backendToken.chainId,
     price: backendToken.priceUSD,
+    priceChange24h: backendToken.priceChange24h,
+    volume24h: backendToken.volume24h,
+    liquidity: backendToken.liquidity,
+    marketCap: backendToken.marketCap,
     // balance and usdValue are not from API (wallet data, set separately)
   };
 }

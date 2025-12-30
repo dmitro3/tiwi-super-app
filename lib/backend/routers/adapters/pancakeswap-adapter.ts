@@ -169,7 +169,7 @@ export class PancakeSwapAdapter extends BaseRouter {
       const priceImpact = this.calculatePriceImpact(amountIn, amountOut, path.length);
       
       // Normalize to RouterRoute format
-      return this.normalizeRoute(
+      const normalizedRoute = this.normalizeRoute(
         fromChainId,
         toChainId,
         params.fromToken,
@@ -182,6 +182,7 @@ export class PancakeSwapAdapter extends BaseRouter {
         priceImpact,
         params.slippage || 0.5
       );
+      return normalizedRoute;
     } catch (error: any) {
       // If error indicates no route, return null (not an error)
       if (error?.message?.includes('INSUFFICIENT_OUTPUT_AMOUNT') || 

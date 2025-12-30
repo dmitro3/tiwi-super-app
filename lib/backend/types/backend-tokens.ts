@@ -61,6 +61,8 @@ export interface NormalizedToken {
   volume24h?: number;         // 24h trading volume
   liquidity?: number;          // Liquidity in USD
   marketCap?: number;          // Market capitalization
+  priceChange24h?: number;     // 24h price change percentage (e.g., -12.1)
+  holders?: number;            // Number of token holders
   
   // Router compatibility (enriched)
   routerFormats?: {
@@ -113,6 +115,8 @@ export interface ProviderToken {
   volume24h?: number;         // 24h volume (from DexScreener)
   liquidity?: number;          // Liquidity in USD (from DexScreener)
   marketCap?: number;          // Market cap (from DexScreener)
+  priceChange24h?: number;     // 24h price change percentage (from DexScreener)
+  holders?: number;            // Number of token holders (from DexScreener)
   verified?: boolean;          // Verification status (from Relay)
   vmType?: string;             // VM type (from Relay)
   // Provider-specific fields stored here

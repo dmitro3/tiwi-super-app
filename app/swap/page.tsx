@@ -10,8 +10,6 @@ import WalletConnectedToast from "@/components/wallet/wallet-connected-toast";
 import TokenSelectorModal from "@/components/swap/token-selector-modal";
 import { sanitizeDecimal, parseNumber } from "@/lib/shared/utils/number";
 import {
-  calculateFromUsdValue,
-  calculateToUsdValue,
   calculateLimitPriceUsd,
 } from "@/lib/frontend/calculations/swap";
 import { useSwapQuote } from "@/hooks/useSwapQuote";
@@ -189,15 +187,38 @@ export default function SwapPage() {
   };
 
 
-  // Calculate USD values using utility functions
+  // Calculate USD values using actual token prices from API
   const fromAmountNum = parseNumber(fromAmount);
   const toAmountNum = parseNumber(toAmount);
   const limitPriceNum = parseNumber(limitPrice);
 
-  const fromUsdValue = calculateFromUsdValue(fromAmountNum);
+  // Calculate USD value from token price and amount
+  const calculateUsdValue = (amount: number, tokenPrice?: string): string => {
+    if (!amount || amount <= 0) return "$0";
+    if (!tokenPrice) return "$0";
+    
+    const price = parseFloat(tokenPrice);
+    if (isNaN(price) || price === 0) return "$0";
+    
+    const usdValue = amount * price;
+    
+    // Format based on value size
+    if (usdValue < 0.01) {
+      return `$${usdValue.toFixed(8).replace(/\.?0+$/, '')}`;
+    }
+    
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      minimumFractionDigits: usdValue < 1 ? 2 : 2,
+      maximumFractionDigits: usdValue < 1 ? 4 : 2,
+    }).format(usdValue);
+  };
+
+  const fromUsdValue = calculateUsdValue(fromAmountNum, fromToken?.price);
   const toUsdValue = isQuoteLoading
     ? "Fetching quote..."
-    : calculateToUsdValue(toAmountNum);
+    : calculateUsdValue(toAmountNum, toToken?.price);
   const limitPriceUsd = calculateLimitPriceUsd(limitPriceNum);
 
   return (

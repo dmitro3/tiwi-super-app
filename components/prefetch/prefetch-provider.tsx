@@ -87,10 +87,36 @@ export function PrefetchProvider({ children }: { children: React.ReactNode }) {
       );
     };
 
+    // Prefetch TWC token by contract address (for status bar)
+    const prefetchTWCToken = async () => {
+      try {
+        const TWC_ADDRESS = '0xDA1060158F7D593667cCE0a15DB346BB3FfB3596';
+        const TWC_CHAIN_ID = 56; // BNB Chain
+        
+        await queryClient.prefetchQuery({
+          queryKey: getTokensQueryKey({ address: TWC_ADDRESS, chains: [TWC_CHAIN_ID], limit: 1 }),
+          queryFn: () => fetchTokens({ address: TWC_ADDRESS, chains: [TWC_CHAIN_ID], limit: 1 }),
+        });
+        if (process.env.NODE_ENV === 'development') {
+          console.log('[Prefetch] TWC token prefetched');
+        }
+      } catch (error) {
+        // Silently fail - TWC will be fetched on demand
+        if (process.env.NODE_ENV === 'development') {
+          console.warn('[Prefetch] Failed to prefetch TWC token:', error);
+        }
+      }
+    };
+
     // Execute prefetch sequence with staggered timing
     const executePrefetch = () => {
       // Immediate: Prefetch chains
       prefetchChains();
+
+      // 50ms: Prefetch TWC token (for status bar - high priority)
+      setTimeout(() => {
+        prefetchTWCToken();
+      }, 50);
 
       // 100ms: Prefetch all chains tokens (most important - default modal view)
       setTimeout(() => {

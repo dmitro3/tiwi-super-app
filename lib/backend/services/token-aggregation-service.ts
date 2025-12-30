@@ -57,17 +57,27 @@ export class TokenAggregationService {
     // Detect if this is an "all networks" scenario (multiple chains, no search query)
     const isAllNetworksRequest = !query && chainsToSearch.length > 1;
     
-    // Step 1: Fetch from primary providers (parallel)
     // For "all networks", fetch more tokens per chain to ensure good mixing
     const fetchLimit = isAllNetworksRequest ? limit * 2 : limit;
-    const primaryResults = await this.fetchFromPrimaryProviders(chainsToSearch, query, fetchLimit);
     
-    // Step 2: Check if we need DexScreener fallback
-    const shouldUseDexScreener = this.shouldUseDexScreener(primaryResults, query);
+    let allResults: NormalizedToken[] = [];
     
-    let allResults = [...primaryResults];
-    
-    if (shouldUseDexScreener) {
+    // NEW FLOW: If query exists, prioritize DexScreener (better search results)
+    // Otherwise, use primary providers first (for popular tokens)
+    if (query && query.trim()) {
+      // Step 1: Fetch from DexScreener first (primary for search)
+      const dexResults = await this.fetchFromDexScreener(chainsToSearch, query, fetchLimit);
+      allResults.push(...dexResults);
+      
+      // Step 2: Fetch from primary providers in parallel (for additional results)
+      const primaryResults = await this.fetchFromPrimaryProviders(chainsToSearch, query, fetchLimit);
+      allResults.push(...primaryResults);
+    } else {
+      // No query: use primary providers first (for popular tokens)
+      const primaryResults = await this.fetchFromPrimaryProviders(chainsToSearch, query, fetchLimit);
+      allResults.push(...primaryResults);
+      
+      // Step 2: Fetch from DexScreener as supplement (for additional tokens)
       const dexResults = await this.fetchFromDexScreener(chainsToSearch, query, fetchLimit);
       allResults.push(...dexResults);
     }
@@ -111,8 +121,9 @@ export class TokenAggregationService {
       finalTokens = sortedTokens.slice(0, limit);
     }
     
-    // Step 7: Start background enrichment (non-blocking, fire-and-forget)
-    // this.enrichTokensInBackground(finalTokens);
+    // Step 7: Enrichment is already done by DexScreener (synchronous)
+    // Only start background enrichment for router formats (non-blocking)
+    this.enrichRouterFormatsInBackground(finalTokens);
     
     // Step 8: Return immediately (fast response)
     return finalTokens;
@@ -337,11 +348,12 @@ export class TokenAggregationService {
   }
 
   /**
-   * Background enrichment (non-blocking, fire-and-forget)
+   * Background enrichment for router formats only (non-blocking, fire-and-forget)
+   * DexScreener data (price, change, volume, liquidity) is already included synchronously
    */
-  private enrichTokensInBackground(tokens: NormalizedToken[]): void {
+  private enrichRouterFormatsInBackground(tokens: NormalizedToken[]): void {
     const enrichmentService = getTokenEnrichmentService();
-    enrichmentService.enrichTokensInBackground(tokens);
+    enrichmentService.enrichRouterFormatsInBackground(tokens);
   }
 }
 

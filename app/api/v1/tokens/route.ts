@@ -19,6 +19,7 @@ interface TokenRequestQuery {
   chains?: string;            // Single chain ID or comma-separated chain IDs (GET query param)
   query?: string;             // Search query (GET query param)
   limit?: string;             // Result limit (GET query param)
+  address?: string;           // Token contract address (GET query param) - for specific token lookup
 }
 
 interface TokenRequestBody {
@@ -35,10 +36,11 @@ export async function GET(req: NextRequest) {
   try {
     const searchParams = req.nextUrl.searchParams;
     
-    // Parse query parameters - only 'chains' parameter
+    // Parse query parameters
     const chainsParam = searchParams.get('chains');
     const query = searchParams.get('query') || '';
     const limitParam = searchParams.get('limit');
+    const addressParam = searchParams.get('address'); // Token contract address
     
     // Parse chain IDs from 'chains' parameter
     // Supports both numeric IDs (1, 56) and string IDs (solana-mainnet-beta, cosmoshub-4)
@@ -99,7 +101,7 @@ export async function GET(req: NextRequest) {
     const limit = limitParam ? parseInt(limitParam, 10) : undefined;
     
     // Handle request
-    return await handleTokenRequest({ chainIds, query, limit });
+    return await handleTokenRequest({ chainIds, query, limit, address: addressParam || undefined });
   } catch (error: any) {
     console.error('[API] /api/v1/tokens GET error:', error);
     
@@ -131,11 +133,14 @@ export async function POST(req: NextRequest) {
     
     // Normalize query/term
     const query = body.query || '';
+    // Note: address can be passed in body as well (for POST requests)
+    const address = (body as any).address;
     
     return await handleTokenRequest({
       chainIds: body.chainIds,
-        query,
+      query,
       limit: body.limit,
+      address,
     });
   } catch (error: any) {
     console.error('[API] /api/v1/tokens POST error:', error);
@@ -164,8 +169,9 @@ async function handleTokenRequest(params: {
   chainIds?: number[];
   query?: string;
   limit?: number;
+  address?: string;
 }): Promise<NextResponse<TokensAPIResponse>> {
-  const { chainIds, query = '', limit } = params;
+  const { chainIds, query = '', limit, address } = params;
   const tokenService = getTokenService();
   
   // Default limit: 30 if not specified
@@ -173,9 +179,21 @@ async function handleTokenRequest(params: {
   
   let tokens: Awaited<ReturnType<typeof tokenService.getAllTokens>>;
   
-  // Determine which method to call
-  if (query) {
-    // Search tokens
+  // Priority 1: If address is provided, search by address (most specific)
+  if (address && address.trim()) {
+    // Search by address - use address as query, filter by chainIds if provided
+    if (chainIds && chainIds.length > 0) {
+      tokens = await tokenService.searchTokens(address.trim(), undefined, chainIds, effectiveLimit);
+    } else {
+      // Search across all chains
+      tokens = await tokenService.searchTokens(address.trim(), undefined, undefined, effectiveLimit);
+    }
+    // Filter to exact address match (case-insensitive)
+    tokens = tokens.filter(token => 
+      token.address.toLowerCase() === address.trim().toLowerCase()
+    );
+  } else if (query) {
+    // Priority 2: Search tokens by query
     if (chainIds && chainIds.length > 0) {
       // Search in specific chains (pass limit for multi-chain mixing)
       tokens = await tokenService.searchTokens(query, undefined, chainIds, effectiveLimit);
@@ -184,7 +202,7 @@ async function handleTokenRequest(params: {
       tokens = await tokenService.searchTokens(query, undefined, undefined, effectiveLimit);
     }
   } else if (chainIds && chainIds.length > 0) {
-    // Get tokens for specific chains
+    // Priority 3: Get tokens for specific chains
     if (chainIds.length === 1) {
       tokens = await tokenService.getTokensByChain(chainIds[0], effectiveLimit);
     } else {
@@ -192,7 +210,7 @@ async function handleTokenRequest(params: {
       tokens = await tokenService.getTokensByChains(chainIds, effectiveLimit);
     }
   } else {
-    // Get all tokens (with limit)
+    // Priority 4: Get all tokens (with limit)
     tokens = await tokenService.getAllTokens(effectiveLimit);
   }
   
@@ -201,7 +219,7 @@ async function handleTokenRequest(params: {
     tokens: tokens,
     total: tokens.length,
     chainIds: chainIds || [],
-    query: query || "",
+    query: query || address || "",
     limit: effectiveLimit,
   };
   
