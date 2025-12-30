@@ -1,8 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-import Navbar from "@/components/layout/navbar";
-import StatusBar from "@/components/layout/status-bar";
+import ConditionalLayout from "@/components/layout/conditional-layout";
 import GlobalBackground from "@/components/layout/global-background";
 import { PrefetchProvider } from "@/components/prefetch/prefetch-provider";
 import { WalletProviders } from "@/lib/frontend/providers/wallet-providers";
@@ -44,9 +43,7 @@ export default function RootLayout({
               
               {/* Content Layers - Above background */}
               <div className="relative z-10">
-                <Navbar />
-                <StatusBar />
-                {children}
+                <ConditionalLayout>{children}</ConditionalLayout>
               </div>
             </div>
           </PrefetchProvider>

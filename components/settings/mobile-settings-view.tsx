@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { IoArrowBack, IoChevronDown } from "react-icons/io5";
 import { SettingsView } from "./types";
 import AccountDetails from "./account-details";
@@ -152,32 +152,23 @@ export default function MobileSettingsView({
 
   const activeItem = getActiveItem();
 
-  // Auto-expand active item
-  useEffect(() => {
-    if (activeItem && !expandedItems.includes(activeItem)) {
-      setExpandedItems([activeItem]);
-    }
-  }, [activeItem, expandedItems]);
-
   const isItemExpanded = (label: string) => expandedItems.includes(label);
 
   const handleToggleExpand = (itemLabel: string, itemView: SettingsView) => {
     const isExpanded = isItemExpanded(itemLabel);
-    const isActive = activeItem === itemLabel;
 
-    if (isExpanded && isActive) {
-      // If already expanded and active, collapse
+    if (isExpanded) {
+      // If already expanded, collapse
       setExpandedItems((prev) =>
         prev.filter((label) => label !== itemLabel)
       );
-      onViewChange("main");
+      // If collapsing the active item, reset to main view
+      if (activeItem === itemLabel) {
+        onViewChange("main");
+      }
     } else {
-      // Expand and navigate
-      setExpandedItems((prev) =>
-        prev.includes(itemLabel)
-          ? prev
-          : [...prev.filter((label) => label !== itemLabel), itemLabel]
-      );
+      // Expand and navigate - close all others first
+      setExpandedItems([itemLabel]);
       onViewChange(itemView);
     }
   };
@@ -221,9 +212,9 @@ export default function MobileSettingsView({
                 </button>
 
                 {/* Expanded Content */}
-                {isExpanded && isActive && (
+                {isExpanded && (
                   <div className="mt-2 px-3 pb-4 space-y-4">
-                    {item.label === "Account Details" && currentView === "main" && (
+                    {item.label === "Account Details" && (
                       <>
                         <button
                           onClick={() => {
