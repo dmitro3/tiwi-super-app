@@ -20,6 +20,7 @@ import type { Token } from "@/lib/frontend/types/tokens";
 import { MOCK_TOKENS } from "@/data/mock-tokens";
 import ErrorToast from "@/components/ui/error-toast";
 import { parseRouteError } from "@/lib/shared/utils/error-messages";
+import { useTokenBalance } from "@/hooks/useTokenBalance";
 
 // Default tokens (ensure chainId/address/logo for routing + display)
 const DEFAULT_FROM_TOKEN: Token = {
@@ -70,6 +71,16 @@ export default function SwapPage() {
   const setToAmount = useSwapStore((state) => state.setToAmount);
   const setQuoteLoading = useSwapStore((state) => state.setQuoteLoading);
 
+  // Wallet connection state
+  const {
+    isModalOpen,
+    isToastOpen,
+    connectedAddress,
+    openModal,
+    closeModal,
+    connectWallet,
+    closeToast,
+  } = useWalletConnection();
   // Initialize default tokens on mount (use real chainId/address to avoid quote errors)
   useEffect(() => {
     if (!fromToken) {
@@ -84,6 +95,18 @@ export default function SwapPage() {
     fromToken,
     toToken,
   });
+
+  // Fetch token balances for fromToken and toToken
+  const fromTokenBalance = useTokenBalance(
+    connectedAddress,
+    fromToken?.address,
+    fromToken?.chainId
+  );
+  const toTokenBalance = useTokenBalance(
+    connectedAddress,
+    toToken?.address,
+    toToken?.chainId
+  );
 
   // Token selector modal state (stays local - UI only)
   const [isTokenModalOpen, setIsTokenModalOpen] = useState(false);
@@ -107,16 +130,7 @@ export default function SwapPage() {
     }
   }, [quoteError]);
 
-  // Wallet connection state
-  const {
-    isModalOpen,
-    isToastOpen,
-    connectedAddress,
-    openModal,
-    closeModal,
-    connectWallet,
-    closeToast,
-  } = useWalletConnection();
+  
 
   // ===== Event Handlers =====
   
@@ -158,9 +172,11 @@ export default function SwapPage() {
   };
 
   const handleMaxClick = () => {
-    // TODO: Implement max amount logic
-    // This will call store.setMaxAmount() once balance fetching is implemented
-    console.log("Max clicked");
+    // Set fromAmount to the full token balance from Moralis
+    if (fromTokenBalance && !fromTokenBalance.isLoading && fromTokenBalance.balanceFormatted) {
+      // Use balanceFormatted which is already formatted with proper decimals
+      setFromAmount(fromTokenBalance.balanceFormatted);
+    }
   };
 
   const handleSwapClick = () => {
@@ -219,10 +235,12 @@ export default function SwapPage() {
                 icon: toToken.logo,
                 chainBadge: toToken.chainLogo,
               } : undefined}
-              fromBalance={fromToken?.balance || "0.00"}
+              fromBalance={fromTokenBalance.balanceFormatted || "0.00"}
+              fromBalanceLoading={fromTokenBalance.isLoading}
               fromAmount={fromAmount}
               fromUsdValue={fromUsdValue}
-              toBalance={toToken?.balance || "0.00"}
+              toBalance={toTokenBalance.balanceFormatted || "0.00"}
+              toBalanceLoading={toTokenBalance.isLoading}
               toAmount={toAmount}
               toUsdValue={isQuoteLoading ? "Fetching quote..." : toUsdValue}
               limitPrice={limitPrice}

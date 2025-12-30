@@ -25,10 +25,13 @@ export function PrefetchProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     // Prefetch chains immediately (lightweight, needed first)
+    // Use TanStack Query to prefetch chains (will use same cache as useChains hook)
     const prefetchChains = async () => {
       try {
-        await fetchChains();
-        // Chains are cached by useChains hook, but we ensure they're prefetched
+        await queryClient.prefetchQuery({
+          queryKey: ['chains', { provider: undefined, type: undefined }],
+          queryFn: () => fetchChains(),
+        });
         if (process.env.NODE_ENV === 'development') {
           console.log('[Prefetch] Chains prefetched');
         }

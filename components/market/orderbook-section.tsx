@@ -67,17 +67,26 @@ export default function OrderbookSection() {
           <div className="flex items-center justify-between px-6 lg:px-4 xl:px-5 2xl:px-6 py-4 lg:py-3 xl:py-3.5 2xl:py-4">
             <div className="flex gap-2 items-center">
               <button className="w-6 h-6 cursor-pointer hover:opacity-80 transition-opacity">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <rect x="3" y="3" width="7" height="7" stroke="#b5b5b5" strokeWidth="2"/>
-                  <rect x="14" y="3" width="7" height="7" stroke="#b5b5b5" strokeWidth="2"/>
-                  <rect x="3" y="14" width="7" height="7" stroke="#b5b5b5" strokeWidth="2"/>
-                  <rect x="14" y="14" width="7" height="7" stroke="#b5b5b5" strokeWidth="2"/>
-                </svg>
+              <span className="size-6">
+                    <Image
+                        src="/assets/icons/market/dashboard-square-01.svg"
+                        alt="Dropdown"
+                        width={24}
+                        height={24}
+                        className="w-full h-full object-contain"
+                      />
+                  </span>
               </button>
               <button className="w-6 h-6 cursor-pointer hover:opacity-80 transition-opacity">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <rect x="3" y="3" width="18" height="18" stroke="#b5b5b5" strokeWidth="2"/>
-                </svg>
+              <span className="size-6">
+                    <Image
+                        src="/assets/icons/market/dashboard-square-02.svg"
+                        alt="Dropdown"
+                        width={24}
+                        height={24}
+                        className="w-full h-full object-contain"
+                      />
+                  </span>
               </button>
             </div>
             <div className="bg-[#1f261e] flex items-center justify-between px-4 lg:px-3 xl:px-3.5 2xl:px-4 py-1 rounded-lg w-[72px] lg:w-[52px] xl:w-[58px] 2xl:w-[72px]">
@@ -85,7 +94,7 @@ export default function OrderbookSection() {
                 {depthLevel}
               </span>
               <Image
-                src="/assets/icons/arrow-down.svg"
+                src="/assets/icons/market/Vector.svg"
                 alt="Depth selector"
                 width={12}
                 height={6}

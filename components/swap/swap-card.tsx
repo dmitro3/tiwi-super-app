@@ -21,7 +21,9 @@ interface SwapCardProps {
   fromToken?: Token;
   toToken?: Token;
   fromBalance?: string;
+  fromBalanceLoading?: boolean;
   toBalance?: string;
+  toBalanceLoading?: boolean;
   fromAmount?: string;
   toAmount?: string;
   fromUsdValue?: string;
@@ -47,7 +49,9 @@ export default function SwapCard({
   fromToken,
   toToken,
   fromBalance = "0.00",
+  fromBalanceLoading = false,
   toBalance = "0.00",
+  toBalanceLoading = false,
   fromAmount = "",
   toAmount = "",
   fromUsdValue = "$0",
@@ -97,6 +101,7 @@ export default function SwapCard({
               type="from"
               token={fromToken}
               balance={fromBalance}
+              balanceLoading={fromBalanceLoading}
               amount={fromAmount}
               usdValue={fromUsdValue}
               onTokenSelect={onFromTokenSelect}
@@ -127,6 +132,7 @@ export default function SwapCard({
               type="to"
               token={toToken}
               balance={toBalance}
+              balanceLoading={toBalanceLoading}
               amount={toAmount}
               usdValue={toUsdValue}
               onTokenSelect={onToTokenSelect}

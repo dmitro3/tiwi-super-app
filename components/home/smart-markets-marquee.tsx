@@ -45,7 +45,7 @@ export function SmartMarketsMarquee() {
     ? [...markets, ...markets, ...markets]
     : [];
 
-  // Loading state - show placeholder or nothing
+  // Loading state - show skeleton loader
   if (isLoading || markets.length === 0) {
     return (
       <div className="w-full flex flex-col gap-2">
@@ -53,15 +53,35 @@ export function SmartMarketsMarquee() {
           <p className="text-white text-base font-semibold">Smart Markets</p>
         </div>
         <div className="flex flex-col gap-2 items-start w-full min-h-[84px]">
-          {/* Placeholder rows */}
+          {/* Skeleton rows */}
           <div className="overflow-hidden w-full">
             <div className="flex gap-2 items-center w-max">
-              <div className="border border-[#1f261e] flex items-center overflow-hidden pl-4 pr-4 py-2.5 rounded-full shrink-0 opacity-50">
-                <div className="flex gap-2 items-center shrink-0">
-                  <div className="relative rounded-full w-5 h-5 shrink-0 bg-[#1f261e]" />
-                  <p className="text-white text-sm font-medium">Loading...</p>
+              {[1, 2, 3, 4].map((i) => (
+                <div
+                  key={`skeleton-top-${i}`}
+                  className="border border-[#1f261e] flex items-center overflow-hidden pl-4 pr-4 py-2.5 rounded-full shrink-0"
+                >
+                  <div className="flex gap-2 items-center shrink-0">
+                    <div className="w-5 h-5 rounded-full bg-[#1f261e] animate-shimmer" />
+                    <div className="h-4 w-16 bg-[#1f261e] rounded animate-shimmer" />
+                  </div>
                 </div>
-              </div>
+              ))}
+            </div>
+          </div>
+          <div className="overflow-hidden w-full">
+            <div className="flex gap-2 items-center w-max">
+              {[1, 2, 3, 4].map((i) => (
+                <div
+                  key={`skeleton-bottom-${i}`}
+                  className="border border-[#1f261e] flex items-center overflow-hidden pl-4 pr-4 py-2.5 rounded-full shrink-0"
+                >
+                  <div className="flex gap-2 items-center shrink-0">
+                    <div className="w-5 h-5 rounded-full bg-[#1f261e] animate-shimmer" />
+                    <div className="h-4 w-16 bg-[#1f261e] rounded animate-shimmer" />
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         </div>

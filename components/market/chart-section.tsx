@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useRef } from "react";
 import Script from "next/script";
+import Image from "next/image";
+import OverviewSection from "./overview-section";
 
 interface ChartSectionProps {
   pair: string; // e.g., "BTC/USDT"
@@ -110,7 +112,7 @@ export default function ChartSection({ pair }: ChartSectionProps) {
   return (
     <div className="flex flex-col h-[599px] lg:h-[435px] xl:h-[490px] 2xl:h-[599px] lg:min-h-[435px] xl:min-h-[490px] 2xl:min-h-[599px]">
       {/* Tabs and Time Period Selector - Allow overflow and scroll */}
-      <div className="border-b-[0.5px] border-[#1f261e] flex h-[33px] lg:h-[28px] xl:h-[30px] 2xl:h-[33px] items-center justify-between px-10 lg:px-7 xl:px-8 2xl:px-10 pt-4 lg:pt-3 xl:pt-3.5 2xl:pt-4 overflow-x-auto scrollbar-hide">
+      <div className="border-b-[0.5px] border-[#1f261e] flex  items-center justify-between px-10 lg:px-7 xl:px-8 2xl:px-10 2xl:pt-4 overflow-x-auto scrollbar-hide">
         {/* Chart/Overview Tabs */}
         <div className="flex gap-6 lg:gap-4 xl:gap-5 2xl:gap-6 items-start shrink-0">
           <button
@@ -153,13 +155,17 @@ export default function ChartSection({ pair }: ChartSectionProps) {
                   : "text-[#b5b5b5] font-medium"
               }`}
             >
-              <span className="text-base lg:text-xs xl:text-sm 2xl:text-base leading-4 whitespace-nowrap">
+              <span className="text-base lg:text-xs xl:text-sm 2xl:text-base leading-4 whitespace-nowrap items-center flex">
                 {period}
                 {period === "More" && (
-                  <span className="ml-0.5 xl:ml-0.5 2xl:ml-0.5 inline-block">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" className="rotate-180">
-                      <path d="M19 9L12 16L5 9" stroke="#b5b5b5" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                    </svg>
+                  <span className="ml-0.5 xl:ml-0.5 2xl:ml-0.5 inline-block size-4">
+                    <Image
+                        src="/assets/icons/arrow-down-01.svg"
+                        alt="Dropdown"
+                        width={12}
+                        height={12}
+                        className="w-full h-full object-contain"
+                      />
                   </span>
                 )}
               </span>
@@ -169,7 +175,7 @@ export default function ChartSection({ pair }: ChartSectionProps) {
       </div>
 
       {/* Chart Container */}
-      <div className="flex-1 min-h-0 relative border-b border-[#1f261e]">
+      <div className="flex-1 min-h-0 relative border-b border-[#1f261e] mt-2 lg:mt-1.5 xl:mt-1.5 2xl:mt-2">
         {activeTab === "Chart" ? (
           <>
             {/* TradingView Script */}
@@ -197,9 +203,7 @@ export default function ChartSection({ pair }: ChartSectionProps) {
             )}
           </>
         ) : (
-          <div className="w-full h-full flex items-center justify-center bg-[#0b0f0a]">
-            <div className="text-[#7c7c7c] text-sm">Overview content coming soon...</div>
-          </div>
+          <OverviewSection pair={pair} />
         )}
       </div>
     </div>

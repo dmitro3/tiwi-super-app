@@ -15,6 +15,7 @@ import OrderbookSkeleton from "@/components/market/skeletons/orderbook-skeleton"
 import TradingFormSkeleton from "@/components/market/skeletons/trading-form-skeleton";
 import OrdersTableSkeleton from "@/components/market/skeletons/orders-table-skeleton";
 import { getTokenByPair, getTokenStats } from "@/lib/market/trading-mock-data";
+import Image from "next/image";
 
 /**
  * Trading Page - Market Spot/Perp Active Trade with Chart
@@ -33,7 +34,7 @@ import { getTokenByPair, getTokenStats } from "@/lib/market/trading-mock-data";
 export default function TradingPage() {
   const params = useParams();
   const pair = params.pair as string;
-  
+
   const [activeMarketTab, setActiveMarketTab] = useState<"Spot" | "Perp">("Spot");
   const [tokenData, setTokenData] = useState<any>(null);
   const [tokenStats, setTokenStats] = useState<any>(null);
@@ -59,7 +60,7 @@ export default function TradingPage() {
     if (statusBar) {
       statusBar.style.display = 'none';
     }
-    
+
     return () => {
       // Show StatusBar when leaving this page
       const statusBar = document.querySelector('.status-bar') as HTMLElement | null;
@@ -71,7 +72,7 @@ export default function TradingPage() {
 
   return (
     <div className="min-h-screen bg-[#010501] w-full">
-        <div className="mx-auto max-w-[1728px] w-full">
+      <div className="mx-auto max-w-[1728px] w-full">
         {/* Desktop Layout */}
         <div className="hidden lg:flex flex-row gap-0">
           {/* LEFT SECTION - Main Content (1348px base, scaled for smaller screens) */}
@@ -94,7 +95,7 @@ export default function TradingPage() {
             ) : tokenData && tokenStats ? (
               <>
                 {/* Token Header */}
-                <TokenHeader 
+                <TokenHeader
                   token={tokenData}
                   stats={tokenStats}
                 />
@@ -157,9 +158,8 @@ export default function TradingPage() {
                     onClick={() => setActiveMarketTab("Spot")}
                     className="flex flex-col gap-4 lg:gap-3 xl:gap-3.5 2xl:gap-4 items-center cursor-pointer"
                   >
-                    <span className={`text-lg lg:text-sm xl:text-base 2xl:text-lg font-semibold leading-normal text-center whitespace-nowrap ${
-                      activeMarketTab === "Spot" ? "text-[#b1f128]" : "text-[#b5b5b5]"
-                    }`}>
+                    <span className={`text-lg lg:text-sm xl:text-base 2xl:text-lg font-semibold leading-normal text-center whitespace-nowrap ${activeMarketTab === "Spot" ? "text-[#b1f128]" : "text-[#b5b5b5]"
+                      }`}>
                       Spot
                     </span>
                     {activeMarketTab === "Spot" && (
@@ -170,9 +170,8 @@ export default function TradingPage() {
                     onClick={() => setActiveMarketTab("Perp")}
                     className="flex flex-col gap-4 lg:gap-3 xl:gap-3.5 2xl:gap-4 items-center cursor-pointer"
                   >
-                    <span className={`text-lg lg:text-sm xl:text-base 2xl:text-lg font-medium leading-normal text-center whitespace-nowrap ${
-                      activeMarketTab === "Perp" ? "text-[#b1f128]" : "text-[#b5b5b5]"
-                    }`}>
+                    <span className={`text-lg lg:text-sm xl:text-base 2xl:text-lg font-medium leading-normal text-center whitespace-nowrap ${activeMarketTab === "Perp" ? "text-[#b1f128]" : "text-[#b5b5b5]"
+                      }`}>
                       Perp
                     </span>
                     {activeMarketTab === "Perp" && (
@@ -190,8 +189,15 @@ export default function TradingPage() {
 
             {/* Stake Card */}
             {!isLoading && (
-              <div className="px-6 lg:px-4 xl:px-5 2xl:px-6 pt-6 lg:pt-4 xl:pt-5 2xl:pt-6">
-                <StakeCard />
+              <div className="px-6 lg:px-4 xl:px-5 2xl:px-6 pt-6 lg:pt-4 xl:pt-5 2xl:pt-6 border-b pb-6 border-[#1F261E]">
+                <Image
+                  src="/assets/icons/home/claim-reward.svg"
+                  alt="Stake to earn $TWC"
+                  width={310}
+                  height={96}
+                  className="w-full h-auto object-contain"
+                  priority
+                />
               </div>
             )}
           </aside>

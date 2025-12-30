@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import { Input } from "@/components/ui/input";
+import BalanceSkeleton from "@/components/ui/balance-skeleton";
 
 interface TokenInputProps {
   type: "from" | "to";
@@ -12,6 +13,7 @@ interface TokenInputProps {
     chainBadge?: string;
   };
   balance?: string;
+  balanceLoading?: boolean;
   amount?: string;
   usdValue?: string;
   onTokenSelect?: () => void;
@@ -25,6 +27,7 @@ export default function TokenInput({
   type,
   token,
   balance = "0.00",
+  balanceLoading = false,
   amount = "",
   usdValue = "$0",
   onTokenSelect,
@@ -108,43 +111,55 @@ export default function TokenInput({
         <div className="flex flex-col items-end justify-center min-w-0 flex-1 max-w-full">
           {isFrom && (
             <div className="flex items-center gap-1.5 sm:gap-2 mb-1.5 sm:mb-2 w-full justify-end min-w-0">
-              <div className="flex items-center gap-0.5 min-w-0 shrink">
-                <Image
-                  src="/assets/icons/wallet.svg"
-                  alt="Wallet"
-                  width={16}
-                  height={16}
-                  className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0"
-                />
-                <span className="text-[#b5b5b5] font-medium text-xs sm:text-sm text-right min-w-0 flex items-center gap-1">
-                  <span className="truncate inline-block max-w-[60px] sm:max-w-[100px] md:max-w-[130px]">
-                    {balance}
-                  </span>
-                  {token?.symbol && (
-                    <span className="whitespace-nowrap shrink-0">{token.symbol}</span>
-                  )}
-                </span>
-              </div>
-              <button
-                onClick={onMaxClick}
-                className="bg-[#1f261e] text-[#b1f128] font-medium text-xs sm:text-sm px-2 sm:px-4 py-1 sm:py-1.5 rounded-full hover:bg-[#2a3229] transition-colors cursor-pointer shrink-0"
-              >
-                Max
-              </button>
+              {balanceLoading ? (
+                <BalanceSkeleton showIcon showMaxButton />
+              ) : (
+                <>
+                  <div className="flex items-center gap-0.5 min-w-0 shrink">
+                    <Image
+                      src="/assets/icons/wallet.svg"
+                      alt="Wallet"
+                      width={16}
+                      height={16}
+                      className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0"
+                    />
+                    <span className="text-[#b5b5b5] font-medium text-xs sm:text-sm text-right min-w-0 flex items-center gap-1">
+                      <span className="truncate inline-block max-w-[60px] sm:max-w-[100px] md:max-w-[130px]">
+                        {balance}
+                      </span>
+                      {token?.symbol && (
+                        <span className="whitespace-nowrap shrink-0">{token.symbol}</span>
+                      )}
+                    </span>
+                  </div>
+                  <button
+                    onClick={onMaxClick}
+                    className="bg-[#1f261e] text-[#b1f128] font-medium text-xs sm:text-sm px-2 sm:px-4 py-1 sm:py-1.5 rounded-full hover:bg-[#2a3229] transition-colors cursor-pointer shrink-0"
+                  >
+                    Max
+                  </button>
+                </>
+              )}
             </div>
           )}
           {!isFrom && (
             <div className="flex items-center gap-0.5 h-7 sm:h-8 mb-1.5 sm:mb-2 w-full justify-end">
-              <Image
-                src="/assets/icons/wallet.svg"
-                alt="Wallet"
-                width={16}
-                height={16}
-                className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0"
-              />
-              <span className="text-[#b5b5b5] font-medium text-xs sm:text-sm text-right truncate max-w-[120px] sm:max-w-[160px]">
-                {balance}
-              </span>
+              {balanceLoading ? (
+                <BalanceSkeleton showIcon={false} />
+              ) : (
+                <>
+                  <Image
+                    src="/assets/icons/wallet.svg"
+                    alt="Wallet"
+                    width={16}
+                    height={16}
+                    className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0"
+                  />
+                  <span className="text-[#b5b5b5] font-medium text-xs sm:text-sm text-right truncate max-w-[120px] sm:max-w-[160px]">
+                    {balance}
+                  </span>
+                </>
+              )}
             </div>
           )}
           <Input

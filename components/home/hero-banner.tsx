@@ -18,6 +18,7 @@ export function HeroBanner() {
   const [banners, setBanners] = useState<HomeBanner[]>([]);
   const [activeIndex, setActiveIndex] = useState(0);
   const [isMobile, setIsMobile] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const touchStartXRef = useRef<number | null>(null);
 
   // Detect mobile screen size
@@ -34,11 +35,20 @@ export function HeroBanner() {
   // Fetch banners (simulating backend served adverts)
   useEffect(() => {
     let mounted = true;
+    setIsLoading(true);
     (async () => {
-      const data = await fetchHomeBanners();
-      if (mounted) {
-        // Ensure deterministic order
-        setBanners(data.sort((a, b) => a.order - b.order));
+      try {
+        const data = await fetchHomeBanners();
+        if (mounted) {
+          // Ensure deterministic order
+          setBanners(data.sort((a, b) => a.order - b.order));
+          setIsLoading(false);
+        }
+      } catch (error) {
+        console.error("[HeroBanner] Error fetching banners:", error);
+        if (mounted) {
+          setIsLoading(false);
+        }
       }
     })();
     return () => {
@@ -80,9 +90,21 @@ export function HeroBanner() {
     touchStartXRef.current = null;
   };
 
-  if (!banners.length) {
-    // While loading, keep the space reserved
-    return <div className="w-full h-[114px] lg:h-[140px] xl:h-[160px] 2xl:h-[180px] rounded-2xl bg-[#0b0f0a]" />;
+  if (isLoading || !banners.length) {
+    // Show skeleton loader while loading
+    return (
+      <div className="w-full flex flex-col">
+        <div className="w-full h-[114px] lg:h-[140px] xl:h-[160px] 2xl:h-[180px] rounded-2xl overflow-hidden">
+          <div className="w-full h-full bg-[#0b0f0a] animate-shimmer rounded-2xl" />
+        </div>
+        {/* Skeleton pagination */}
+        <div className="mt-2 flex items-center justify-center gap-1.5">
+          <div className="h-1 w-6 rounded-full bg-[#1F261E] animate-pulse" />
+          <div className="h-1 w-6 rounded-full bg-[#1F261E] animate-pulse" />
+          <div className="h-1 w-6 rounded-full bg-[#1F261E] animate-pulse" />
+        </div>
+      </div>
+    );
   }
 
   const current = banners[activeIndex];

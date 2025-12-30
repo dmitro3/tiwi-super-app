@@ -1,9 +1,10 @@
 "use client";
 
 import Image from "next/image";
+import { useChains } from "@/hooks/useChains";
+import Skeleton from "@/components/ui/skeleton";
 
 interface StatusBarProps {
-  activeChainsCount?: number;
   smartMarketsCount?: number;
   twcPrice?: string;
   twcChange?: string;
@@ -11,12 +12,13 @@ interface StatusBarProps {
 }
 
 export default function StatusBar({
-  activeChainsCount = 50,
   smartMarketsCount = 20,
   twcPrice = "$0.095",
   twcChange = "-12.1%",
   twcChangeType = "negative",
 }: StatusBarProps) {
+  const { chains, isLoading: isLoadingChains } = useChains();
+  const activeChainsCount = chains.length;
   const chainIcons = [1, 2, 3, 4, 5, 6, 7, 8, 9];
   const ammIcons = [1, 2, 3, 4, 5, 6, 7];
 
@@ -24,9 +26,13 @@ export default function StatusBar({
   const StatusContent = ({ prefix = "" }: { prefix?: string }) => (
     <div className="flex items-center gap-3 px-4 py-3 shrink-0">
       <div className="flex items-center gap-1">
-        <span className="text-white font-semibold text-base">
-          {activeChainsCount}+
-        </span>
+        {isLoadingChains ? (
+          <Skeleton className="h-5 w-12" />
+        ) : (
+          <span className="text-white font-semibold text-base">
+            {activeChainsCount}+
+          </span>
+        )}
         <span className="text-[#b5b5b5] font-medium text-sm">Active Chains</span>
       </div>
       <div className="h-10 w-px bg-[#1f261e]"></div>
@@ -93,9 +99,13 @@ export default function StatusBar({
             {/* Active Chains */}
             <div className="flex items-center gap-1.5 sm:gap-2 md:gap-3 lg:gap-4 flex-wrap">
               <div className="flex items-center gap-0.5 sm:gap-1">
-                <span className="text-white font-semibold text-base sm:text-lg">
-                  {activeChainsCount}+
-                </span>
+                {isLoadingChains ? (
+                  <Skeleton className="h-5 sm:h-6 w-12" />
+                ) : (
+                  <span className="text-white font-semibold text-base sm:text-lg">
+                    {activeChainsCount}+
+                  </span>
+                )}
                 <span className="text-[#b5b5b5] font-medium text-sm sm:text-base">
                   Active Chains
                 </span>

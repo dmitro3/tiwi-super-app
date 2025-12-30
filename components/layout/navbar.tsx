@@ -17,6 +17,7 @@ import type { WalletProvider } from "@/lib/wallet/detection/types";
 import type { WalletConnectWallet } from "@/lib/wallet/services/wallet-explorer-service";
 import { getWalletById } from "@/lib/wallet/detection/detector";
 import { getWalletIconUrl } from "@/lib/wallet/services/wallet-explorer-service";
+import WalletBalancePanel from "@/components/wallet/wallet-balance-panel";
 
 interface NavItem {
   label: string;
@@ -36,7 +37,7 @@ export default function Navbar() {
   const pathname = usePathname();
   const router = useRouter();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [isWalletMenuOpen, setIsWalletMenuOpen] = useState(false);
+  const [isWalletPanelOpen, setIsWalletPanelOpen] = useState(false);
   const {
     isModalOpen,
     isExplorerOpen,
@@ -100,13 +101,17 @@ export default function Navbar() {
     return '/assets/icons/wallet/wallet-04.svg';
   };
 
-  const handleWalletMenuToggle = () => {
-    setIsWalletMenuOpen(!isWalletMenuOpen);
+  const handleWalletPanelToggle = () => {
+    setIsWalletPanelOpen(!isWalletPanelOpen);
+  };
+
+  const handleCloseWalletPanel = () => {
+    setIsWalletPanelOpen(false);
   };
 
   const handleDisconnect = async () => {
     await wallet.disconnect();
-    setIsWalletMenuOpen(false);
+    setIsWalletPanelOpen(false);
   };
 
   return (
@@ -185,50 +190,36 @@ export default function Navbar() {
                 </button>
                 
                 {/* Wallet Address Button with Icon Inside */}
-                <div className="relative">
-                  <button
-                    onClick={handleWalletMenuToggle}
-                    className="bg-[#081f02] flex gap-2.5 items-center justify-center pl-2 pr-4 py-2 rounded-full hover:opacity-90 transition-opacity cursor-pointer"
-                    aria-label="Wallet menu"
-                  >
-                    <div className="relative size-8">
-                      <Image
-                        src={getWalletIcon()}
-                        alt="Wallet"
-                        width={32}
-                        height={32}
-                        className="w-full h-full object-contain rounded-full"
-                        onError={(e) => {
-                          e.currentTarget.src = '/assets/icons/wallet/wallet-04.svg';
-                        }}
-                      />
-                    </div>
-                    <p className="font-semibold text-lg text-white tracking-[0.018px]">
-                      {formatWalletAddress(connectedAddress)}
-                    </p>
-                    <div className="relative size-6">
-                      <Image
-                        src="/assets/icons/arrow-down-01.svg"
-                        alt="Dropdown"
-                        width={24}
-                        height={24}
-                        className="w-full h-full object-contain"
-                      />
-                    </div>
-                  </button>
-                  
-                  {/* Wallet Dropdown Menu */}
-                  {isWalletMenuOpen && (
-                    <div className="absolute right-0 top-full mt-2 bg-[#0b0f0a] border border-[#1f261e] rounded-xl p-2 min-w-[200px] z-50">
-                      <button
-                        onClick={handleDisconnect}
-                        className="w-full text-left px-4 py-2 text-white hover:bg-[#121712] rounded-lg transition-colors"
-                      >
-                        Disconnect
-                      </button>
-                    </div>
-                  )}
-                </div>
+                <button
+                  onClick={handleWalletPanelToggle}
+                  className="bg-[#081f02] flex gap-2.5 items-center justify-center pl-2 pr-4 py-2 rounded-full hover:opacity-90 transition-opacity cursor-pointer"
+                  aria-label="Wallet menu"
+                >
+                  <div className="relative size-8">
+                    <Image
+                      src={getWalletIcon()}
+                      alt="Wallet"
+                      width={32}
+                      height={32}
+                      className="w-full h-full object-contain rounded-full"
+                      onError={(e) => {
+                        e.currentTarget.src = '/assets/icons/wallet/wallet-04.svg';
+                      }}
+                    />
+                  </div>
+                  <p className="font-semibold text-lg text-white tracking-[0.018px]">
+                    {formatWalletAddress(connectedAddress)}
+                  </p>
+                  <div className="relative size-6">
+                    <Image
+                      src="/assets/icons/arrow-down-01.svg"
+                      alt="Dropdown"
+                      width={24}
+                      height={24}
+                      className="w-full h-full object-contain"
+                    />
+                  </div>
+                </button>
               </>
             ) : (
               <>
@@ -260,38 +251,24 @@ export default function Navbar() {
             {wallet.isConnected && connectedAddress ? (
               <>
                 {/* Wallet Address Button */}
-                <div className="relative">
-                  <button
-                    onClick={handleWalletMenuToggle}
-                    className="bg-[#0b0f0a] flex gap-2.5 items-center px-4 py-1.5 rounded-full hover:opacity-90 transition-opacity cursor-pointer"
-                    aria-label="Wallet menu"
-                  >
-                    <p className="font-medium text-sm text-[#b5b5b5]">
-                      {formatWalletAddress(connectedAddress)}
-                    </p>
-                    <div className="relative size-4">
-                      <Image
-                        src="/assets/icons/arrow-down-01-mobile.svg"
-                        alt="Dropdown"
-                        width={16}
-                        height={16}
-                        className="w-full h-full object-contain"
-                      />
-                    </div>
-                  </button>
-                  
-                  {/* Wallet Dropdown Menu */}
-                  {isWalletMenuOpen && (
-                    <div className="absolute right-0 top-full mt-2 bg-[#0b0f0a] border border-[#1f261e] rounded-xl p-2 min-w-[200px] z-50">
-                      <button
-                        onClick={handleDisconnect}
-                        className="w-full text-left px-4 py-2 text-white hover:bg-[#121712] rounded-lg transition-colors"
-                      >
-                        Disconnect
-                      </button>
-                    </div>
-                  )}
-                </div>
+                <button
+                  onClick={handleWalletPanelToggle}
+                  className="bg-[#0b0f0a] flex gap-2.5 items-center px-4 py-1.5 rounded-full hover:opacity-90 transition-opacity cursor-pointer"
+                  aria-label="Wallet menu"
+                >
+                  <p className="font-medium text-sm text-[#b5b5b5]">
+                    {formatWalletAddress(connectedAddress)}
+                  </p>
+                  <div className="relative size-4">
+                    <Image
+                      src="/assets/icons/arrow-down-01-mobile.svg"
+                      alt="Dropdown"
+                      width={16}
+                      height={16}
+                      className="w-full h-full object-contain"
+                    />
+                  </div>
+                </button>
                 
                 {/* Hamburger Menu */}
                 <button
@@ -397,11 +374,14 @@ export default function Navbar() {
         onClose={handleCloseMenu}
       />
       
-      {/* Click outside to close wallet menu */}
-      {isWalletMenuOpen && (
-        <div
-          className="fixed inset-0 z-40"
-          onClick={() => setIsWalletMenuOpen(false)}
+      {/* Wallet Balance Panel */}
+      {connectedAddress && (
+        <WalletBalancePanel
+          isOpen={isWalletPanelOpen}
+          onClose={handleCloseWalletPanel}
+          walletAddress={connectedAddress}
+          walletIcon={getWalletIcon()}
+          onDisconnect={handleDisconnect}
         />
       )}
     </nav>

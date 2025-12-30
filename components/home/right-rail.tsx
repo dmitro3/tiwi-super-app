@@ -18,7 +18,7 @@ export function RightRail() {
   );
 }
 
-function StakeCard() {
+export function StakeCard() {
   return (
     <div className="w-full rounded-2xl overflow-hidden px-4 lg:px-5 xl:px-5 2xl:px-6 py-4">
       <Image

@@ -85,10 +85,10 @@ export function MobileStatsGrid() {
             {/* Chain Icons with Marquee */}
             <div className="overflow-hidden w-full h-6 relative">
               {isLoadingChains ? (
-                <div className="flex items-center gap-2">
-                  <div className="w-6 h-6 rounded-full bg-[#1f261e] animate-pulse" />
-                  <div className="w-6 h-6 rounded-full bg-[#1f261e] animate-pulse" />
-                  <div className="w-6 h-6 rounded-full bg-[#1f261e] animate-pulse" />
+                <div className="flex items-center gap-2 animate-marquee whitespace-nowrap">
+                  {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((i) => (
+                    <div key={`skeleton-chain-${i}`} className="w-6 h-6 rounded-full bg-[#1f261e] animate-shimmer shrink-0" />
+                  ))}
                 </div>
               ) : duplicatedChains.length > 0 ? (
                 <div className="flex items-center gap-2 animate-marquee whitespace-nowrap">
@@ -111,10 +111,19 @@ export function MobileStatsGrid() {
               )}
             </div>
             <div className="flex flex-col gap-0.5 items-start leading-normal px-3 py-0 shrink-0">
-              <p className="text-white text-lg font-semibold">
-                {chains.length > 0 ? `${chains.length}+` : "50+"}
-              </p>
-              <p className="text-[#b5b5b5] text-xs font-medium">Active Chains</p>
+              {isLoadingChains ? (
+                <>
+                  <div className="h-5 w-12 bg-[#1f261e] rounded animate-shimmer" />
+                  <div className="h-3 w-20 bg-[#1f261e] rounded animate-shimmer" />
+                </>
+              ) : (
+                <>
+                  <p className="text-white text-lg font-semibold">
+                    {chains.length > 0 ? `${chains.length}+` : "50+"}
+                  </p>
+                  <p className="text-[#b5b5b5] text-xs font-medium">Active Chains</p>
+                </>
+              )}
             </div>
           </div>
         </div>

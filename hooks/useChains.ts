@@ -1,11 +1,11 @@
 /**
- * useChains Hook
+ * useChains Hook (TanStack Query)
  * 
- * Fetches chains from the backend API.
- * Uses in-memory cache to avoid refetching (chains are stable data).
+ * Fetches chains from the backend API using TanStack Query.
+ * Provides automatic caching, request deduplication, and background refetching.
  */
 
-import { useEffect, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { fetchChains, type FetchChainsParams } from '@/lib/frontend/api/chains';
 import type { Chain } from '@/lib/frontend/types/tokens';
 
@@ -16,52 +16,36 @@ export interface UseChainsReturn {
 }
 
 /**
- * Hook to fetch chains from backend API
+ * Generate query key for chains queries
+ */
+function getChainsQueryKey(params: FetchChainsParams = {}): readonly unknown[] {
+  const { provider, type } = params;
+  return ['chains', { provider, type }] as const;
+}
+
+/**
+ * Hook to fetch chains from backend API using TanStack Query
  * 
  * @param params - Optional filter parameters (provider, type)
  * @returns Chains, loading state, and error
  */
 export function useChains(params: FetchChainsParams = {}): UseChainsReturn {
-  const [chains, setChains] = useState<Chain[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<Error | null>(null);
+  const {
+    data: chains = [],
+    isLoading,
+    error,
+  } = useQuery({
+    queryKey: getChainsQueryKey(params),
+    queryFn: () => fetchChains(params),
+    staleTime: 10 * 60 * 1000, // 10 minutes - chains are stable data
+    gcTime: 30 * 60 * 1000, // 30 minutes - keep in cache for 30min
+    retry: 2,
+    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
+  });
 
-  useEffect(() => {
-    let isCancelled = false;
-
-    const loadChains = async () => {
-      setIsLoading(true);
-      setError(null);
-
-      try {
-        const fetchedChains = await fetchChains(params);
-        
-        if (!isCancelled) {
-          setChains(fetchedChains);
-          setIsLoading(false);
-        }
-      } catch (err) {
-        if (!isCancelled) {
-          const error = err instanceof Error ? err : new Error('Failed to fetch chains');
-          setError(error);
-          setChains([]);
-          setIsLoading(false);
-        }
-      }
-    };
-
-    loadChains();
-
-    // Cleanup: cancel request if component unmounts or params change
-    return () => {
-      isCancelled = false;
-    };
-  }, [
-    // Dependencies: refetch when params change
-    params.provider,
-    params.type,
-  ]);
-
-  return { chains, isLoading, error };
+  return {
+    chains,
+    isLoading,
+    error: error ? (error instanceof Error ? error : new Error('Failed to fetch chains')) : null,
+  };
 }
-

@@ -73,8 +73,17 @@ export const MOCK_RECENT_TRADES: Trade[] = [
   { price: "54,980.1", quantity: "0.001349", total: "5.233458", time: "10:23:38", side: "buy" },
 ];
 
-// Mock orders (empty for now - will show "No Available Data")
-export const MOCK_ORDERS: Order[] = [];
+// Mock orders - add one order to test the design
+export const MOCK_ORDERS: Order[] = [
+  {
+    token: "ZORA/USDT",
+    value: "$5,015.09",
+    quantity: "123.5",
+    margin: "$100",
+    risk: "0.00%",
+    lastPrice: "$0.0259",
+  },
+];
 
 // Mock token stats
 export const getTokenStats = (pair: string): TokenStats => {
