@@ -64,6 +64,10 @@ export default function Navbar() {
     router.push("/settings");
   };
 
+  const handleReferrals = () => {
+    router.push("/referrals");
+  };
+
   const handleMenu = () => {
     if (isMenuOpen) {
       setIsMenuOpen(false);
@@ -159,15 +163,15 @@ export default function Navbar() {
           <div className="hidden md:flex items-center gap-2">
             {wallet.isConnected && connectedAddress ? (
               <>
-                {/* Share Knowledge Icon (Settings) - Green border */}
+                {/* Share Knowledge Icon (Referrals) - Green border */}
                 <button
-                  onClick={handleSettings}
+                  onClick={handleReferrals}
                   className="bg-[#0d3600] border-[3px] border-[#b1f128] p-3 rounded-full hover:opacity-90 transition-opacity cursor-pointer"
-                  aria-label="Settings"
+                  aria-label="Referrals"
                 >
                   <Image
                     src="/assets/icons/share-knowledge.svg"
-                    alt="Settings"
+                    alt="Referrals"
                     width={24}
                     height={24}
                     className="w-6 h-6"
