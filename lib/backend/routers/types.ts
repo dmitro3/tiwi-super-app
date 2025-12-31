@@ -43,6 +43,7 @@ export interface RouterRoute {
     address: string;                    // Canonical token address
     symbol: string;                    // Token symbol
     amount: string;                    // Input amount (human-readable)
+    amountUSD?: string;                 // Input amount in USD (from route or calculated)
     decimals: number;                  // Token decimals
   };
   toToken: {
@@ -50,6 +51,7 @@ export interface RouterRoute {
     address: string;
     symbol: string;
     amount: string;                    // Output amount (human-readable)
+    amountUSD?: string;                 // Output amount in USD (from route or calculated)
     decimals: number;
   };
   
@@ -60,10 +62,11 @@ export interface RouterRoute {
   
   // Cost information
   fees: {
-    protocol: string;                  // Protocol fee in USD
+    protocol: string;                  // Protocol fee in USD (from router)
     gas: string;                       // Gas estimate (native token)
     gasUSD: string;                    // Gas estimate in USD
-    total: string;                     // Total fees in USD
+    tiwiProtocolFeeUSD?: string;       // Tiwi protocol fee (0.25% of fromAmountUSD)
+    total: string;                     // Total fees in USD (includes Tiwi fee)
   };
   
   // Route steps

@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { parseNumber } from "@/lib/shared/utils/number";
 import { fetchRoute } from "@/lib/frontend/api/route";
 import { useSwapStore } from "@/lib/frontend/store/swap-store";
+import { useSettingsStore } from "@/lib/frontend/store/settings-store";
 import type { Token } from "@/lib/frontend/types/tokens";
 
 interface UseSwapQuoteOptions {
@@ -24,9 +25,14 @@ export function useSwapQuote({
   toToken,
   delay = 500,
 }: UseSwapQuoteOptions): void {
+  const setRoute = useSwapStore((state) => state.setRoute);
   const setToAmount = useSwapStore((state) => state.setToAmount);
   const setQuoteLoading = useSwapStore((state) => state.setQuoteLoading);
   const setQuoteError = useSwapStore((state) => state.setQuoteError);
+  
+  // Get user slippage settings
+  const slippageMode = useSettingsStore((state) => state.slippageMode);
+  const slippageTolerance = useSettingsStore((state) => state.slippageTolerance);
   
   // Store latest quote expiration for refresh functionality
   const quoteExpiresAtRef = useRef<number | null>(null);
@@ -40,6 +46,7 @@ export function useSwapQuote({
       setQuoteLoading(false);
       setToAmount("");
       setQuoteError(null);
+      setRoute(null);
       quoteExpiresAtRef.current = null;
       return;
     }
@@ -49,6 +56,7 @@ export function useSwapQuote({
       setQuoteLoading(false);
       setToAmount("");
       setQuoteError(null);
+      setRoute(null);
       return;
     }
 
@@ -64,6 +72,7 @@ export function useSwapQuote({
     setQuoteLoading(true);
     setToAmount("");
     setQuoteError(null);
+    setRoute(null);
 
     const handle = setTimeout(async () => {
       try {
@@ -81,8 +90,8 @@ export function useSwapQuote({
             symbol: toToken.symbol,
           },
           fromAmount: fromAmount,
-          slippage: 0.5, // Default slippage (can be made configurable)
-          slippageMode: 'fixed',
+          slippage: slippageMode === 'fixed' ? slippageTolerance : undefined, // Use user's fixed slippage or let backend handle auto
+          slippageMode: slippageMode,
           order: 'RECOMMENDED', // Default order (can be made configurable)
         });
 
@@ -98,8 +107,9 @@ export function useSwapQuote({
         // Store expiration timestamp for refresh functionality
         quoteExpiresAtRef.current = routeResponse.expiresAt;
 
-        // Update store with quote result
+        // Update store with quote result and full route
         setToAmount(formattedOutput);
+        setRoute(routeResponse.route); // Store full route response (includes USD values, fees, etc.)
         setQuoteLoading(false);
         setQuoteError(null);
       } catch (error: any) {
@@ -111,6 +121,7 @@ export function useSwapQuote({
         // Handle error
         console.error('[useSwapQuote] Error fetching quote:', error);
         setToAmount("");
+        setRoute(null);
         setQuoteLoading(false);
         setQuoteError(error instanceof Error ? error : new Error(error?.message || 'Failed to fetch quote'));
         quoteExpiresAtRef.current = null;
@@ -123,7 +134,7 @@ export function useSwapQuote({
         abortControllerRef.current.abort();
       }
     };
-  }, [fromAmount, activeTab, fromToken, toToken, delay, setToAmount, setQuoteLoading, setQuoteError]);
+  }, [fromAmount, activeTab, fromToken, toToken, delay, setToAmount, setQuoteLoading, setQuoteError, setRoute, slippageMode, slippageTolerance]);
 }
 
 /**
@@ -137,6 +148,7 @@ export function useRefreshQuote() {
   const setToAmount = useSwapStore((state) => state.setToAmount);
   const setQuoteLoading = useSwapStore((state) => state.setQuoteLoading);
   const setQuoteError = useSwapStore((state) => state.setQuoteError);
+  const setRoute = useSwapStore((state) => state.setRoute);
 
   return async () => {
     if (!fromAmount || !fromToken || !toToken || !fromToken.chainId || !toToken.chainId) {
@@ -145,6 +157,7 @@ export function useRefreshQuote() {
 
     setQuoteLoading(true);
     setQuoteError(null);
+    setRoute(null);
 
     try {
       const routeResponse = await fetchRoute({
@@ -159,16 +172,18 @@ export function useRefreshQuote() {
           symbol: toToken.symbol,
         },
         fromAmount: fromAmount,
-        slippage: 0.5,
-        slippageMode: 'fixed',
+        slippage: slippageMode === 'fixed' ? slippageTolerance : undefined,
+        slippageMode: slippageMode,
         order: 'RECOMMENDED',
       });
 
       setToAmount(formatToSixDecimals(routeResponse.route.toToken.amount));
+      setRoute(routeResponse.route); // Store full route response
       setQuoteLoading(false);
       setQuoteError(null);
     } catch (error: any) {
       console.error('[useRefreshQuote] Error refreshing quote:', error);
+      setRoute(null);
       setQuoteLoading(false);
       setQuoteError(error instanceof Error ? error : new Error(error?.message || 'Failed to refresh quote'));
     }

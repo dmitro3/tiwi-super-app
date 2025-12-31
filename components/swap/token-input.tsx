@@ -57,13 +57,39 @@ export default function TokenInput({
             {token ? ( 
               <>
                 <div className="relative h-8 w-8 sm:h-11 sm:w-11 shrink-0">
-                  <Image
-                    src={token.icon}
-                    alt={token.symbol}
-                    width={48}
-                    height={48}
-                    className="rounded-full w-full h-full"
-                  />
+                  {token.icon && token.icon.trim() !== '' ? (
+                    <>
+                      <Image
+                        src={token.icon}
+                        alt={token.symbol}
+                        width={48}
+                        height={48}
+                        className="rounded-full w-full h-full object-cover token-icon-image"
+                        onError={(e) => {
+                          // If image fails to load, hide it and show fallback
+                          e.currentTarget.style.display = 'none';
+                          const parent = e.currentTarget.parentElement;
+                          if (parent) {
+                            const fallback = parent.querySelector('.token-icon-fallback') as HTMLElement;
+                            if (fallback) {
+                              fallback.style.display = 'flex';
+                            }
+                          }
+                        }}
+                      />
+                      <div className="token-icon-fallback hidden w-full h-full rounded-full bg-gradient-to-br from-[#1f261e] to-[#2a3229] flex items-center justify-center border border-[#1f261e] absolute inset-0">
+                        <span className="text-[#b1f128] text-xs sm:text-sm font-semibold">
+                          {token.symbol?.charAt(0)?.toUpperCase() || '?'}
+                        </span>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="token-icon-fallback w-full h-full rounded-full bg-gradient-to-br from-[#1f261e] to-[#2a3229] flex items-center justify-center border border-[#1f261e]">
+                      <span className="text-[#b1f128] text-xs sm:text-sm font-semibold">
+                        {token.symbol?.charAt(0)?.toUpperCase() || '?'}
+                      </span>
+                    </div>
+                  )}
                   {token.chainBadge && (
                     <div className="absolute -bottom-0.5 -right-0.5 h-4 w-4 sm:h-5 sm:w-5 md:h-[22px] md:w-[22px] lg:h-6 lg:w-6">
                       <Image

@@ -7,6 +7,7 @@
 
 import { getRouterRegistry } from '@/lib/backend/routers/registry';
 import { getTokenService } from '@/lib/backend/services/token-service';
+import { getTokenPrice } from '@/lib/backend/providers/price-provider';
 import { ChainTransformer, toSmallestUnit, transformTokenAddress, transformSlippage } from '@/lib/backend/routers/transformers';
 import { selectBestRoute, sortRoutesByScore } from '@/lib/backend/routers/scoring';
 import { 
@@ -145,17 +146,23 @@ export class RouteService {
       throw new Error(errorMessage);
     }
     
-    // 7. Sort alternatives
-    const alternatives = sortRoutesByScore(
-      routes.filter(r => r.routeId !== bestRoute.routeId)
+    // 7. Enrich routes with USD values and Tiwi fees (for routes that don't have them)
+    const enrichedBestRoute = await this.enrichRouteWithUSD(bestRoute, request);
+    const enrichedAlternatives = await Promise.all(
+      routes
+        .filter(r => r.routeId !== bestRoute.routeId)
+        .map(route => this.enrichRouteWithUSD(route, request))
     );
     
-    // 8. Calculate expiration timestamp
+    // 8. Sort alternatives
+    const alternatives = sortRoutesByScore(enrichedAlternatives);
+    
+    // 9. Calculate expiration timestamp
     const expiresAt = Date.now() + (QUOTE_EXPIRATION_SECONDS * 1000);
     
-    // 9. Return response
+    // 10. Return response
     return {
-      route: bestRoute,
+      route: enrichedBestRoute,
       alternatives: alternatives.length > 0 ? alternatives : undefined,
       timestamp: Date.now(),
       expiresAt,
@@ -334,6 +341,96 @@ export class RouteService {
     if (errorMessage.includes('insufficient liquidity')) return 'INSUFFICIENT_LIQUIDITY';
     
     return 'UNKNOWN_ERROR';
+  }
+
+  /**
+   * Enrich route with USD values and Tiwi protocol fee
+   * For routes that don't provide USD values (Uniswap, PancakeSwap), calculate them
+   */
+  private async enrichRouteWithUSD(
+    route: RouterRoute,
+    request: RouteRequest
+  ): Promise<RouterRoute> {
+    const TIWI_PROTOCOL_FEE_RATE = 0.0025; // 0.25%
+    
+    // If route already has USD values (e.g., from LiFi), just add Tiwi fee
+    if (route.fromToken.amountUSD && route.toToken.amountUSD) {
+      const fromAmountUSDNum = parseFloat(route.fromToken.amountUSD);
+      const tiwiProtocolFeeUSD = fromAmountUSDNum > 0 
+        ? (fromAmountUSDNum * TIWI_PROTOCOL_FEE_RATE).toFixed(2)
+        : '0.00';
+      
+      // Calculate total fees (gas + protocol + Tiwi)
+      const gasUSDNum = parseFloat(route.fees.gasUSD || '0');
+      const protocolUSDNum = parseFloat(route.fees.protocol || '0');
+      const tiwiFeeNum = parseFloat(tiwiProtocolFeeUSD);
+      const totalFeesUSD = (gasUSDNum + protocolUSDNum + tiwiFeeNum).toFixed(2);
+      
+      return {
+        ...route,
+        fees: {
+          ...route.fees,
+          tiwiProtocolFeeUSD,
+          total: totalFeesUSD,
+        },
+      };
+    }
+    
+    // Route doesn't have USD values - calculate them from token prices
+    try {
+      // Fetch token prices in parallel
+      const [fromTokenPrice, toTokenPrice] = await Promise.all([
+        getTokenPrice(request.fromToken.address, request.fromToken.chainId, request.fromToken.symbol),
+        getTokenPrice(request.toToken.address, request.toToken.chainId, request.toToken.symbol),
+      ]);
+      
+      // Calculate USD values
+      const fromAmountNum = parseFloat(route.fromToken.amount);
+      const toAmountNum = parseFloat(route.toToken.amount);
+      
+      const fromPriceUSD = fromTokenPrice ? parseFloat(fromTokenPrice.priceUSD) : 0;
+      const toPriceUSD = toTokenPrice ? parseFloat(toTokenPrice.priceUSD) : 0;
+      
+      const fromAmountUSD = fromAmountNum > 0 && fromPriceUSD > 0
+        ? (fromAmountNum * fromPriceUSD).toFixed(2)
+        : undefined;
+      const toAmountUSD = toAmountNum > 0 && toPriceUSD > 0
+        ? (toAmountNum * toPriceUSD).toFixed(2)
+        : undefined;
+      
+      // Calculate Tiwi protocol fee
+      const fromAmountUSDNum = fromAmountUSD ? parseFloat(fromAmountUSD) : 0;
+      const tiwiProtocolFeeUSD = fromAmountUSDNum > 0 
+        ? (fromAmountUSDNum * TIWI_PROTOCOL_FEE_RATE).toFixed(2)
+        : '0.00';
+      
+      // Calculate total fees (gas + protocol + Tiwi)
+      const gasUSDNum = parseFloat(route.fees.gasUSD || '0');
+      const protocolUSDNum = parseFloat(route.fees.protocol || '0');
+      const tiwiFeeNum = parseFloat(tiwiProtocolFeeUSD);
+      const totalFeesUSD = (gasUSDNum + protocolUSDNum + tiwiFeeNum).toFixed(2);
+      
+      return {
+        ...route,
+        fromToken: {
+          ...route.fromToken,
+          amountUSD: fromAmountUSD,
+        },
+        toToken: {
+          ...route.toToken,
+          amountUSD: toAmountUSD,
+        },
+        fees: {
+          ...route.fees,
+          tiwiProtocolFeeUSD,
+          total: totalFeesUSD,
+        },
+      };
+    } catch (error) {
+      // If price fetching fails, return route as-is (without USD values)
+      console.warn('[RouteService] Failed to enrich route with USD values:', error);
+      return route;
+    }
   }
 }
 

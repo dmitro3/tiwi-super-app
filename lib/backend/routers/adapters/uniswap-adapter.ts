@@ -296,6 +296,7 @@ export class UniswapAdapter extends BaseRouter {
         address: fromTokenAddress,
         symbol: '', // Will be enriched by RouteService
         amount: fromAmountHuman,
+        amountUSD: undefined, // Will be enriched by RouteService
         decimals: fromDecimals,
       },
       toToken: {
@@ -303,6 +304,7 @@ export class UniswapAdapter extends BaseRouter {
         address: toTokenAddress,
         symbol: '', // Will be enriched by RouteService
         amount: toAmountHuman,
+        amountUSD: undefined, // Will be enriched by RouteService
         decimals: toDecimals,
       },
       exchangeRate,
@@ -312,7 +314,8 @@ export class UniswapAdapter extends BaseRouter {
         protocol: '0', // V2 has no protocol fee (only LP fee)
         gas: '0', // Gas estimate not available from quote
         gasUSD: '0',
-        total: '0',
+        tiwiProtocolFeeUSD: undefined, // Will be enriched by RouteService
+        total: '0', // Will be enriched by RouteService
       },
       steps,
       estimatedTime: 0, // Same-chain swaps are instant

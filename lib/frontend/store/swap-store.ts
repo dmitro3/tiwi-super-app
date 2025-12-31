@@ -7,6 +7,7 @@
 
 import { create } from 'zustand';
 import type { Token } from '@/lib/frontend/types/tokens';
+import type { RouterRoute } from '@/lib/backend/routers/types';
 
 // ===== State Interface =====
 
@@ -31,6 +32,7 @@ export interface SwapState {
   // Quote state (server-derived, will migrate to TanStack Query later)
   isQuoteLoading: boolean;
   quoteError: Error | null;
+  route: RouterRoute | null;  // Full route response (includes USD values, fees, etc.)
   
   // ===== Actions =====
   
@@ -54,6 +56,7 @@ export interface SwapState {
   // Quote actions
   setQuoteLoading: (loading: boolean) => void;
   setQuoteError: (error: Error | null) => void;
+  setRoute: (route: RouterRoute | null) => void;  // Store full route response
   
   // Reset actions
   resetSwap: () => void;  // Reset to initial state
@@ -72,6 +75,7 @@ const initialState = {
   expires: 'never' as const,
   isQuoteLoading: false,
   quoteError: null as Error | null,
+  route: null as RouterRoute | null,
 };
 
 // ===== Store Creation =====
@@ -143,7 +147,11 @@ export const useSwapStore = create<SwapState>((set) => ({
   },
   
   setQuoteError: (error) => {
-    set({ quoteError: error });
+    set({ quoteError: error, route: null }); // Clear route on error
+  },
+
+  setRoute: (route) => {
+    set({ route });
   },
   
   // ===== Reset Actions =====
@@ -157,6 +165,7 @@ export const useSwapStore = create<SwapState>((set) => ({
       fromAmount: '',
       toAmount: '',
       limitPrice: '',
+      route: null, // Clear route when resetting amounts
     });
   },
 }));

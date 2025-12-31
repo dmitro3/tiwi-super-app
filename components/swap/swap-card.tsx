@@ -7,7 +7,9 @@ import SwapTabs from "./swap-tabs";
 import LimitOrderFields from "./limit-order-fields";
 import SwapDetailsCard from "./swap-details-card";
 import SwapActionButton from "./swap-action-button";
+import Skeleton from "@/components/ui/skeleton";
 import { parseNumber } from "@/lib/shared/utils/number";
+import { useSwapStore } from "@/lib/frontend/store/swap-store";
 
 interface Token {
   symbol: string;
@@ -73,6 +75,9 @@ export default function SwapCard({
 }: SwapCardProps) {
   const isLimit = activeTab === "limit";
 
+  // Get quote loading state for skeleton loaders
+  const isQuoteLoading = useSwapStore((state) => state.isQuoteLoading);
+
   // Expandable details state - used for both Swap and Limit tabs
   const [isDetailsExpanded, setIsDetailsExpanded] = useState(false);
 
@@ -97,18 +102,29 @@ export default function SwapCard({
           {/* From / To group with arrow centered between them */}
           <div className="relative flex flex-col gap-3 sm:gap-4">
             {/* From Section */}
-            <TokenInput
-              type="from"
-              token={fromToken}
-              balance={fromBalance}
-              balanceLoading={fromBalanceLoading}
-              amount={fromAmount}
-              usdValue={fromUsdValue}
-              onTokenSelect={onFromTokenSelect}
-              onMaxClick={onMaxClick}
-              onAmountChange={onFromAmountChange}
-              readOnlyAmount={false}
-            />
+            {isQuoteLoading && !fromAmount ? (
+              <div className="flex flex-col gap-2 sm:gap-3">
+                <div className="flex items-center justify-between">
+                  <Skeleton className="h-6 w-20" />
+                  <Skeleton className="h-10 w-32" />
+                </div>
+                <Skeleton className="h-16 w-full" />
+                <Skeleton className="h-4 w-24" />
+              </div>
+            ) : (
+              <TokenInput
+                type="from"
+                token={fromToken}
+                balance={fromBalance}
+                balanceLoading={fromBalanceLoading}
+                amount={fromAmount}
+                usdValue={fromUsdValue}
+                onTokenSelect={onFromTokenSelect}
+                onMaxClick={onMaxClick}
+                onAmountChange={onFromAmountChange}
+                readOnlyAmount={false}
+              />
+            )}
 
             {/* Swap Arrow - Absolutely positioned between From and To sections */}
             <div className="absolute left-1/2 -translate-x-1/2 z-20 md:top-[calc(50%-20px)] top-[calc(50%-15px)]">
@@ -128,17 +144,28 @@ export default function SwapCard({
             </div>
 
             {/* To Section */}
-            <TokenInput
-              type="to"
-              token={toToken}
-              balance={toBalance}
-              balanceLoading={toBalanceLoading}
-              amount={toAmount}
-              usdValue={toUsdValue}
-              onTokenSelect={onToTokenSelect}
-              onAmountChange={onToAmountChange}
-              readOnlyAmount
-            />
+            {isQuoteLoading && !toAmount ? (
+              <div className="flex flex-col gap-2 sm:gap-3">
+                <div className="flex items-center justify-between">
+                  <Skeleton className="h-6 w-20" />
+                  <Skeleton className="h-10 w-32" />
+                </div>
+                <Skeleton className="h-16 w-full" />
+                <Skeleton className="h-4 w-24" />
+              </div>
+            ) : (
+              <TokenInput
+                type="to"
+                token={toToken}
+                balance={toBalance}
+                balanceLoading={toBalanceLoading}
+                amount={toAmount}
+                usdValue={toUsdValue}
+                onTokenSelect={onToTokenSelect}
+                onAmountChange={onToAmountChange}
+                readOnlyAmount
+              />
+            )}
           </div>
 
           {/* Limit Order Fields - Only shown in Limit tab */}

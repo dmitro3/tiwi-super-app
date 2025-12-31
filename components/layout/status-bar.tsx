@@ -17,7 +17,8 @@ export default function StatusBar({
   const activeChainsCount = chains.length;
   
   // Format TWC price and change
-  const twcPrice = twcData?.price || "$0.00";
+  // Use raw price (no formatting/truncation) - width will be flexible
+  const twcPrice = twcData?.price || "$0";
   const twcChange = twcData 
     ? `${twcData.priceChange24h >= 0 ? '+' : ''}${twcData.priceChange24h.toFixed(2)}%`
     : "0.00%";
@@ -55,9 +56,9 @@ export default function StatusBar({
           </>
         ) : (
           <>
-            <span className="text-[#b5b5b5] font-medium text-xs">{twcPrice}</span>
+            <span className="text-[#b5b5b5] font-medium text-xs whitespace-nowrap">{twcPrice}</span>
             <span
-              className={`font-medium text-xs ${
+              className={`font-medium text-xs whitespace-nowrap ${
                 twcChangeType === "positive" ? "text-[#4ade80]" : "text-[#ff5c5c]"
               }`}
             >
@@ -139,11 +140,11 @@ export default function StatusBar({
                   </>
                 ) : (
                   <>
-                    <span className="text-[#b5b5b5] font-medium text-xs sm:text-sm">
+                    <span className="text-[#b5b5b5] font-medium text-xs sm:text-sm whitespace-nowrap">
                       {twcPrice}
                     </span>
                     <span
-                      className={`font-medium text-xs sm:text-sm ${
+                      className={`font-medium text-xs sm:text-sm whitespace-nowrap ${
                         twcChangeType === "positive"
                           ? "text-[#4ade80]"
                           : "text-[#ff5c5c]"

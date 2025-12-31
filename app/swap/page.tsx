@@ -12,8 +12,11 @@ import { sanitizeDecimal, parseNumber } from "@/lib/shared/utils/number";
 import {
   calculateLimitPriceUsd,
 } from "@/lib/frontend/calculations/swap";
+import { useCurrencyStore } from "@/lib/frontend/store/currency-store";
+import { convertAndFormatUSD } from "@/lib/shared/utils/currency-conversion";
 import { useSwapQuote } from "@/hooks/useSwapQuote";
 import { useSwapStore } from "@/lib/frontend/store/swap-store";
+import { useTokenPricePrefetch } from "@/hooks/useTokenPricePrefetch";
 import type { Token } from "@/lib/frontend/types/tokens";
 import { MOCK_TOKENS } from "@/data/mock-tokens";
 import ErrorToast from "@/components/ui/error-toast";
@@ -86,6 +89,9 @@ export default function SwapPage() {
     }
   }, [fromToken, setFromToken]);
 
+  // Prefetch token prices when tokens are selected (ensures prices are available for USD calculations)
+  useTokenPricePrefetch(fromToken, toToken);
+
   // Use custom hook for quote calculation (updates store)
   useSwapQuote({
     fromAmount,
@@ -114,8 +120,16 @@ export default function SwapPage() {
   const [isErrorToastOpen, setIsErrorToastOpen] = useState(false);
   const [errorInfo, setErrorInfo] = useState<{ title: string; message: string; nextSteps: string[] } | null>(null);
   
-  // Get quote error from store
+  // Get quote error and route from store
   const quoteError = useSwapStore((state) => state.quoteError);
+  const route = useSwapStore((state) => state.route);
+  
+  // Get currency preference
+  const currency = useCurrencyStore((state) => state.currency);
+  
+  // State for converted USD values (async conversion)
+  const [fromUsdValueFormatted, setFromUsdValueFormatted] = useState<string>("$0");
+  const [toUsdValueFormatted, setToUsdValueFormatted] = useState<string>("$0");
   
   // Show error toast when quote error occurs
   useEffect(() => {
@@ -150,7 +164,7 @@ export default function SwapPage() {
     if (tokenModalType === "from") {
       setFromToken(token);
       // TODO: When token changes, make API call with new token address and current amount
-      // Example: if (fromAmount) { fetchQuote(token.address, fromAmount); }
+      // Example: if (fromAmount) { fetchQuote(token.address, fromAmount); } 
     } else {
       setToToken(token);
     }
@@ -187,38 +201,92 @@ export default function SwapPage() {
   };
 
 
-  // Calculate USD values using actual token prices from API
+  // Calculate USD values from route response or token prices
   const fromAmountNum = parseNumber(fromAmount);
   const toAmountNum = parseNumber(toAmount);
   const limitPriceNum = parseNumber(limitPrice);
 
-  // Calculate USD value from token price and amount
-  const calculateUsdValue = (amount: number, tokenPrice?: string): string => {
-    if (!amount || amount <= 0) return "$0";
-    if (!tokenPrice) return "$0";
-    
-    const price = parseFloat(tokenPrice);
-    if (isNaN(price) || price === 0) return "$0";
-    
-    const usdValue = amount * price;
-    
-    // Format based on value size
-    if (usdValue < 0.01) {
-      return `$${usdValue.toFixed(8).replace(/\.?0+$/, '')}`;
+  // Calculate fromToken USD value
+  // Priority: route.fromToken.amountUSD > fromAmount × fromToken.price (from API)
+  const getFromTokenUSD = (): string | undefined => {
+    // First priority: Use USD value from route (most accurate, from quote)
+    if (route?.fromToken.amountUSD) {
+      const usd = parseFloat(route.fromToken.amountUSD);
+      if (!isNaN(usd) && usd > 0) {
+        return route.fromToken.amountUSD;
+      }
     }
     
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      minimumFractionDigits: usdValue < 1 ? 2 : 2,
-      maximumFractionDigits: usdValue < 1 ? 4 : 2,
-    }).format(usdValue);
+    // Second priority: Calculate from token price (if available)
+    if (fromAmountNum > 0 && fromToken?.price) {
+      const price = parseFloat(fromToken.price);
+      if (!isNaN(price) && price > 0) {
+        const calculated = (fromAmountNum * price).toFixed(2);
+        // Only return if calculated value is meaningful (> 0)
+        if (parseFloat(calculated) > 0) {
+          return calculated;
+        }
+      }
+    }
+    
+    return undefined;
   };
 
-  const fromUsdValue = calculateUsdValue(fromAmountNum, fromToken?.price);
-  const toUsdValue = isQuoteLoading
-    ? "Fetching quote..."
-    : calculateUsdValue(toAmountNum, toToken?.price);
+  // Calculate toToken USD value
+  // Priority: route.toToken.amountUSD > toAmount × toToken.price (from API)
+  const getToTokenUSD = (): string | undefined => {
+    // First priority: Use USD value from route (most accurate, from quote)
+    if (route?.toToken.amountUSD) {
+      const usd = parseFloat(route.toToken.amountUSD);
+      if (!isNaN(usd) && usd > 0) {
+        return route.toToken.amountUSD;
+      }
+    }
+    
+    // Second priority: Calculate from token price (if available)
+    if (toAmountNum > 0 && toToken?.price) {
+      const price = parseFloat(toToken.price);
+      if (!isNaN(price) && price > 0) {
+        const calculated = (toAmountNum * price).toFixed(2);
+        // Only return if calculated value is meaningful (> 0)
+        if (parseFloat(calculated) > 0) {
+          return calculated;
+        }
+      }
+    }
+    
+    return undefined;
+  };
+
+  // Convert and format USD values based on currency preference
+  useEffect(() => {
+    const updateUSDValues = async () => {
+      if (isQuoteLoading) {
+        setToUsdValueFormatted("Fetching quote...");
+        return;
+      }
+
+      const fromUSD = getFromTokenUSD();
+      const toUSD = getToTokenUSD();
+
+      if (fromUSD) {
+        const formatted = await convertAndFormatUSD(fromUSD, currency);
+        setFromUsdValueFormatted(formatted);
+      } else {
+        setFromUsdValueFormatted(currency === 'USD' ? "$0" : await convertAndFormatUSD("0", currency));
+      }
+
+      if (toUSD) {
+        const formatted = await convertAndFormatUSD(toUSD, currency);
+        setToUsdValueFormatted(formatted);
+      } else {
+        setToUsdValueFormatted(currency === 'USD' ? "$0" : await convertAndFormatUSD("0", currency));
+      }
+    };
+
+    updateUSDValues();
+  }, [fromAmount, toAmount, route, currency, isQuoteLoading, fromToken, toToken, fromToken?.price, toToken?.price]);
+
   const limitPriceUsd = calculateLimitPriceUsd(limitPriceNum);
 
   return (
@@ -259,11 +327,11 @@ export default function SwapPage() {
               fromBalance={fromTokenBalance.balanceFormatted || "0.00"}
               fromBalanceLoading={fromTokenBalance.isLoading}
               fromAmount={fromAmount}
-              fromUsdValue={fromUsdValue}
+              fromUsdValue={fromUsdValueFormatted}
               toBalance={toTokenBalance.balanceFormatted || "0.00"}
               toBalanceLoading={toTokenBalance.isLoading}
               toAmount={toAmount}
-              toUsdValue={isQuoteLoading ? "Fetching quote..." : toUsdValue}
+              toUsdValue={toUsdValueFormatted}
               limitPrice={limitPrice}
               limitPriceUsd={limitPriceUsd}
               expires={expires}

@@ -15,7 +15,8 @@ const TWC_ADDRESS = '0xDA1060158F7D593667cCE0a15DB346BB3FfB3596';
 const TWC_CHAIN_ID = 56; // BNB Chain
 
 export interface TWCPriceData {
-  price: string;           // Formatted price (e.g., "$0.095")
+  price: string;           // Raw price with $ prefix (e.g., "$0.000095" - full precision, no truncation)
+  priceUSD: string;        // Raw price USD value from API (for reference)
   priceChange24h: number;  // 24h price change percentage (e.g., -12.1)
   changeType: 'positive' | 'negative'; // Change type for styling
   token: Token | null;     // Full token data
@@ -28,26 +29,26 @@ export interface UseTWCPriceReturn {
 }
 
 /**
- * Format price as currency
+ * Format price as raw value (no truncation, show full precision)
+ * Returns the raw price string with $ prefix, preserving all decimals
  */
-function formatPrice(priceUSD: string | undefined): string {
-  if (!priceUSD) return '$0.00';
+function formatPriceRaw(priceUSD: string | undefined): string {
+  if (!priceUSD) return '$0';
   
   const price = parseFloat(priceUSD);
-  if (isNaN(price) || price === 0) return '$0.00';
+  if (isNaN(price) || price === 0) return '$0';
   
-  // Format small prices with more decimals
-  if (price < 0.01) {
-    return `$${price.toFixed(8).replace(/\.?0+$/, '')}`;
+  // Return raw price with $ prefix, preserving all significant digits
+  // Convert to string and remove trailing zeros after decimal point
+  const priceStr = price.toString();
+  // If it's scientific notation, convert to decimal
+  if (priceStr.includes('e')) {
+    return `$${price.toFixed(18).replace(/\.?0+$/, '')}`;
   }
   
-  // Format regular prices
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: price < 1 ? 4 : 2,
-    maximumFractionDigits: price < 1 ? 8 : 2,
-  }).format(price);
+  // Remove trailing zeros but keep at least one decimal place if needed
+  const formatted = priceStr.replace(/\.?0+$/, '');
+  return `$${formatted}`;
 }
 
 /**
@@ -84,7 +85,8 @@ export function useTWCPrice(): UseTWCPriceReturn {
 
   const data: TWCPriceData | null = twcToken
     ? {
-        price: formatPrice(priceUSD),
+        price: formatPriceRaw(priceUSD), // Raw price without truncation
+        priceUSD: priceUSD, // Store raw price for reference
         priceChange24h,
         changeType,
         token: twcToken,
