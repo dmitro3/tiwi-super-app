@@ -9,7 +9,8 @@ import { getCache, CACHE_TTL } from '@/lib/backend/utils/cache';
 import type { Transaction, TransactionHistoryResponse, TransactionType } from '@/lib/backend/types/wallet';
 import { SOLANA_CHAIN_ID } from '@/lib/backend/providers/moralis';
 import {
-  getWalletHistory,
+  getWalletHistoryForChain,
+  getChainName,
   getEVMWalletTransactions,
   getSolanaTransactions,
   getAddressType,
@@ -88,6 +89,7 @@ export class TransactionHistoryService {
           types,
           limit + offset
         );
+        console.log("🚀 ~ TransactionHistoryService ~ fetchTransactionsFromMoralis ~ transactions:", transactions)
       }
     } else {
       // For Solana addresses, use legacy method
@@ -123,6 +125,15 @@ export class TransactionHistoryService {
   /**
    * Fetch wallet history using new Moralis endpoint
    * This is the preferred method for EVM addresses
+   * 
+   * Fetches per chain in parallel with concurrency control (best practice).
+   * Each chain is fetched separately since Moralis doesn't support multi-chain arrays.
+   * 
+   * Best Practices Applied:
+   * - Parallel fetching with concurrency limit (4) for speed and rate limit safety
+   * - Graceful error handling per chain (Promise.allSettled)
+   * - Optimal limit distribution (ensures good coverage across chains)
+   * - Chain-specific parsing (enables explorer URLs and accurate chain data)
    */
   private async fetchWalletHistory(
     address: string,
@@ -130,15 +141,72 @@ export class TransactionHistoryService {
     limit: number
   ): Promise<Transaction[]> {
     try {
-      // Fetch wallet history from Moralis
-      const historyResponse = await getWalletHistory(address, chainIds, {
-        limit: Math.min(limit, 100), // Moralis max is 100
+      // Filter to only chains supported by Moralis (exist in CHAIN_NAME_MAP)
+      const supportedChainIds = chainIds.filter(chainId => {
+        try {
+          getChainName(chainId);
+          return true;
+        } catch {
+          console.warn(`[TransactionHistoryService] Chain ${chainId} not supported by Moralis, skipping`);
+          return false;
+        }
       });
 
-      // Parse and categorize transactions
-      const transactions = this.parser.parseWalletHistory(historyResponse, address);
+      if (supportedChainIds.length === 0) {
+        console.warn('[TransactionHistoryService] No supported chains to fetch');
+        return [];
+      }
 
-      return transactions;
+      // Calculate per-chain limit (best practice: ensure good distribution)
+      // Formula: max(ceil(limit / chainCount), 10) ensures at least 10 per chain
+      // This provides good coverage while respecting the overall limit
+      const perChainLimit = Math.min(
+        Math.max(Math.ceil(limit / supportedChainIds.length), 10),
+        100 // Moralis max per request
+      );
+
+      // Parallel fetching with concurrency control (best practice)
+      // Concurrency limit of 4 balances speed and rate limit safety
+      const CONCURRENCY_LIMIT = 4;
+      const allTransactions: Transaction[] = [];
+
+      // Process chains in batches to control concurrency
+      for (let i = 0; i < supportedChainIds.length; i += CONCURRENCY_LIMIT) {
+        const batch = supportedChainIds.slice(i, i + CONCURRENCY_LIMIT);
+        
+        // Fetch batch in parallel
+        const batchPromises = batch.map(async (chainId) => {
+          try {
+            const chainName = getChainName(chainId);
+            const historyResponse = await getWalletHistoryForChain(address, chainName, {
+              limit: perChainLimit,
+            });
+
+            // Parse with known chainId (enables explorer URLs and accurate chain data)
+            const transactions = this.parser.parseWalletHistory(historyResponse, address, chainId);
+            return transactions;
+          } catch (error) {
+            console.error(`[TransactionHistoryService] Error fetching history for chain ${chainId}:`, error);
+            return []; // Return empty array on error, don't fail entire request
+          }
+        });
+
+        // Wait for batch to complete (with graceful error handling)
+        const batchResults = await Promise.allSettled(batchPromises);
+        
+        // Collect successful results
+        for (const result of batchResults) {
+          if (result.status === 'fulfilled') {
+            allTransactions.push(...result.value);
+          }
+        }
+      }
+
+      // Sort by timestamp (newest first) and apply overall limit
+      return allTransactions
+        .sort((a, b) => b.timestamp - a.timestamp)
+        .slice(0, limit);
+
     } catch (error) {
       console.error('[TransactionHistoryService] Error fetching wallet history:', error);
       throw error;

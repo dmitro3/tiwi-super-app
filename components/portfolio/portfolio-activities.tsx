@@ -81,9 +81,9 @@ export default function PortfolioActivities({ className = "" }: PortfolioActivit
     return filtered;
   }, [transactions, typeFilter, chainFilter, sortOption, searchQuery]);
 
-  // Get unique chain IDs for filter
+  // Get unique chain IDs for filter (only include defined chainIds)
   const uniqueChains = useMemo(() => {
-    const chains = new Set(transactions.map((tx) => tx.chainId));
+    const chains = new Set(transactions.map((tx) => tx.chainId).filter((id): id is number => id !== undefined));
     return Array.from(chains).sort();
   }, [transactions]);
 
@@ -297,14 +297,14 @@ function TransactionCard({ transaction }: { transaction: Transaction }) {
           <div className="grid grid-cols-2 gap-4 text-xs">
             <div>
               <span className="text-[#8A929A]">From:</span>
-              <span className="text-white ml-2 font-mono">
-                {transaction.fromAddressLabel || transaction.from}
+              <span className="text-white ml-2 font-mono text-xs break-all">
+                {transaction.from}
               </span>
             </div>
             <div>
               <span className="text-[#8A929A]">To:</span>
-              <span className="text-white ml-2 font-mono">
-                {transaction.toAddressLabel || transaction.to}
+              <span className="text-white ml-2 font-mono text-xs break-all">
+                {transaction.to}
               </span>
             </div>
             {transaction.blockNumber && (
@@ -319,12 +319,10 @@ function TransactionCard({ transaction }: { transaction: Transaction }) {
                 <span className="text-white ml-2">{transaction.gasFee}</span>
               </div>
             )}
-            {transaction.chainBadge && (
+            {transaction.chainId && (
               <div>
-                <span className="text-[#8A929A]">Chain:</span>
-                <span className="text-white ml-2 capitalize">
-                  {transaction.chainBadge.replace("evm-", "")}
-                </span>
+                <span className="text-[#8A929A]">Chain ID:</span>
+                <span className="text-white ml-2">{transaction.chainId}</span>
               </div>
             )}
           </div>
@@ -345,4 +343,5 @@ function TransactionCard({ transaction }: { transaction: Transaction }) {
     </div>
   );
 }
+
 

@@ -66,8 +66,8 @@ export function useWalletBalances(
     queryKey: getWalletBalancesQueryKey(walletAddress),
     queryFn: () => fetchWalletBalances(walletAddress!),
     enabled: !!walletAddress, // Only fetch if wallet address is provided
-    staleTime: 30 * 1000, // 30 seconds - balances are fresh for 30s
-    gcTime: 5 * 60 * 1000, // 5 minutes - keep in cache for 5min
+    staleTime: 2 * 60 * 1000, // 2 minutes - balances are fresh for 2min (reduced API calls)
+    gcTime: 10 * 60 * 1000, // 10 minutes - keep in cache for 10min
     retry: 2,
     retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
   });

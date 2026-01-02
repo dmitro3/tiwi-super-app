@@ -53,17 +53,14 @@ export interface Transaction {
   usdValue?: string; // USD value at time of transaction
   timestamp: number; // Unix timestamp in milliseconds
   date: string; // Formatted date string (e.g., "Oct 9, 2024")
-  chainId: number;
+  chainId?: number; // Optional - only when chain is known (single-chain requests)
   status: TransactionStatus;
   blockNumber?: number;
   // Enhanced fields for portfolio activities
   gasFee?: string; // Gas fee in native token (formatted)
   gasFeeUSD?: string; // Gas fee in USD
-  explorerUrl?: string; // Block explorer link
-  fromAddressLabel?: string; // Human-readable from address (truncated)
-  toAddressLabel?: string; // Human-readable to address (truncated)
+  explorerUrl?: string; // Block explorer link (optional - only when chainId is known)
   tokenLogo?: string; // Token logo URL
-  chainBadge?: string; // Chain badge (e.g., "evm-ethereum")
   // Additional metadata
   metadata?: {
     protocol?: string;        // DEX/Protocol name (e.g., "Uniswap", "PancakeSwap")

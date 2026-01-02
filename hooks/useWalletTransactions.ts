@@ -109,7 +109,7 @@ export function useWalletTransactions(
       // No more pages
       return undefined;
     },
-    staleTime: 5 * 60 * 1000, // 5 minutes - transactions are fresh for 5min
+    staleTime: 2 * 60 * 1000, // 2 minutes - transactions are fresh for 2min (reduced API calls)
     gcTime: 10 * 60 * 1000, // 10 minutes - keep in cache for 10min
     retry: 2,
     retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),

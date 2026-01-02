@@ -55,8 +55,7 @@ const SWAP_METHOD_SIGNATURES: Record<string, string> = {
   '0xb6f9de95': 'swapExactETHForTokensSupportingFeeOnTransferTokens',
   '0x5c11d795': 'swapExactTokensForTokensSupportingFeeOnTransferTokens',
   '0x414bf389': 'exactInputSingle', // Uniswap V3
-  '0xdb3e2198': 'exactInput', // Uniswap V3
-  '0xdb3e2198': 'multicall', // Uniswap V3 (often contains swaps)
+  '0xdb3e2198': 'exactInput/multicall', // Uniswap V3 (exactInput or multicall containing swaps)
 };
 
 // ============================================================================
@@ -78,12 +77,39 @@ const DEFI_METHOD_SIGNATURES: Record<string, string> = {
 // Transaction Parser Interface
 // ============================================================================
 
+interface MoralisERC20Transfer {
+  token_name?: string;
+  token_symbol?: string;
+  token_logo?: string | null;
+  token_decimals?: string;
+  from_address: string;
+  to_address: string;
+  address: string; // Token contract address
+  log_index: number;
+  value: string;
+  value_formatted?: string;
+  possible_spam?: boolean;
+  verified_contract?: boolean;
+  direction: 'send' | 'receive';
+}
+
+interface MoralisNativeTransfer {
+  from_address: string;
+  to_address: string;
+  value: string;
+  value_formatted: string;
+  direction: 'send' | 'receive';
+  internal_transaction?: boolean;
+  token_symbol?: string;
+  token_logo?: string | null;
+}
+
 interface MoralisHistoryItem {
-  chain: string;
+  chain?: string; // May be undefined in unified responses
   block_number: string;
   block_timestamp: string;
   hash: string;
-  transaction_category: string;
+  category: string; // Transaction category from Moralis
   log_index: number;
   from_address: string;
   to_address: string;
@@ -91,6 +117,8 @@ interface MoralisHistoryItem {
   gas: string;
   gas_price: string;
   receipt_status: string;
+  receipt_gas_used?: string;
+  transaction_fee?: string;
   token_address?: string;
   token_symbol?: string;
   token_name?: string;
@@ -99,8 +127,12 @@ interface MoralisHistoryItem {
   value_formatted?: string;
   possible_spam?: boolean;
   verified_contract?: boolean;
-  method_label?: string;
+  method_label?: string | null;
   method_hash?: string;
+  erc20_transfers?: MoralisERC20Transfer[];
+  native_transfers?: MoralisNativeTransfer[];
+  nft_transfers?: any[];
+  summary?: string;
 }
 
 // ============================================================================
@@ -113,11 +145,13 @@ export class TransactionParser {
    * 
    * @param historyResponse - Raw response from getWalletHistory
    * @param walletAddress - Wallet address (for determining sent/received)
+   * @param chainIds - Array of chain IDs that were requested (used to map transactions to chains)
    * @returns Array of parsed and categorized transactions
    */
   parseWalletHistory(
     historyResponse: any,
-    walletAddress: string
+    walletAddress: string,
+    chainId?: number
   ): Transaction[] {
     const transactions: Transaction[] = [];
     const walletLower = walletAddress.toLowerCase();
@@ -126,7 +160,7 @@ export class TransactionParser {
     
     for (const item of items) {
       try {
-        const transaction = this.parseHistoryItem(item, walletLower);
+        const transaction = this.parseHistoryItem(item, walletLower, chainId);
         if (transaction) {
           transactions.push(transaction);
         }
@@ -142,72 +176,106 @@ export class TransactionParser {
 
   /**
    * Parse a single history item
+   * Uses transfer arrays (erc20_transfers, native_transfers) for accurate data
    */
   private parseHistoryItem(
     item: MoralisHistoryItem,
-    walletAddress: string
+    walletAddress: string,
+    chainId?: number
   ): Transaction | null {
     try {
-      // Get chain ID from chain name
-      const chainId = this.getChainIdFromName(item.chain);
-      if (!chainId) {
-        console.warn(`[TransactionParser] Unknown chain: ${item.chain}`);
-        return null;
-      }
-
       // Parse timestamp
       const timestamp = new Date(item.block_timestamp).getTime();
       const date = this.formatDate(timestamp);
 
-      // Determine transaction type
-      const txType = this.categorizeTransaction(item, walletAddress, chainId);
+      // Determine transaction type from category field
+      const txType = this.mapCategoryToTransactionType(item.category);
+
+      // Extract data from transfer arrays (priority: erc20 > native > top-level)
+      const erc20Transfer = item.erc20_transfers && item.erc20_transfers.length > 0 
+        ? item.erc20_transfers[0] 
+        : null;
+      const nativeTransfer = item.native_transfers && item.native_transfers.length > 0 
+        ? item.native_transfers[0] 
+        : null;
+
+      // Extract from address (priority: transfer arrays > top-level)
+      const fromAddress = (
+        erc20Transfer?.from_address ||
+        nativeTransfer?.from_address ||
+        item.from_address
+      )?.toLowerCase() || '';
+
+      // Extract to address (priority: transfer arrays > top-level)
+      const toAddress = (
+        erc20Transfer?.to_address ||
+        nativeTransfer?.to_address ||
+        item.to_address
+      )?.toLowerCase() || '';
 
       // Extract token information
-      const tokenAddress = item.token_address || '0x0000000000000000000000000000000000000000';
-      const tokenSymbol = item.token_symbol || (item.transaction_category === 'native' ? 'ETH' : 'UNKNOWN');
-      const decimals = item.token_decimals ? parseInt(item.token_decimals, 10) : 18;
-      const amount = item.value || '0';
-      const amountFormatted = item.value_formatted || this.formatBalance(amount, decimals);
+      let tokenAddress: string;
+      let tokenSymbol: string;
+      let tokenLogo: string | undefined;
+      let amount: string;
+      let amountFormatted: string;
+      let decimals: number;
 
-      // Build metadata
-      const metadata = this.buildMetadata(item, txType, chainId);
+      if (erc20Transfer) {
+        // ERC20 transfer
+        tokenAddress = erc20Transfer.address || '0x0000000000000000000000000000000000000000';
+        tokenSymbol = erc20Transfer.token_symbol || 'UNKNOWN';
+        tokenLogo = erc20Transfer.token_logo || undefined;
+        amount = erc20Transfer.value || '0';
+        decimals = erc20Transfer.token_decimals ? parseInt(erc20Transfer.token_decimals, 10) : 18;
+        // Use value_formatted if available, otherwise calculate
+        amountFormatted = erc20Transfer.value_formatted || this.formatBalance(amount, decimals);
+      } else if (nativeTransfer) {
+        // Native transfer
+        tokenAddress = '0x0000000000000000000000000000000000000000';
+        tokenSymbol = nativeTransfer.token_symbol || 'ETH';
+        tokenLogo = nativeTransfer.token_logo || undefined;
+        amount = nativeTransfer.value || '0';
+        decimals = 18;
+        // Use value_formatted from native transfer
+        amountFormatted = nativeTransfer.value_formatted || this.formatBalance(amount, decimals);
+      } else {
+        // Fallback to top-level fields
+        tokenAddress = item.token_address || '0x0000000000000000000000000000000000000000';
+        tokenSymbol = item.token_symbol || 'ETH';
+        tokenLogo = item.token_logo || undefined;
+        amount = item.value || '0';
+        decimals = item.token_decimals ? parseInt(item.token_decimals, 10) : 18;
+        amountFormatted = item.value_formatted || this.formatBalance(amount, decimals);
+      }
 
       // Calculate gas fee
       const gasFee = this.calculateGasFee(item);
-      const gasFeeUSD = this.calculateGasFeeUSD(item, chainId);
 
-      // Generate explorer URL
-      const explorerUrl = this.getExplorerUrl(item.hash, chainId);
+      // Generate explorer URL only if chainId is known (optional for future)
+      const explorerUrl = chainId ? this.getExplorerUrl(item.hash, chainId) : undefined;
 
-      // Generate address labels (truncated)
-      const fromAddressLabel = this.truncateAddress(item.from_address || '');
-      const toAddressLabel = this.truncateAddress(item.to_address || '');
-
-      // Get chain badge
-      const chainBadge = this.getChainBadge(chainId);
+      // Build metadata
+      const metadata = this.buildMetadata(item, txType);
 
       return {
         id: `${item.hash}-${item.log_index}`,
         hash: item.hash,
         type: txType,
-        from: item.from_address?.toLowerCase() || '',
-        to: item.to_address?.toLowerCase() || '',
+        from: fromAddress,
+        to: toAddress,
         tokenAddress,
         tokenSymbol,
         amount,
         amountFormatted,
         timestamp,
         date,
-        chainId,
+        chainId: chainId, // Optional - only when known
         status: item.receipt_status === '1' ? 'confirmed' : 'failed',
         blockNumber: item.block_number ? parseInt(item.block_number, 10) : undefined,
         gasFee,
-        gasFeeUSD,
-        explorerUrl,
-        fromAddressLabel,
-        toAddressLabel,
-        tokenLogo: item.token_logo,
-        chainBadge,
+        tokenLogo,
+        explorerUrl, // Optional - only when chainId is known
         metadata,
       };
     } catch (error) {
@@ -217,51 +285,58 @@ export class TransactionParser {
   }
 
   /**
-   * Categorize transaction with enhanced detection
+   * Map Moralis category to TransactionType
+   * Uses the category field directly from Moralis response
    */
-  private categorizeTransaction(
-    item: MoralisHistoryItem,
-    walletAddress: string,
-    chainId: number
-  ): TransactionType {
-    const fromLower = item.from_address?.toLowerCase() || '';
-    const toLower = item.to_address?.toLowerCase() || '';
-    const isFromWallet = fromLower === walletAddress;
-    const isToWallet = toLower === walletAddress;
+  private mapCategoryToTransactionType(category: string): TransactionType {
+    const categoryLower = category?.toLowerCase() || '';
+    
+    // Map Moralis categories to our transaction types
+    const categoryMap: Record<string, TransactionType> = {
+      'receive': 'Received',
+      'send': 'Sent',
+      'token receive': 'Received',
+      'token send': 'Sent',
+      'nft receive': 'NFTTransfer',
+      'nft send': 'NFTTransfer',
+      'contract': 'ContractCall',
+      'approve': 'Approve',
+      'swap': 'Swap',
+      'deposit': 'DeFi',
+      'withdraw': 'DeFi',
+      'mint': 'ContractCall',
+      'burn': 'ContractCall',
+    };
 
-    // Check for swap transaction
-    if (this.isSwapTransaction(item, chainId)) {
-      return 'Swap';
+    // Check exact match first
+    if (categoryMap[categoryLower]) {
+      return categoryMap[categoryLower];
     }
 
-    // Check for DeFi activity
-    if (this.isDeFiActivity(item, chainId)) {
-      return 'DeFi';
-    }
-
-    // Check for NFT transfer
-    if (item.transaction_category === 'erc721' || item.transaction_category === 'erc1155') {
+    // Check partial matches
+    if (categoryLower.includes('nft')) {
       return 'NFTTransfer';
     }
-
-    // Check for approval
-    if (item.method_hash === '0x095ea7b3') {
+    if (categoryLower.includes('token')) {
+      // Determine if send or receive from direction
+      if (categoryLower.includes('send')) {
+        return 'Sent';
+      }
+      if (categoryLower.includes('receive')) {
+        return 'Received';
+      }
+    }
+    if (categoryLower.includes('swap') || categoryLower.includes('exchange')) {
+      return 'Swap';
+    }
+    if (categoryLower.includes('approve')) {
       return 'Approve';
     }
-
-    // Check for contract call (not a simple transfer)
-    if (item.method_label && item.method_label !== 'transfer') {
+    if (categoryLower.includes('contract') || categoryLower.includes('interaction')) {
       return 'ContractCall';
     }
 
-    // Determine sent/received
-    if (isFromWallet && !isToWallet) {
-      return 'Sent';
-    } else if (isToWallet && !isFromWallet) {
-      return 'Received';
-    }
-
-    // Default to transfer
+    // Default fallback
     return 'Transfer';
   }
 
@@ -333,39 +408,24 @@ export class TransactionParser {
    */
   private buildMetadata(
     item: MoralisHistoryItem,
-    txType: TransactionType,
-    chainId: number
+    txType: TransactionType
   ): Transaction['metadata'] {
     const metadata: Transaction['metadata'] = {
-      methodLabel: item.method_label,
-      methodHash: item.method_hash,
+      methodLabel: item.method_label || undefined,
+      methodHash: item.method_hash || undefined,
     };
 
-    // Add DEX name for swaps
-    if (txType === 'Swap') {
-      const toLower = item.to_address?.toLowerCase() || '';
-      const dexRouters = DEX_ROUTERS[chainId] || {};
-      const dexName = dexRouters[toLower];
-      
-      if (dexName) {
-        metadata.dexName = dexName;
-        metadata.protocol = dexName;
-      }
-
-      // Try to extract method name
-      if (item.method_hash) {
-        const methodName = SWAP_METHOD_SIGNATURES[item.method_hash.toLowerCase()];
-        if (methodName) {
-          metadata.swapRoute = methodName;
-        }
+    // Try to extract method name for swaps
+    if (txType === 'Swap' && item.method_hash) {
+      const methodName = SWAP_METHOD_SIGNATURES[item.method_hash.toLowerCase()];
+      if (methodName) {
+        metadata.swapRoute = methodName;
       }
     }
 
     // Add protocol info for DeFi
-    if (txType === 'DeFi') {
-      if (item.method_label) {
-        metadata.protocol = item.method_label;
-      }
+    if (txType === 'DeFi' && item.method_label) {
+      metadata.protocol = item.method_label;
     }
 
     return metadata;
@@ -375,7 +435,12 @@ export class TransactionParser {
    * Get chain ID from chain name
    * Matches the chain names returned by Moralis /wallets/ endpoints
    */
-  private getChainIdFromName(chainName: string): number | null {
+  private getChainIdFromName(chainName: string | undefined | null): number | null {
+    // Handle null/undefined chain name
+    if (!chainName || typeof chainName !== 'string') {
+      return null;
+    }
+
     const chainMap: Record<string, number> = {
       'eth': 1,
       'ethereum': 1,
@@ -391,6 +456,26 @@ export class TransactionParser {
       'polygon-zkevm': 1101,
     };
     return chainMap[chainName.toLowerCase()] || null;
+  }
+
+  /**
+   * Get chain name from chain ID (reverse lookup)
+   * Used when chain field is missing from response
+   */
+  private getChainNameFromId(chainId: number): string | null {
+    const chainMap: Record<number, string> = {
+      1: 'eth',
+      10: 'optimism',
+      56: 'bsc',
+      137: 'polygon',
+      42161: 'arbitrum',
+      43114: 'avalanche',
+      8453: 'base',
+      250: 'fantom',
+      100: 'gnosis',
+      1101: 'polygon-zkevm',
+    };
+    return chainMap[chainId] || null;
   }
 
   /**

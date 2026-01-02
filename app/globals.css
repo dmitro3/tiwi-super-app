@@ -456,6 +456,42 @@ html::-webkit-scrollbar-corner {
   background: #010501;
 }
 
+/* Custom scrollbar for all overflow-y-auto components (thinner than main scrollbar) */
+/* Targets elements with overflow-y-auto class (works with Tailwind utility classes) */
+[class*="overflow-y-auto"] {
+  scrollbar-width: thin;
+  scrollbar-color: #1f261e #010501;
+}
+
+[class*="overflow-y-auto"]::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+[class*="overflow-y-auto"]::-webkit-scrollbar-track {
+  background: #010501;
+  border-radius: 3px;
+}
+
+[class*="overflow-y-auto"]::-webkit-scrollbar-thumb {
+  background: #1f261e;
+  border-radius: 3px;
+  border: 1px solid #010501;
+}
+
+[class*="overflow-y-auto"]::-webkit-scrollbar-thumb:hover {
+  background: #2a3229;
+  border-color: #0b0f0a;
+}
+
+[class*="overflow-y-auto"]::-webkit-scrollbar-thumb:active {
+  background: #3a4239;
+}
+
+[class*="overflow-y-auto"]::-webkit-scrollbar-corner {
+  background: #010501;
+}
+
 /* Range input styling for percentage slider */
 input[type="range"] {
   -webkit-appearance: none;

@@ -55,3 +55,4 @@ export default function NFTActivityItem({ activity }: NFTActivityItemProps) {
   );
 }
 
+
