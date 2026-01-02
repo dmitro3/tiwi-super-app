@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import Image from "next/image";
 import ViewPortfolioButton from "./view-portfolio-button";
 import RewardClaimCard from "./reward-claim-card";
 import TransactionHistory from "./transaction-history";
 import { useWalletBalances } from "@/hooks/useWalletBalances";
 import { useWalletTransactions } from "@/hooks/useWalletTransactions";
+import { useBalanceVisibilityStore } from "@/lib/frontend/store/balance-visibility-store";
 import Skeleton from "@/components/ui/skeleton";
 import TransactionSkeleton from "@/components/ui/transaction-skeleton";
 
@@ -29,7 +30,8 @@ export default function WalletBalancePanel({
   walletIcon,
   onDisconnect,
 }: WalletBalancePanelProps) {
-  const [showBalance, setShowBalance] = useState(true);
+  // Use global balance visibility state
+  const { isBalanceVisible, toggleBalanceVisibility } = useBalanceVisibilityStore();
   
   // Fetch wallet balances and transactions
   const { balances, totalUSD, isLoading: balancesLoading, error: balancesError } = useWalletBalances(walletAddress);
@@ -73,10 +75,6 @@ export default function WalletBalancePanel({
   const handleCopyAddress = () => {
     navigator.clipboard.writeText(walletAddress);
     // TODO: Show toast notification
-  };
-
-  const toggleBalanceVisibility = () => {
-    setShowBalance(!showBalance);
   };
 
   // Format USD value as currency
@@ -215,7 +213,7 @@ export default function WalletBalancePanel({
                   </p>
                 ) : (
                   <p className="font-bold leading-normal relative shrink-0 text-4xl lg:text-3xl xl:text-3.5xl 2xl:text-4xl text-center text-white">
-                    {showBalance ? formatCurrency(totalUSD) : "****"}
+                    {isBalanceVisible ? formatCurrency(totalUSD) : "****"}
                   </p>
                 )}
               </div>
@@ -225,11 +223,13 @@ export default function WalletBalancePanel({
                 ) : (
                   <>
                     <p className="font-semibold leading-[26px] lg:leading-[18px] xl:leading-[22px] 2xl:leading-[26px] relative shrink-0 text-[#3fea9b]">
-                      +$0.00 (0.00%)
+                      {isBalanceVisible ? "+$0.00 (0.00%)" : "****"}
                     </p>
-                    <p className="[text-decoration-skip-ink:none] [text-underline-position:from-font] decoration-solid font-medium leading-[22px] lg:leading-[15px] xl:leading-[18px] 2xl:leading-[22px] relative shrink-0 text-[#9da4ae] underline">
-                      today
-                    </p>
+                    {isBalanceVisible && (
+                      <p className="[text-decoration-skip-ink:none] [text-underline-position:from-font] decoration-solid font-medium leading-[22px] lg:leading-[15px] xl:leading-[18px] 2xl:leading-[22px] relative shrink-0 text-[#9da4ae] underline">
+                        today
+                      </p>
+                    )}
                   </>
                 )}
               </div>

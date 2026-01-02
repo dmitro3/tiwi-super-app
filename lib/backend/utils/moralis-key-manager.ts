@@ -17,15 +17,17 @@
  * Filter out undefined/null keys and ensure we have at least one valid key
  */
 function getValidKeys(): string[] {
-  const keys: string[] = [
-    // Primary key (from environment or default)
-    process.env.MORALIS_API_KEY_1,
-    // Secondary key (fallback) - the one that works
-    process.env.MORALIS_API_KEY_2!,
-    // Third key (if provided)
-    process.env.MORALIS_API_KEY_3!,
-  ].filter((key): key is string => Boolean(key));
-  
+  // Dynamically collect Moralis API keys from environment variables: MORALIS_API_KEY_1, _2, _3, ...
+  const keys: string[] = [];
+  let i = 1;
+  while (true) {
+    const key = process.env[`MORALIS_API_KEY_${i}` as const];
+    if (typeof key === 'undefined') break;
+    if (key && typeof key === 'string' && key.trim()) {
+      keys.push(key);
+    }
+    i += 1;
+  }
   if (keys.length === 0) {
     throw new Error('[MoralisKeyManager] No valid API keys provided');
   }

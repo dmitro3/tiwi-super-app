@@ -1,6 +1,7 @@
 "use client";
 
-import { useRef, useState, useMemo } from "react";
+import { useRef, useState, useMemo, useEffect, useCallback } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 
 import Image from "next/image";
 import { useWalletConnection } from "@/hooks/useWalletConnection";
@@ -9,12 +10,26 @@ import { useWalletBalances } from "@/hooks/useWalletBalances";
 import { useWalletTransactions } from "@/hooks/useWalletTransactions";
 import { useWalletNFTs } from "@/hooks/useWalletNFTs";
 import { useNFTActivity } from "@/hooks/useNFTActivity";
-import { mapWalletTokensToAssets } from "@/lib/shared/utils/portfolio-formatting";
+import { useTWCPrice } from "@/hooks/useTWCPrice";
+import { mapWalletTokensToAssets, formatCurrency, getTokenFallbackIcon, formatTokenAmount } from "@/lib/shared/utils/portfolio-formatting";
+import { TokenIcon } from "@/components/portfolio/token-icon";
+import { useBalanceVisibilityStore } from "@/lib/frontend/store/balance-visibility-store";
 import NFTGrid from "@/components/nft/nft-grid";
 import NFTDetailCard from "@/components/nft/nft-detail-card";
 import type { NFT } from "@/lib/backend/types/nft";
-import type { Transaction } from "@/lib/backend/types/wallet";
+import type { Transaction, WalletToken } from "@/lib/backend/types/wallet";
+// Option A: Token Selector Modal (prepared but disabled)
+// import TokenSelectorModal from "@/components/swap/token-selector-modal";
+// import type { Token } from "@/lib/frontend/types/tokens";
 import Skeleton from "@/components/ui/skeleton";
+import {
+  BalanceSkeleton,
+  AssetListSkeleton,
+  NFTGridSkeleton,
+  SendFormSkeleton,
+  ReceiveSkeleton,
+  TransactionListSkeleton,
+} from "@/components/portfolio/skeletons/portfolio-skeletons";
 import {
   IoEyeOutline,
   IoChevronDown,
@@ -93,7 +108,7 @@ const assets = [
 // ==========================================
 //  TRANSACTION ROW COMPONENT (Matches Figma Design)
 // ==========================================
-function TransactionRow({ transaction }: { transaction: Transaction }) {
+function TransactionRow({ transaction, isBalanceVisible = true }: { transaction: Transaction; isBalanceVisible?: boolean }) {
   const isReceived = transaction.type === "Received" || transaction.type.toLowerCase().includes("receive");
   const amountText = `${transaction.amountFormatted} ${transaction.tokenSymbol}`.toUpperCase();
   const usdValue = transaction.usdValue
@@ -116,9 +131,9 @@ function TransactionRow({ transaction }: { transaction: Transaction }) {
           className={`text-lg font-medium uppercase ${isReceived ? "text-[#498F00]" : "text-white"
             }`}
         >
-          {amountText}
+          {isBalanceVisible ? amountText : "****"}
         </span>
-        {usdValue && (
+        {isBalanceVisible && usdValue && (
           <span className="text-base font-medium text-[#B5B5B5]">
             {usdValue}
           </span>
@@ -146,6 +161,14 @@ function TransactionRow({ transaction }: { transaction: Transaction }) {
 }
 
 // ==========================================
+//  FEATURE FLAG: Receive Tab Token Selection
+// ==========================================
+// Set to true when Option A (Token Modal) is approved
+// Option A: Full Token Selector Modal (like swap page) - shows all tokens/chains
+// Option B: Simple Dropdown (current) - shows only user's wallet tokens
+const USE_TOKEN_MODAL_FOR_RECEIVE = false;
+
+// ==========================================
 //  DESKTOP VIEW COMPONENT
 // ==========================================
 function WalletPageDesktop() {
@@ -158,7 +181,7 @@ function WalletPageDesktop() {
   const [sendStep, setSendStep] = useState<"form" | "confirm">("form");
   const [activeLeftTab, setActiveLeftTab] = useState<LeftTab>("assets");
 
-  const [selectedNft, setSelectedNft] = useState<(typeof nfts)[number] | null>(
+  const [selectedNft, setSelectedNft] = useState<NFT | null>(
     null
   );
 
@@ -167,8 +190,50 @@ function WalletPageDesktop() {
   const inputRef = useRef<HTMLInputElement>(null);
   const [copied, setCopied] = useState(false);
 
+  // Send token selection state
+  const [selectedSendToken, setSelectedSendToken] = useState<WalletToken | null>(null);
+  const [sendAmount, setSendAmount] = useState<string>('');
+  
+  // Receive token selection state
+  const [selectedReceiveToken, setSelectedReceiveToken] = useState<WalletToken | null>(null);
+  
+  // Option A: Token Selector Modal state (prepared but disabled)
+  // const [receiveModalOpen, setReceiveModalOpen] = useState(false);
+  
+  // Dropdown refs for closing on selection
+  const sendDropdownRef = useRef<HTMLDetailsElement>(null);
+  const receiveDropdownRef = useRef<HTMLDetailsElement>(null);
+
+  // Click outside handler to close dropdowns
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement;
+      
+      // Close send dropdown if click is outside
+      if (sendDropdownRef.current && !sendDropdownRef.current.contains(target)) {
+        sendDropdownRef.current.removeAttribute('open');
+      }
+      
+      // Close receive dropdown if click is outside
+      if (receiveDropdownRef.current && !receiveDropdownRef.current.contains(target)) {
+        receiveDropdownRef.current.removeAttribute('open');
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
+
   // Get connected wallet address
   const { connectedAddress } = useWalletConnection();
+
+  // Balance visibility state
+  const { isBalanceVisible, toggleBalanceVisibility } = useBalanceVisibilityStore();
+
+  // Fetch TWC token data for default token
+  const { data: twcData, isLoading: isLoadingTWC } = useTWCPrice();
 
   // Fetch portfolio balance and daily change
   const {
@@ -218,6 +283,136 @@ function WalletPageDesktop() {
     });
   }, [walletTokens]);
 
+  // Get first token from wallet (sorted by USD value, highest first)
+  const firstToken = useMemo(() => {
+    if (!walletTokens || walletTokens.length === 0) return null;
+    return [...walletTokens]
+      .sort((a, b) => {
+        const aValue = parseFloat(a.usdValue || '0');
+        const bValue = parseFloat(b.usdValue || '0');
+        return bValue - aValue;
+      })[0];
+  }, [walletTokens]);
+
+  // Create default TWC token (when no assets)
+  const defaultToken = useMemo<WalletToken>(() => {
+    if (twcData?.token) {
+      // Use prefetched TWC token data
+      return {
+        address: twcData.token.address,
+        symbol: twcData.token.symbol,
+        name: twcData.token.name,
+        decimals: twcData.token.decimals || 9,
+        balance: '0',
+        balanceFormatted: '0.00',
+        chainId: twcData.token.chainId || 56,
+        logoURI: twcData.token.logo || '/assets/logos/twc-token.svg',
+        usdValue: '0',
+        priceUSD: twcData.token.price || '0',
+        priceChange24h: twcData.priceChange24h?.toString(),
+      };
+    }
+    
+    // Fallback if TWC not loaded yet
+    return {
+      address: '0xDA1060158F7D593667cCE0a15DB346BB3FfB3596',
+      symbol: 'TWC',
+      name: 'TIWI CAT',
+      decimals: 9,
+      balance: '0',
+      balanceFormatted: '0.00',
+      chainId: 56,
+      logoURI: '/assets/logos/twc-token.svg',
+      usdValue: '0',
+      priceUSD: '0',
+      priceChange24h: undefined,
+    };
+  }, [twcData]);
+
+  // Token to display: selected token, or first token from wallet, or TWC default
+  // Priority: selectedSendToken > firstToken > defaultToken
+  const displayToken = selectedSendToken || firstToken || defaultToken;
+
+  // Update selected token when firstToken changes (initial load)
+  // Only set if no token is currently selected
+  useEffect(() => {
+    if (!selectedSendToken) {
+      if (firstToken) {
+        setSelectedSendToken(firstToken);
+      } else {
+        setSelectedSendToken(defaultToken);
+      }
+    }
+  }, [firstToken, defaultToken, selectedSendToken]);
+
+  // Reset amount when token changes
+  useEffect(() => {
+    setSendAmount('');
+  }, [selectedSendToken]);
+
+  // Handler for clicking asset to select token
+  const handleAssetClick = (asset: typeof assets[0]) => {
+    // Find corresponding WalletToken
+    const token = walletTokens?.find(
+      t => t.symbol === asset.symbol && 
+           parseFloat(t.usdValue || '0') > 0
+    );
+    if (token) {
+      setSelectedSendToken(token);
+      // Auto-switch to send tab
+      if (activeTab !== 'send') {
+        setActiveTab('send');
+      }
+    }
+  };
+
+  // Handler for selecting token in send dropdown
+  const handleSendTokenSelect = (token: WalletToken) => {
+    setSelectedSendToken(token);
+    // Close dropdown
+    if (sendDropdownRef.current) {
+      sendDropdownRef.current.removeAttribute('open');
+    }
+  };
+
+  // Handler for selecting token in receive dropdown
+  const handleReceiveTokenSelect = (token: WalletToken) => {
+    setSelectedReceiveToken(token);
+    // Close dropdown
+    if (receiveDropdownRef.current) {
+      receiveDropdownRef.current.removeAttribute('open');
+    }
+  };
+
+  // Update receive token when firstToken changes
+  useEffect(() => {
+    if (firstToken && !selectedReceiveToken) {
+      setSelectedReceiveToken(firstToken);
+    } else if (!firstToken && !selectedReceiveToken) {
+      setSelectedReceiveToken(defaultToken);
+    }
+  }, [firstToken, defaultToken, selectedReceiveToken]);
+
+  // Receive token to display: selected token, or first token from wallet, or TWC default
+  // Priority: selectedReceiveToken > firstToken > defaultToken
+  const displayReceiveToken = selectedReceiveToken || firstToken || defaultToken;
+
+  // Max button handler
+  const handleMaxClick = () => {
+    if (displayToken) {
+      setSendAmount(displayToken.balanceFormatted);
+    }
+  };
+
+  // Calculate USD value of send amount
+  const sendAmountUSD = useMemo(() => {
+    if (!sendAmount || !displayToken?.priceUSD) return '0.00';
+    const amount = parseFloat(sendAmount);
+    const price = parseFloat(displayToken.priceUSD);
+    if (isNaN(amount) || isNaN(price)) return '0.00';
+    return (amount * price).toFixed(2);
+  }, [sendAmount, displayToken]);
+
   // Use real balance data or fallback to mock for development
   const displayBalance = balanceData?.totalUSD || "0.00";
   const dailyChangeText = balanceData?.dailyChangeFormatted;
@@ -242,28 +437,35 @@ function WalletPageDesktop() {
           <div className="ml-5 mb-6">
             <span className="flex items-center gap-2">
               <p className="text-xs text-[#B5B5B5]">Total Balance</p>
-              <IoEyeOutline color="B5B5B5" size={10} />
+              <button
+                onClick={toggleBalanceVisibility}
+                className="cursor-pointer hover:opacity-80 transition-opacity flex items-center justify-center"
+                aria-label="Toggle balance visibility"
+              >
+                <IoEyeOutline color="#B5B5B5" size={16} />
+              </button>
             </span>
             {balanceLoading ? (
-              <div className="mt-1 space-y-2">
-                <Skeleton className="h-9 w-32" />
-                <Skeleton className="h-5 w-40" />
+              <div className="mt-1">
+                <BalanceSkeleton />
               </div>
             ) : balanceError ? (
               <>
-                <h1 className="mt-1 text-3xl font-bold text-[#E6ECE9]">$0.00</h1>
+            <h1 className="mt-1 text-3xl font-bold text-[#E6ECE9]">
+                  {isBalanceVisible ? "$0.00" : "****"}
+            </h1>
                 <p className="mt-1 text-sm text-[#FF4444]">
                   Error loading balance
                 </p>
               </>
-            ) : (
+            ) : balanceData ? (
               <>
                 <h1 className="mt-1 text-3xl font-bold text-[#E6ECE9]">
-                  ${displayBalance}
+                  {isBalanceVisible ? `$${displayBalance}` : "****"}
                 </h1>
                 {dailyChangeText ? (
                   <p className="mt-1 text-sm" style={{ color: dailyChangeColor }}>
-                    {dailyChangeText} <span className="text-[#9DA4AE]">today</span>
+                    {isBalanceVisible ? dailyChangeText : "****"} <span className="text-[#9DA4AE]">today</span>
                   </p>
                 ) : (
                   <p className="mt-1 text-sm text-[#9DA4AE]">
@@ -271,6 +473,10 @@ function WalletPageDesktop() {
                   </p>
                 )}
               </>
+            ) : (
+              <div className="mt-1">
+                <BalanceSkeleton />
+              </div>
             )}
           </div>
 
@@ -282,7 +488,7 @@ function WalletPageDesktop() {
                 className={`cursor-pointer rounded-full font-semibold text-base px-4 py-1 ${activeLeftTab === "assets"
                     ? "bg-[#081F02] text-[#B1F128]"
                     : "text-[#6E7873]"
-                  }`}
+                }`}
               >
                 Assets
               </button>
@@ -291,7 +497,7 @@ function WalletPageDesktop() {
                 className={`cursor-pointer rounded-full font-semibold text-base px-4 py-1 ${activeLeftTab === "nft"
                     ? "bg-[#081F02] text-[#B1F128]"
                     : "text-[#6E7873]"
-                  }`}
+                }`}
               >
                 NFTs
               </button>
@@ -330,27 +536,7 @@ function WalletPageDesktop() {
             {activeLeftTab === "assets" && (
               <>
                 {tokensLoading ? (
-                  <ul className="space-y-3">
-                    {[1, 2, 3, 4, 5].map((i) => (
-                      <li
-                        key={i}
-                        className="grid grid-cols-[20px_120px_80px_1fr] gap-3 items-center rounded-xl bg-[#0E1310] px-2 py-3"
-                      >
-                        <Skeleton className="h-5 w-5 rounded-full" />
-                        <div className="space-y-1">
-                          <Skeleton className="h-4 w-16" />
-                          <Skeleton className="h-3 w-24" />
-                        </div>
-                        <div className="flex justify-start">
-                          <Skeleton className="h-7 w-20" />
-                        </div>
-                        <div className="text-right space-y-1">
-                          <Skeleton className="h-4 w-16" />
-                          <Skeleton className="h-3 w-20" />
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
+                  <AssetListSkeleton isMobile={false} />
                 ) : tokensError ? (
                   <div className="flex flex-col items-center justify-center py-8 text-center">
                     <p className="text-sm text-[#FF4444] mb-2">
@@ -370,64 +556,111 @@ function WalletPageDesktop() {
                     </p>
                   </div>
                 ) : (
-                  <ul className="space-y-3">
-                    {assets.map((asset, i) => (
-                      <li
-                        key={i}
-                        className="grid grid-cols-[20px_120px_80px_1fr] gap-3 items-center rounded-xl bg-[#0E1310] px-2 py-3 hover:bg-[#141A16]"
+              <ul className="space-y-3">
+                    {assets.map((asset, i) => {
+                      // Find corresponding WalletToken for this asset
+                      const token = walletTokens?.find(
+                        t => t.symbol === asset.symbol && 
+                             parseFloat(t.usdValue || '0') > 0
+                      );
+                      const isSelected = selectedSendToken && token && 
+                        selectedSendToken.symbol === token.symbol &&
+                        selectedSendToken.address === token.address &&
+                        selectedSendToken.chainId === token.chainId;
+                      
+                      return (
+                  <li
+                    key={i}
+                        onClick={() => handleAssetClick(asset)}
+                        className={`grid grid-cols-[20px_100px_100px_2fr] gap-3 items-center rounded-xl px-2 py-3 cursor-pointer transition-all ${
+                          isSelected 
+                            ? "bg-[#1F261E] border border-[#B1F128]/30" 
+                            : "bg-[#0E1310] hover:bg-[#141A16]"
+                        }`}
                       >
                         {/* Column 1: Logo */}
                         <div className="shrink-0 flex items-center justify-start">
-                          <Image
-                            src={asset.icon}
-                            alt={`${asset.symbol} icon`}
-                            width={20}
-                            height={20}
-                            className="opacity-90"
+                      <Image
+                        src={asset.icon}
+                        alt={`${asset.symbol} icon`}
+                        width={20}
+                        height={20}
+                            className="opacity-90 rounded-full"
                           />
                         </div>
 
                         {/* Column 2: Symbol and Name (Fixed width to keep chart aligned) */}
                         <div className="min-w-0">
                           <p className="text-sm font-medium text-[#FFFFFF] truncate">
-                            {asset.symbol}
-                          </p>
+                          {asset.symbol}
+                        </p>
                           <p className="text-xs text-[#8A929A] truncate">{asset.name}</p>
-                        </div>
+                    </div>
 
                         {/* Column 3: Chart (Fixed position, justify-start) */}
                         <div className="flex justify-start shrink-0">
-                          <Image
-                            src={asset.trend === "bearish" ? bearish : bullish}
-                            alt={`${asset.symbol} chart`}
-                            width={80}
-                            height={28}
-                            className="opacity-90"
-                          />
-                        </div>
+                      <Image
+                        src={asset.trend === "bearish" ? bearish : bullish}
+                        alt={`${asset.symbol} chart`}
+                        width={80}
+                        height={28}
+                        className="opacity-90"
+                      />
+                    </div>
 
                         {/* Column 4: Amount and USD Value (Right-aligned) */}
                         <div className="text-right min-w-0">
                           <p className="text-sm font-medium text-[#FFF] break-all">
-                            {asset.amount}
-                          </p>
-                          <p className="text-xs text-[#8A929A]">{asset.value}</p>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
+                        {isBalanceVisible ? asset.amount : "****"}
+                      </p>
+                      <p className="text-xs text-[#8A929A]">{isBalanceVisible ? asset.value : "****"}</p>
+                    </div>
+                        {/* Selected indicator */}
+                        {isSelected && (
+                          <div className="absolute top-2 right-2">
+                            <div className="w-2 h-2 rounded-full bg-[#B1F128]" />
+                          </div>
+                        )}
+                  </li>
+                      );
+                    })}
+              </ul>
                 )}
               </>
             )}
 
             {/* NFT GRID */}
             {activeLeftTab === "nft" && (
-              <NFTGrid
-                nfts={nfts}
-                isLoading={nftsLoading}
-                onNFTSelect={setSelectedNft}
-                selectedNFT={selectedNft}
-              />
+              <>
+                {nftsLoading ? (
+                  <NFTGridSkeleton />
+                ) : nftsError ? (
+                  <div className="flex flex-col items-center justify-center py-8 text-center">
+                    <p className="text-sm text-[#FF4444] mb-2">
+                      Error loading NFTs
+                    </p>
+                    <p className="text-xs text-[#8A929A]">
+                      {nftsError}
+                        </p>
+                      </div>
+                ) : nfts.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-8 text-center">
+                    <p className="text-sm text-[#8A929A] mb-2">
+                      No NFTs found
+                    </p>
+                    <p className="text-xs text-[#6E7873]">
+                      Start collecting NFTs to see them here
+                    </p>
+                      </div>
+                ) : (
+                  <NFTGrid
+                    nfts={nfts}
+                    isLoading={false}
+                    onNFTSelect={setSelectedNft}
+                    selectedNFT={selectedNft}
+                  />
+                )}
+              </>
             )}
           </div>
 
@@ -522,7 +755,7 @@ function WalletPageDesktop() {
                 ${activeTab === "send"
                     ? "bg-[#081F02] text-[#B1F128]"
                     : "bg-[#0B0F0A] text-[#B5B5B5]"
-                  }`}
+                }`}
               >
                 <RiSendPlaneLine size={16} />
                 Send
@@ -534,7 +767,7 @@ function WalletPageDesktop() {
                 ${activeTab === "receive"
                     ? "bg-[#081F02] text-[#B1F128]"
                     : "bg-[#0B0F0A] text-[#B5B5B5]"
-                  }`}
+                }`}
               >
                 <HiDownload size={16} />
                 Receive
@@ -544,8 +777,8 @@ function WalletPageDesktop() {
                 onClick={() => setActiveTab("activities")}
                 className={`flex h-full w-full cursor-pointer items-center justify-center gap-2 rounded-2xl py-3.25 text-sm font-medium transition
                   ${activeTab === "activities"
-                    ? "bg-[#081F02] text-[#B1F128]"
-                    : "bg-[#0B0F0A] text-[#B5B5B5]"
+                      ? "bg-[#081F02] text-[#B1F128]"
+                      : "bg-[#0B0F0A] text-[#B5B5B5]"
                   }`}
               >
                 <MdHistory size={16} />
@@ -569,31 +802,59 @@ function WalletPageDesktop() {
           {/* ASSETS TAB RIGHT PANEL DISPLAY */}
           {activeLeftTab === "assets" && (
             <>
+
               {/* Send tab content */}
               {activeTab === "send" && (
                 <>
+                  {tokensLoading ? (
+                    <SendFormSkeleton />
+                  ) : (
+                <>
                   {/* Asset Header with Go Back button */}
                   <div className="mb-2 flex items-start justify-between">
+                        {tokensLoading || isLoadingTWC ? (
+                          <div className="space-y-2">
+                            <Skeleton className="h-5 w-24 skeleton-shimmer" />
+                            <Skeleton className="h-6 w-32 skeleton-shimmer" />
+                            <Skeleton className="h-4 w-40 skeleton-shimmer" />
+                          </div>
+                        ) : displayToken ? (
                     <div>
                       <span className="flex items-center gap-2">
-                        <Image src={ethereum} alt="" width={20} height={20} />
-                        <p className="text-sm text-[#FFF]">Ethereum</p>
+                              <TokenIcon
+                                src={displayToken.logoURI || getTokenFallbackIcon(displayToken.symbol)}
+                                symbol={displayToken.symbol}
+                                alt={displayToken.symbol}
+                                width={20}
+                                height={20}
+                              />
+                              <p className="text-sm text-[#FFF]">{displayToken.symbol}</p>
                       </span>
                       <p className="text-xl text-[#FFF] font-medium">
-                        0.01912343
+                              {isBalanceVisible ? formatTokenAmount(displayToken.balanceFormatted, 6) : "****"}
                       </p>
                       <div className="text-xs flex gap-2 items-center">
-                        <p className="text-[#8A929A]">$10,234.23</p>
-                        <span className="text-[#34C759] flex">
+                              <p className="text-[#8A929A]">
+                                {isBalanceVisible ? formatCurrency(displayToken.usdValue) : "****"}
+                              </p>
+                              {isBalanceVisible && displayToken.priceChange24h && parseFloat(displayToken.priceChange24h) !== 0 && (
+                                <span className={`${parseFloat(displayToken.priceChange24h) >= 0 ? 'text-[#34C759]' : 'text-[#FF4444]'} flex`}>
                           <FaArrowUp
                             size={16}
                             className="bg-[#1B1B1B] p-1 rounded-full"
                           />
-                          0.10%
+                                  {Math.abs(parseFloat(displayToken.priceChange24h)).toFixed(2)}%
                         </span>
+                              )}
                         <p className="text-[#B5B5B5]">Today</p>
                       </div>
                     </div>
+                        ) : (
+                          <div className="space-y-2">
+                            <Skeleton className="h-5 w-24 skeleton-shimmer" />
+                            <Skeleton className="h-6 w-32 skeleton-shimmer" />
+                          </div>
+                        )}
 
                     {/* Go Back button - only shown in confirm step */}
                     {sendStep === "confirm" && (
@@ -609,17 +870,15 @@ function WalletPageDesktop() {
 
                   {/* Form Step */}
                   {sendStep === "form" && (
-                    <>
-                      {/* Send Form */}
                       <div className="mb-2 space-y-2">
                         <div className="bg-[#010501] flex items-center justify-around gap-1 px-2 py-4 rounded-2xl">
                           <button
                             onClick={() => setActiveSendTab("single")}
                             className={`flex h-full cursor-pointer px-6 items-center justify-center gap-2 pb-1 text-sm font-medium
                            ${activeSendTab === "single"
-                                ? "border-b-[1.5px] border-[#B1F128] text-[#B1F128]"
-                                : "border-b-[1.5px] border-transparent text-[#B5B5B5]"
-                              }`}
+                               ? "border-b-[1.5px] border-[#B1F128] text-[#B1F128]"
+                               : "border-b-[1.5px] border-transparent text-[#B5B5B5]"
+                           }`}
                           >
                             Send To One
                           </button>
@@ -628,9 +887,9 @@ function WalletPageDesktop() {
                             onClick={() => setActiveSendTab("multi")}
                             className={`flex h-full cursor-pointer px-6 items-center justify-center gap-2 pb-1 text-sm font-medium
                            ${activeSendTab === "multi"
-                                ? "border-b-[1.5px] border-[#B1F128] text-[#B1F128]"
-                                : "border-b-[1.5px] border-transparent text-[#B5B5B5]"
-                              }`}
+                               ? "border-b-[1.5px] border-[#B1F128] text-[#B1F128]"
+                               : "border-b-[1.5px] border-transparent text-[#B5B5B5]"
+                           }`}
                           >
                             Multi-Send
                           </button>
@@ -638,13 +897,14 @@ function WalletPageDesktop() {
 
                         <div className="flex items-center justify-between rounded-xl bg-[#0B0F0A] px-4 py-3">
                           {/* crypto dropdown */}
-                          <details className="bg-[#121712] rounded-full group relative w-fit">
+                            <details ref={sendDropdownRef} className="bg-[#121712] rounded-full group relative w-fit">
                             {/* Trigger */}
                             <summary className="flex cursor-pointer list-none items-center gap-3 rounded-full bg-[#121712] px-2 py-3 text-left outline-none">
                               {/* Icon */}
-                              <Image
-                                src={ethereum}
-                                alt="Ethereum"
+                                <TokenIcon
+                                  src={displayToken.logoURI || getTokenFallbackIcon(displayToken.symbol)}
+                                  symbol={displayToken.symbol}
+                                  alt={displayToken.name}
                                 width={36}
                                 height={36}
                                 className="shrink-0"
@@ -653,10 +913,10 @@ function WalletPageDesktop() {
                               {/* Text */}
                               <div className="leading-tight">
                                 <p className="text-sm font-semibold text-[#FFF]">
-                                  ETH
+                                    {displayToken.symbol}
                                 </p>
                                 <p className="text-xs font-medium text-[#7C7C7C]">
-                                  Ethereum
+                                    {displayToken.name}
                                 </p>
                               </div>
                               <IoChevronDown
@@ -666,38 +926,65 @@ function WalletPageDesktop() {
                             </summary>
 
                             {/* Dropdown menu */}
-                            <div className="absolute left-0 z-10 mt-2 w-full min-w-55 rounded-xl bg-[#0B0F0A] p-2 shadow-[0_10px_30px_rgba(0,0,0,0.6)]">
-                              <button className="flex w-full items-center gap-3 rounded-lg px-3 py-2 hover:bg-[#141A16]">
-                                <Image
-                                  src={ethereum}
-                                  alt=""
+                              <div className="absolute left-0 z-10 mt-2 w-full min-w-55 max-h-[300px] overflow-y-auto rounded-xl bg-[#0B0F0A] p-2 shadow-[0_10px_30px_rgba(0,0,0,0.6)] dropdown-scrollbar">
+                                {walletTokens && walletTokens.length > 0 ? (
+                                  walletTokens.map((token) => (
+                                    <button
+                                      key={`${token.chainId}-${token.address}`}
+                                      onClick={() => handleSendTokenSelect(token)}
+                                      className="flex w-full items-center gap-3 rounded-lg px-3 py-2 hover:bg-[#141A16]"
+                                    >
+                                      <TokenIcon
+                                        src={token.logoURI || getTokenFallbackIcon(token.symbol)}
+                                        symbol={token.symbol}
+                                        alt={token.symbol}
                                   width={24}
                                   height={24}
                                 />
                                 <span className="text-sm text-[#E6ECE9]">
-                                  Ethereum
+                                        {token.name}
                                 </span>
                               </button>
-
-                              {/* Add more assets here */}
+                                  ))
+                                ) : (
+                                  <div className="px-3 py-2 text-xs text-[#8A929A]">
+                                    No tokens available
+                                  </div>
+                                )}
                             </div>
                           </details>
 
-                          <div>
-                            <span className="flex items-center gap-1">
+                            <div className="text-right">
+                              <span className="flex items-center gap-1 justify-end mb-1">
                               <BsWallet2 size={10} />
                               <p className="text-xs text-[#B5B5B5]">
-                                0.0342ETH
+                                  {isBalanceVisible ? `${formatTokenAmount(displayToken.balanceFormatted, 6)} ${displayToken.symbol}` : "****"}
                               </p>
-                              <p className="text-[#B1F128] text-xs py-1 px-2 ml-1 rounded-full bg-[#1F261E]">
+                                {isBalanceVisible && (
+                                <button
+                                  onClick={handleMaxClick}
+                                  className="text-[#B1F128] text-xs py-1 px-2 ml-1 rounded-full bg-[#1F261E] hover:bg-[#2A3528] transition-colors cursor-pointer"
+                                >
                                 Max
-                              </p>
+                                </button>
+                                )}
                             </span>
-                            <p className="text-right text-[#7C7C7C] font-medium text-xl">
-                              11.496
-                            </p>
+                              <input
+                                type="text"
+                                inputMode="decimal"
+                                value={sendAmount}
+                                onChange={(e) => {
+                                  const value = e.target.value;
+                                  // Allow numbers, decimal point, and empty string
+                                  if (value === '' || /^\d*\.?\d*$/.test(value)) {
+                                    setSendAmount(value);
+                                  }
+                                }}
+                                placeholder="0.00"
+                                className="text-right text-white font-medium text-xl bg-transparent border-none outline-none w-full max-w-32"
+                              />
                             <p className="text-right text-[#7C7C7C] font-medium text-xs">
-                              $0
+                                ${sendAmountUSD}
                             </p>
                           </div>
                         </div>
@@ -775,7 +1062,6 @@ function WalletPageDesktop() {
                           Next
                         </button>
                       </div>
-                    </>
                   )}
 
                   {/* Confirm Step */}
@@ -933,7 +1219,10 @@ function WalletPageDesktop() {
                     </>
                   )}
 
-                  {/* Chart Placeholder */}
+
+                      {/* Chart Placeholder - Only show when not loading */}
+                      {!tokensLoading && (
+                        <>
                   <div className="relative h-14 overflow-hidden bg-[#1A1F1C] animate-pulse flex items-center justify-center">
                     <div className="absolute inset-0 bg-linear-to-r from-transparent via-[#4DFF9A] to-transparent opacity-40 blur-sm" />
                     <span className="relative z-10 text-xs font-medium tracking-wide text-[#E6ECE9]">
@@ -950,39 +1239,99 @@ function WalletPageDesktop() {
                     <span>5Y</span>
                     <span>All</span>
                   </div>
+                        </>
+                      )}
+                    </>
+                  )}
                 </>
               )}
 
-              {/* Recieve tab content */}
+              {/* Receive tab content */}
               {activeTab === "receive" && (
+                <>
+                  {tokensLoading ? (
+                    <ReceiveSkeleton />
+                  ) : (
                 <div className="space-y-4">
                   <div className="bg-[#0B0F0A] p-4 rounded-md">
                     <p className="text-xs text-[#7C7C7C] mb-2">Select Asset</p>
 
-                    {/* Asset dropdown */}
-                    <details className="bg-[#121712] rounded-full group relative w-full">
+                        {/* Option A: Token Selector Modal (disabled - set USE_TOKEN_MODAL_FOR_RECEIVE = true to enable) */}
+                        {USE_TOKEN_MODAL_FOR_RECEIVE ? (
+                          <>
+                            {/* Token Selector Button */}
+                            <button
+                              onClick={() => {
+                                // setReceiveModalOpen(true);
+                              }}
+                              className="w-full flex items-center gap-3 rounded-full bg-[#121712] p-2 text-left hover:bg-[#1f261e] transition-colors"
+                            >
+                              {displayReceiveToken ? (
+                                <>
+                                  <TokenIcon
+                                    src={displayReceiveToken.logoURI || getTokenFallbackIcon(displayReceiveToken.symbol)}
+                                    symbol={displayReceiveToken.symbol}
+                                    alt={displayReceiveToken.symbol}
+                                    width={36}
+                                    height={36}
+                                  />
+                                  <div className="ml-3 leading-tight flex-1">
+                                    <p className="text-sm font-semibold text-[#FFF]">
+                                      {displayReceiveToken.symbol}
+                                    </p>
+                                    <p className="text-xs font-medium text-[#7C7C7C]">
+                                      {displayReceiveToken.name}
+                                    </p>
+                                  </div>
+                                </>
+                              ) : (
+                                <span className="text-sm text-[#7C7C7C]">Select Token</span>
+                              )}
+                              <IoChevronDown size={16} className="ml-auto text-[#B5B5B5]" />
+                            </button>
+                            {/* Token Selector Modal - Uncomment when approved */}
+                            {/* <TokenSelectorModal
+                              open={receiveModalOpen}
+                              onOpenChange={setReceiveModalOpen}
+                              onTokenSelect={handleReceiveTokenSelectFromModal}
+                              selectedToken={convertWalletTokenToToken(displayReceiveToken)}
+                            /> */}
+                          </>
+                        ) : (
+                          /* Option B: Simple Dropdown (ACTIVE) */
+                          <details ref={receiveDropdownRef} className="bg-[#121712] rounded-full group relative w-full">
                       {/* Trigger */}
                       <summary className="w-full flex cursor-pointer list-none items-center rounded-full bg-[#121712] p-2 text-left outline-none">
-                        {/* Icon */}
-                        <Image
-                          src={ethereum}
-                          alt="Ethereum"
+                              {displayReceiveToken ? (
+                                <>
+                                  <TokenIcon
+                                    src={displayReceiveToken.logoURI || getTokenFallbackIcon(displayReceiveToken.symbol)}
+                                    symbol={displayReceiveToken.symbol}
+                                    alt={displayReceiveToken.symbol}
                           width={36}
                           height={36}
-                          className="shrink-0"
                         />
-
-                        {/* Text */}
                         <div className="ml-3 leading-tight">
                           <p className="text-sm font-semibold text-[#FFF]">
-                            ETH
+                                      {displayReceiveToken.symbol}
                           </p>
                           <p className="text-xs font-medium text-[#7C7C7C]">
-                            Ethereum
+                                      {displayReceiveToken.name}
                           </p>
                         </div>
-
-                        {/* Chevron pushed to far right */}
+                                </>
+                              ) : (
+                                <>
+                                  <div className="w-9 h-9 rounded-full bg-[#1F261E] flex items-center justify-center shrink-0">
+                                    <span className="text-white text-xs">?</span>
+                                  </div>
+                                  <div className="ml-3 leading-tight">
+                                    <p className="text-sm font-semibold text-[#FFF]">
+                                      Select Token
+                                    </p>
+                                  </div>
+                                </>
+                              )}
                         <IoChevronDown
                           size={16}
                           className="ml-auto text-[#B5B5B5] transition-transform group-open:rotate-180"
@@ -990,23 +1339,47 @@ function WalletPageDesktop() {
                       </summary>
 
                       {/* Dropdown menu */}
-                      <div className="absolute left-0 z-10 mt-2 w-full min-w-55 rounded-xl bg-[#0B0F0A] p-2 shadow-[0_10px_30px_rgba(0,0,0,0.6)]">
-                        <button className="flex w-full items-center gap-3 rounded-lg px-3 py-2 hover:bg-[#141A16]">
-                          <Image src={ethereum} alt="" width={24} height={24} />
-                          <span className="text-sm text-[#E6ECE9]">
-                            Ethereum
-                          </span>
+                            <div className="absolute left-0 z-10 mt-2 w-full min-w-55 max-h-[300px] overflow-y-auto rounded-xl bg-[#0B0F0A] p-2 shadow-[0_10px_30px_rgba(0,0,0,0.6)] dropdown-scrollbar">
+                              {walletTokens && walletTokens.length > 0 ? (
+                                walletTokens.map((token) => (
+                                  <button
+                                    key={`${token.chainId}-${token.address}`}
+                                    onClick={() => handleReceiveTokenSelect(token)}
+                                    className="flex w-full items-center gap-3 rounded-lg px-3 py-2 hover:bg-[#141A16]"
+                                  >
+                                    <TokenIcon
+                                      src={token.logoURI || getTokenFallbackIcon(token.symbol)}
+                                      symbol={token.symbol}
+                                      alt={token.symbol}
+                                      width={24}
+                                      height={24}
+                                    />
+                                    <div className="flex-1 text-left">
+                                      <p className="text-sm font-semibold text-[#E6ECE9]">
+                                        {token.symbol}
+                                      </p>
+                                      <p className="text-xs text-[#7C7C7C]">
+                                        {token.name}
+                                      </p>
+                                    </div>
                         </button>
-
-                        {/* Add more assets here */}
+                                ))
+                              ) : (
+                                <div className="px-3 py-2 text-xs text-[#8A929A]">
+                                  No tokens available
+                                </div>
+                              )}
                       </div>
                     </details>
+                        )}
                   </div>
 
                   {/* Warning */}
                   <div className="rounded-xl bg-[#2B1F0D] px-4 py-3 text-xs text-center text-[#FFF]">
                     Only send{" "}
-                    <span className="font-semibold">Ethereum (ETH)</span> to
+                        <span className="font-semibold">
+                          {displayReceiveToken ? `${displayReceiveToken.name} (${displayReceiveToken.symbol})` : 'tokens'}
+                        </span> to
                     this address. Other assets will be lost forever.
                   </div>
 
@@ -1024,56 +1397,64 @@ function WalletPageDesktop() {
 
                     <div className="flex flex-col space-y-4">
                       <p className="pt-4 text-xs break-all text-[#B5B5B5]">
-                        0x06193i092j9g9iu2ngmu0939i-4ti938hT432
-                      </p>
-                      <button className="flex items-center gap-2 rounded-full border border-[#B1F128] w-40 px-3 py-1.5 text-xs text-[#B1F128]">
-                        <FiCopy size={14} />
-                        Copy Address
+                            {connectedAddress || 'Not connected'}
+                          </p>
+                          <button 
+                            onClick={() => {
+                              if (connectedAddress) {
+                                navigator.clipboard.writeText(connectedAddress);
+                                setCopied(true);
+                                setTimeout(() => setCopied(false), 2000);
+                              }
+                            }}
+                            className="flex items-center gap-2 rounded-full border border-[#B1F128] w-40 px-3 py-1.5 text-xs text-[#B1F128] hover:bg-[#B1F128]/10 transition-colors"
+                          >
+                            {copied ? <FiCheck size={14} /> : <FiCopy size={14} />}
+                            {copied ? 'Copied!' : 'Copy Address'}
                       </button>
 
-                      <button className="flex items-center gap-2 rounded-full border border-[#B1F128] w-40 px-3 py-1.5 text-xs text-[#B1F128]">
+                          <button 
+                            onClick={() => {
+                              if (connectedAddress && navigator.share) {
+                                navigator.share({
+                                  title: 'My Wallet Address',
+                                  text: connectedAddress,
+                                });
+                              }
+                            }}
+                            className="flex items-center gap-2 rounded-full border border-[#B1F128] w-40 px-3 py-1.5 text-xs text-[#B1F128] hover:bg-[#B1F128]/10 transition-colors"
+                          >
                         <GoShareAndroid size={14} />
                         Share Address
                       </button>
                     </div>
                   </div>
                 </div>
+                  )}
+                </>
               )}
 
               {/* Activities tab content */}
               {activeTab === "activities" && (
-                <div className="h-125.5 w-full overflow-y-auto rounded-2xl px-4">
+                  <div className="h-125.5 w-full overflow-y-auto rounded-2xl px-4">
                   {transactionsLoading ? (
-                    <div className="flex flex-col gap-6 mt-2">
-                      {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
-                        <div key={i} className="flex justify-between items-start">
-                          <div className="flex flex-col gap-1">
-                            <Skeleton className="h-5 w-20" />
-                            <Skeleton className="h-4 w-24" />
-                          </div>
-                          <div className="flex flex-col gap-1 items-end">
-                            <Skeleton className="h-5 w-24" />
-                            <Skeleton className="h-4 w-20" />
-                          </div>
-                        </div>
-                      ))}
-                    </div>
+                    <TransactionListSkeleton />
                   ) : transactionsError ? (
                     <div className="flex flex-col items-center justify-center py-12">
                       <p className="text-red-400 text-sm mb-4">
                         Error loading transactions: {transactionsError}
                       </p>
-                    </div>
+                        </div>
                   ) : transactions.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-12">
                       <p className="text-[#8A929A] text-sm">No transactions found</p>
-                    </div>
+                        </div>
                   ) : (
                     <div className="flex flex-col gap-6 mt-2">
                       {transactions.map((tx) => (
-                        <TransactionRow key={tx.id} transaction={tx} />
-                      ))}
-                    </div>
+                        <TransactionRow key={tx.id} transaction={tx} isBalanceVisible={isBalanceVisible} />
+                    ))}
+                  </div>
                   )}
                 </div>
               )}
@@ -1098,7 +1479,7 @@ function WalletPageMobile() {
   const [sendStep, setSendStep] = useState<"form" | "confirm">("form");
   const [activeAssetFilter, setActiveAssetFilter] =
     useState<AssetFilterTab>("assets");
-  const [selectedNft, setSelectedNft] = useState<(typeof nfts)[number] | null>(
+  const [selectedNft, setSelectedNft] = useState<NFT | null>(
     null
   );
 
@@ -1107,8 +1488,47 @@ function WalletPageMobile() {
   const inputRef = useRef<HTMLInputElement>(null);
   const [copied, setCopied] = useState(false);
 
+  // Send token selection state
+  const [selectedSendToken, setSelectedSendToken] = useState<WalletToken | null>(null);
+  const [sendAmount, setSendAmount] = useState<string>('');
+  
+  // Receive token selection state
+  const [selectedReceiveToken, setSelectedReceiveToken] = useState<WalletToken | null>(null);
+  
+  // Dropdown refs for closing on selection
+  const sendDropdownRef = useRef<HTMLDetailsElement>(null);
+  const receiveDropdownRef = useRef<HTMLDetailsElement>(null);
+
+  // Click outside handler to close dropdowns
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement;
+      
+      // Close send dropdown if click is outside
+      if (sendDropdownRef.current && !sendDropdownRef.current.contains(target)) {
+        sendDropdownRef.current.removeAttribute('open');
+      }
+      
+      // Close receive dropdown if click is outside
+      if (receiveDropdownRef.current && !receiveDropdownRef.current.contains(target)) {
+        receiveDropdownRef.current.removeAttribute('open');
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
+
   // Get connected wallet address
   const { connectedAddress } = useWalletConnection();
+
+  // Balance visibility state
+  const { isBalanceVisible, toggleBalanceVisibility } = useBalanceVisibilityStore();
+
+  // Fetch TWC token data for default token
+  const { data: twcData, isLoading: isLoadingTWC } = useTWCPrice();
 
   // Fetch portfolio balance and daily change
   const {
@@ -1157,6 +1577,132 @@ function WalletPageMobile() {
       sortBy: 'value',
     });
   }, [walletTokens]);
+
+  // Get first token from wallet (sorted by USD value, highest first)
+  const firstToken = useMemo(() => {
+    if (!walletTokens || walletTokens.length === 0) return null;
+    return [...walletTokens]
+      .sort((a, b) => {
+        const aValue = parseFloat(a.usdValue || '0');
+        const bValue = parseFloat(b.usdValue || '0');
+        return bValue - aValue;
+      })[0];
+  }, [walletTokens]);
+
+  // Create default TWC token (when no assets)
+  const defaultToken = useMemo<WalletToken>(() => {
+    if (twcData?.token) {
+      return {
+        address: twcData.token.address,
+        symbol: twcData.token.symbol,
+        name: twcData.token.name,
+        decimals: twcData.token.decimals || 9,
+        balance: '0',
+        balanceFormatted: '0.00',
+        chainId: twcData.token.chainId || 56,
+        logoURI: twcData.token.logo || '/assets/logos/twc-token.svg',
+        usdValue: '0',
+        priceUSD: twcData.token.price || '0',
+        priceChange24h: twcData.priceChange24h?.toString(),
+      };
+    }
+    return {
+      address: '0xDA1060158F7D593667cCE0a15DB346BB3FfB3596',
+      symbol: 'TWC',
+      name: 'TIWI CAT',
+      decimals: 9,
+      balance: '0',
+      balanceFormatted: '0.00',
+      chainId: 56,
+      logoURI: '/assets/logos/twc-token.svg',
+      usdValue: '0',
+      priceUSD: '0',
+      priceChange24h: undefined,
+    };
+  }, [twcData]);
+
+  // Token to display: selected token, or first token from wallet, or TWC default
+  // Priority: selectedSendToken > firstToken > defaultToken
+  const displayToken = selectedSendToken || firstToken || defaultToken;
+
+  // Update selected token when firstToken changes (initial load)
+  // Only set if no token is currently selected
+  useEffect(() => {
+    if (!selectedSendToken) {
+      if (firstToken) {
+        setSelectedSendToken(firstToken);
+      } else {
+        setSelectedSendToken(defaultToken);
+      }
+    }
+  }, [firstToken, defaultToken, selectedSendToken]);
+
+  // Reset amount when token changes
+  useEffect(() => {
+    setSendAmount('');
+  }, [selectedSendToken]);
+
+  // Handler for clicking asset to select token
+  const handleAssetClick = (asset: typeof assets[0]) => {
+    const token = walletTokens?.find(
+      t => t.symbol === asset.symbol && 
+           parseFloat(t.usdValue || '0') > 0
+    );
+    if (token) {
+      setSelectedSendToken(token);
+      // Auto-switch to send tab
+      if (activeTab !== 'send') {
+        setActiveTab('send');
+      }
+    }
+  };
+
+  // Handler for selecting token in send dropdown
+  const handleSendTokenSelect = (token: WalletToken) => {
+    setSelectedSendToken(token);
+    // Close dropdown
+    if (sendDropdownRef.current) {
+      sendDropdownRef.current.removeAttribute('open');
+    }
+  };
+
+  // Handler for selecting token in receive dropdown
+  const handleReceiveTokenSelect = (token: WalletToken) => {
+    setSelectedReceiveToken(token);
+    // Close dropdown
+    if (receiveDropdownRef.current) {
+      receiveDropdownRef.current.removeAttribute('open');
+    }
+  };
+
+  // Update receive token when firstToken changes
+  useEffect(() => {
+    if (firstToken && !selectedReceiveToken) {
+      setSelectedReceiveToken(firstToken);
+    } else if (!firstToken && !selectedReceiveToken) {
+      setSelectedReceiveToken(defaultToken);
+    }
+  }, [firstToken, defaultToken, selectedReceiveToken]);
+
+  // Receive token to display: selected token, or first token from wallet, or TWC default
+  // Priority: selectedReceiveToken > firstToken > defaultToken
+  const displayReceiveToken = selectedReceiveToken || firstToken || defaultToken;
+
+  // Max button handler
+  const handleMaxClick = () => {
+    if (displayToken) {
+      setSendAmount(displayToken.balanceFormatted);
+    }
+  };
+
+  // Calculate USD value of send amount
+  const sendAmountUSD = useMemo(() => {
+    if (!sendAmount || !displayToken?.priceUSD) return '0.00';
+    const amount = parseFloat(sendAmount);
+    const price = parseFloat(displayToken.priceUSD);
+    if (isNaN(amount) || isNaN(price)) return '0.00';
+    return (amount * price).toFixed(2);
+  }, [sendAmount, displayToken]);
 
   // Use real balance data - show skeleton when loading
   const displayBalance = balanceData?.totalUSD;
@@ -1219,26 +1765,35 @@ function WalletPageMobile() {
             <div className="mb-6">
               <div className="flex items-center gap-2 mb-1">
                 <span className="text-[#8A929A] text-xs">Total Balance</span>
-                <IoEyeOutline className="text-[#8A929A] text-xs" />
+                <button
+                  onClick={toggleBalanceVisibility}
+                  className="cursor-pointer hover:opacity-80 transition-opacity flex items-center justify-center"
+                  aria-label="Toggle balance visibility"
+                >
+                  <IoEyeOutline className="text-[#8A929A]" size={16} />
+                </button>
               </div>
               {balanceLoading ? (
-                <div className="space-y-2 mb-1">
-                  <Skeleton className="h-9 w-32" />
-                  <Skeleton className="h-5 w-40" />
+                <div className="mb-1">
+                  <BalanceSkeleton />
                 </div>
               ) : balanceError ? (
                 <>
-                  <h1 className="text-3xl font-bold text-white mb-1">$0.00</h1>
+                  <h1 className="text-3xl font-bold text-white mb-1">
+                    {isBalanceVisible ? "$0.00" : "****"}
+                  </h1>
                   <p className="text-[#FF4444] text-sm">
                     Error loading balance
                   </p>
                 </>
-              ) : displayBalance ? (
+              ) : balanceData ? (
                 <>
-                  <h1 className="text-3xl font-bold text-white mb-1">${displayBalance}</h1>
+                  <h1 className="text-3xl font-bold text-white mb-1">
+                    {isBalanceVisible ? `$${displayBalance}` : "****"}
+                  </h1>
                   {dailyChangeText ? (
                     <p className="text-sm flex items-center gap-1" style={{ color: dailyChangeColor }}>
-                      {dailyChangeText} <span className="text-[#8A929A]">today</span>
+                      {isBalanceVisible ? dailyChangeText : "****"} <span className="text-[#8A929A]">today</span>
                     </p>
                   ) : (
                     <p className="text-[#8A929A] text-sm">
@@ -1247,12 +1802,9 @@ function WalletPageMobile() {
                   )}
                 </>
               ) : (
-                <>
-                  <h1 className="text-3xl font-bold text-white mb-1">$0.00</h1>
-                  <p className="text-[#8A929A] text-sm">
-                    No balance data
-                  </p>
-                </>
+                <div className="mb-1">
+                  <BalanceSkeleton />
+                </div>
               )}
             </div>
 
@@ -1265,7 +1817,7 @@ function WalletPageMobile() {
                   className={`flex flex-col items-center justify-center py-4 rounded-2xl border transition-all duration-200 ${activeTab === "send"
                       ? "bg-[#081F02] border-[#B1F128] text-[#B1F128]"
                       : "bg-[#151A15] border-transparent text-[#8A929A] hover:bg-[#1A201A]"
-                    }`}
+                  }`}
                 >
                   <RiSendPlaneLine size={20} className="mb-2" />
                   <span className="text-xs font-medium">Send</span>
@@ -1275,7 +1827,7 @@ function WalletPageMobile() {
                   className={`flex flex-col items-center justify-center py-4 rounded-2xl border transition-all duration-200 ${activeTab === "receive"
                       ? "bg-[#081F02] border-[#B1F128] text-[#B1F128]"
                       : "bg-[#151A15] border-transparent text-[#8A929A] hover:bg-[#1A201A]"
-                    }`}
+                  }`}
                 >
                   <HiDownload size={20} className="mb-2" />
                   <span className="text-xs font-medium">Receive</span>
@@ -1285,7 +1837,7 @@ function WalletPageMobile() {
                   className={`flex flex-col items-center justify-center py-4 rounded-2xl border transition-all duration-200 ${activeTab === "activities"
                       ? "bg-[#081F02] border-[#B1F128] text-[#B1F128]"
                       : "bg-[#151A15] border-transparent text-[#8A929A] hover:bg-[#1A201A]"
-                    }`}
+                  }`}
                 >
                   <MdHistory size={20} className="mb-2" />
                   <span className="text-xs font-medium">Activities</span>
@@ -1303,7 +1855,7 @@ function WalletPageMobile() {
                       className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-colors ${activeAssetFilter === "assets"
                           ? "bg-[#B1F128] text-black"
                           : "text-[#8A929A]"
-                        }`}
+                      }`}
                     >
                       Assets
                     </button>
@@ -1312,7 +1864,7 @@ function WalletPageMobile() {
                       className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-colors ${activeAssetFilter === "nft"
                           ? "bg-[#B1F128] text-black"
                           : "text-[#8A929A]"
-                        }`}
+                      }`}
                     >
                       NFTs
                     </button>
@@ -1351,27 +1903,7 @@ function WalletPageMobile() {
                 {activeAssetFilter === "assets" ? (
                   <>
                     {tokensLoading ? (
-                      <div className="space-y-3">
-                        {[1, 2, 3, 4, 5].map((i) => (
-                          <div
-                            key={i}
-                            className="grid grid-cols-[32px_120px_60px_1fr] gap-3 items-center p-3 rounded-2xl bg-[#0F120F] border border-[#1A1F1A]"
-                          >
-                            <Skeleton className="h-8 w-8 rounded-full" />
-                            <div className="space-y-1">
-                              <Skeleton className="h-4 w-20" />
-                              <Skeleton className="h-3 w-32" />
-                            </div>
-                            <div className="flex justify-start">
-                              <Skeleton className="h-5 w-16" />
-                            </div>
-                            <div className="text-right space-y-1">
-                              <Skeleton className="h-4 w-16" />
-                              <Skeleton className="h-3 w-20" />
-                            </div>
-                          </div>
-                        ))}
-                      </div>
+                      <AssetListSkeleton isMobile={true} />
                     ) : tokensError ? (
                       <div className="flex flex-col items-center justify-center py-8 text-center">
                         <p className="text-sm text-[#FF4444] mb-2">
@@ -1391,19 +1923,34 @@ function WalletPageMobile() {
                         </p>
                       </div>
                     ) : (
-                      <div className="space-y-3">
-                        {assets.map((asset, i) => (
-                          <div
-                            key={i}
-                            className="grid grid-cols-[32px_120px_60px_1fr] gap-3 items-center p-3 rounded-2xl bg-[#0F120F] border border-[#1A1F1A]"
+                  <div className="space-y-3">
+                        {assets.map((asset, i) => {
+                          const token = walletTokens?.find(
+                            t => t.symbol === asset.symbol && 
+                                 parseFloat(t.usdValue || '0') > 0
+                          );
+                          const isSelected = selectedSendToken && token && 
+                            selectedSendToken.symbol === token.symbol &&
+                            selectedSendToken.address === token.address &&
+                            selectedSendToken.chainId === token.chainId;
+                          
+                          return (
+                      <div
+                        key={i}
+                            onClick={() => handleAssetClick(asset)}
+                            className={`grid grid-cols-[32px_120px_60px_1fr] gap-3 items-center p-3 rounded-2xl border cursor-pointer transition-all ${
+                              isSelected 
+                                ? "bg-[#1F261E] border-[#B1F128]/30" 
+                                : "bg-[#0F120F] border-[#1A1F1A]"
+                            }`}
                           >
                             {/* Column 1: Logo */}
                             <div className="shrink-0 flex items-center justify-start">
-                              <Image
-                                src={asset.icon}
-                                alt={asset.symbol}
-                                width={32}
-                                height={32}
+                          <Image
+                            src={asset.icon}
+                            alt={asset.symbol}
+                            width={32}
+                            height={32}
                                 className="rounded-full"
                               />
                             </div>
@@ -1411,44 +1958,77 @@ function WalletPageMobile() {
                             {/* Column 2: Symbol and Name (Fixed width to keep chart aligned) */}
                             <div className="min-w-0">
                               <p className="text-sm font-bold text-white truncate">
-                                {asset.symbol}
-                              </p>
+                              {asset.symbol}
+                            </p>
                               <p className="text-[10px] text-[#8A929A] truncate">
-                                {asset.name}
-                              </p>
-                            </div>
+                              {asset.name}
+                            </p>
+                          </div>
 
                             {/* Column 3: Chart (Fixed position, justify-start) */}
                             <div className="flex justify-start shrink-0">
-                              <Image
-                                src={asset.trend === "bullish" ? bullish : bearish}
-                                alt="trend"
-                                width={60}
-                                height={20}
-                              />
-                            </div>
+                          <Image
+                            src={asset.trend === "bullish" ? bullish : bearish}
+                            alt="trend"
+                            width={60}
+                            height={20}
+                          />
+                        </div>
 
                             {/* Column 4: Amount and USD Value (Right-aligned) */}
                             <div className="text-right min-w-0">
                               <p className="text-sm font-bold text-white break-all">
-                                {asset.amount}
-                              </p>
-                              <p className="text-[10px] text-[#8A929A]">
-                                {asset.value}
-                              </p>
-                            </div>
-                          </div>
-                        ))}
+                            {asset.amount}
+                          </p>
+                          <p className="text-[10px] text-[#8A929A]">
+                            {asset.value}
+                          </p>
+                        </div>
+                            {/* Selected indicator */}
+                            {isSelected && (
+                              <div className="absolute top-2 right-2">
+                                <div className="w-2 h-2 rounded-full bg-[#B1F128]" />
+                      </div>
+                            )}
+                  </div>
+                          );
+                        })}
                       </div>
                     )}
                   </>
                 ) : (
-                  <NFTGrid
-                    nfts={nfts}
-                    isLoading={nftsLoading}
-                    onNFTSelect={setSelectedNft}
-                    selectedNFT={selectedNft}
-                  />
+                  <>
+                    {nftsLoading ? (
+                      <NFTGridSkeleton />
+                    ) : nftsError ? (
+                      <div className="flex flex-col items-center justify-center py-8 text-center">
+                        <p className="text-sm text-[#FF4444] mb-2">
+                          Error loading NFTs
+                        </p>
+                        <p className="text-xs text-[#8A929A]">
+                          {nftsError}
+                            </p>
+                          </div>
+                    ) : nfts.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center py-8 text-center">
+                        <p className="text-sm text-[#8A929A] mb-2">
+                          No NFTs found
+                        </p>
+                        <p className="text-xs text-[#6E7873]">
+                          Start collecting NFTs to see them here
+                        </p>
+                      </div>
+                    ) : (
+                      <NFTGrid
+                        nfts={nfts}
+                        isLoading={false}
+                        onNFTSelect={setSelectedNft}
+                        selectedNFT={selectedNft}
+                      />
+                    )}
+                  </>
+                )}
+                  </div>
                 )}
 
                 {/* FILTER DROPDOWN OVERLAY */}
@@ -1536,19 +2116,23 @@ function WalletPageMobile() {
                     </button>
                   </div>
                 )}
-              </div>
+          </>
             )}
 
             {/* SEND FLOW */}
             {activeTab === "send" && (
               <div className="animate-in fade-in slide-in-from-right-4 duration-300">
+            {tokensLoading ? (
+              <SendFormSkeleton />
+            ) : (
+              <>
                 <div className="flex border-b border-[#1A1F1A] mb-6">
                   <button
                     onClick={() => setActiveSendTab("single")}
                     className={`flex-1 pb-3 text-sm font-medium border-b-2 transition-colors ${activeSendTab === "single"
                         ? "border-[#B1F128] text-[#B1F128]"
                         : "border-transparent text-[#8A929A]"
-                      }`}
+                    }`}
                   >
                     Send To One
                   </button>
@@ -1557,7 +2141,7 @@ function WalletPageMobile() {
                     className={`flex-1 pb-3 text-sm font-medium border-b-2 transition-colors ${activeSendTab === "multi"
                         ? "border-[#B1F128] text-[#B1F128]"
                         : "border-transparent text-[#8A929A]"
-                      }`}
+                    }`}
                   >
                     Multi-Send
                   </button>
@@ -1567,12 +2151,13 @@ function WalletPageMobile() {
                   <>
                     <div className="bg-[#0F120F] rounded-2xl p-4 flex justify-between items-center border border-[#1A1F1A] mb-4">
                       <div className="flex items-center gap-3">
-                        <details className="bg-[#121712] rounded-full group relative w-fit">
+                        <details ref={sendDropdownRef} className="bg-[#121712] rounded-full group relative w-fit">
                           <summary className="flex cursor-pointer list-none items-center gap-3 rounded-full bg-[#121712] px-2 py-3 text-left outline-none">
                             {/* Icon */}
-                            <Image
-                              src={ethereum}
-                              alt="Ethereum"
+                            <TokenIcon
+                              src={displayToken.logoURI || getTokenFallbackIcon(displayToken.symbol)}
+                              symbol={displayToken.symbol}
+                              alt={displayToken.name}
                               width={36}
                               height={36}
                               className="shrink-0"
@@ -1580,10 +2165,10 @@ function WalletPageMobile() {
                             {/* Text */}
                             <div className="leading-tight">
                               <p className="text-sm font-semibold text-[#FFF]">
-                                ETH
+                                {displayToken.symbol}
                               </p>
                               <p className="text-xs font-medium text-[#7C7C7C]">
-                                Ethereum
+                                {displayToken.name}
                               </p>
                             </div>
                             <IoChevronDown
@@ -1592,20 +2177,31 @@ function WalletPageMobile() {
                             />
                           </summary>
                           {/* Dropdown menu */}
-                          <div className="absolute left-0 z-10 mt-2 w-full min-w-55 rounded-xl bg-[#0B0F0A] p-2 shadow-[0_10px_30px_rgba(0,0,0,0.6)]">
-                            <button className="flex w-full items-center gap-3 rounded-lg px-3 py-2 hover:bg-[#141A16]">
-                              <Image
-                                src={ethereum}
-                                alt=""
+                          <div className="absolute left-0 z-10 mt-2 w-full min-w-55 max-h-[300px] overflow-y-auto rounded-xl bg-[#0B0F0A] p-2 shadow-[0_10px_30px_rgba(0,0,0,0.6)] dropdown-scrollbar">
+                            {walletTokens && walletTokens.length > 0 ? (
+                              walletTokens.map((token) => (
+                                <button
+                                  key={`${token.chainId}-${token.address}`}
+                                  onClick={() => handleSendTokenSelect(token)}
+                                  className="flex w-full items-center gap-3 rounded-lg px-3 py-2 hover:bg-[#141A16]"
+                                >
+                                  <TokenIcon
+                                    src={token.logoURI || getTokenFallbackIcon(token.symbol)}
+                                    symbol={token.symbol}
+                                    alt={token.symbol}
                                 width={24}
                                 height={24}
                               />
                               <span className="text-sm text-[#E6ECE9]">
-                                Ethereum
+                                    {token.name}
                               </span>
                             </button>
-
-                            {/* Add more assets here */}
+                              ))
+                            ) : (
+                              <div className="px-3 py-2 text-xs text-[#8A929A]">
+                                No tokens available
+                              </div>
+                            )}
                           </div>
                         </details>
                       </div>
@@ -1613,10 +2209,30 @@ function WalletPageMobile() {
                       <div className="text-right">
                         <div className="flex items-center gap-1 justify-end text-[#8A929A] text-[10px] mb-0.5">
                           <BsWallet2 />
-                          <span>0.0342ETH</span>
+                          <span>{isBalanceVisible ? `${formatTokenAmount(displayToken.balanceFormatted, 6)}${displayToken.symbol}` : "****"}</span>
+                          {isBalanceVisible && (
+                          <button
+                            onClick={handleMaxClick}
+                            className="text-[#B1F128] text-[10px] py-0.5 px-1.5 ml-1 rounded-full bg-[#1F261E]"
+                          >
+                            Max
+                          </button>
+                          )}
                         </div>
-                        <p className="text-lg font-bold text-white">11.496</p>
-                        <p className="text-xs text-[#8A929A]">$0</p>
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={sendAmount}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            if (value === '' || /^\d*\.?\d*$/.test(value)) {
+                              setSendAmount(value);
+                            }
+                          }}
+                          placeholder="0.00"
+                          className="text-lg font-bold text-white bg-transparent border-none outline-none w-full max-w-24 text-right"
+                        />
+                        <p className="text-xs text-[#8A929A]">{isBalanceVisible ? `$${sendAmountUSD}` : "****"}</p>
                       </div>
                     </div>
 
@@ -1778,23 +2394,30 @@ function WalletPageMobile() {
                     )}
                   </div>
                 )}
+              </>
+                )}
               </div>
             )}
 
             {/* RECEIVE FLOW */}
             {activeTab === "receive" && (
+          <>
+            {tokensLoading ? (
+              <ReceiveSkeleton />
+            ) : (
               <div className="space-y-4">
                 <div className="bg-[#0F120F] p-4 rounded-xl">
                   <p className="text-xs text-[#7C7C7C] mb-2">Select Asset</p>
 
                   {/* Asset dropdown */}
-                  <details className="bg-[#121712] rounded-full group relative w-full">
+                  <details ref={receiveDropdownRef} className="bg-[#121712] rounded-full group relative w-full">
                     {/* Trigger */}
                     <summary className="w-full flex cursor-pointer list-none items-center rounded-full bg-[#121712] p-2 text-left outline-none">
                       {/* Icon */}
-                      <Image
-                        src={ethereum}
-                        alt="Ethereum"
+                      <TokenIcon
+                        src={displayReceiveToken.logoURI || getTokenFallbackIcon(displayReceiveToken.symbol)}
+                        symbol={displayReceiveToken.symbol}
+                        alt={displayReceiveToken.name}
                         width={36}
                         height={36}
                         className="shrink-0"
@@ -1802,9 +2425,9 @@ function WalletPageMobile() {
 
                       {/* Text */}
                       <div className="ml-3 leading-tight">
-                        <p className="text-sm font-semibold text-[#FFF]">ETH</p>
+                        <p className="text-sm font-semibold text-[#FFF]">{displayReceiveToken.symbol}</p>
                         <p className="text-xs font-medium text-[#7C7C7C]">
-                          Ethereum
+                          {displayReceiveToken.name}
                         </p>
                       </div>
                       <IoChevronDown
@@ -1814,13 +2437,29 @@ function WalletPageMobile() {
                     </summary>
 
                     {/* Dropdown menu */}
-                    <div className="absolute left-0 z-10 mt-2 w-full min-w-55 rounded-xl bg-[#0B0F0A] p-2 shadow-[0_10px_30px_rgba(0,0,0,0.6)]">
-                      <button className="flex w-full items-center gap-3 rounded-lg px-3 py-2 hover:bg-[#141A16]">
-                        <Image src={ethereum} alt="" width={24} height={24} />
-                        <span className="text-sm text-[#E6ECE9]">Ethereum</span>
+                    <div className="absolute left-0 z-10 mt-2 w-full min-w-55 max-h-[300px] overflow-y-auto rounded-xl bg-[#0B0F0A] p-2 shadow-[0_10px_30px_rgba(0,0,0,0.6)] dropdown-scrollbar">
+                      {walletTokens && walletTokens.length > 0 ? (
+                        walletTokens.map((token) => (
+                          <button
+                            key={`${token.chainId}-${token.address}`}
+                            onClick={() => handleReceiveTokenSelect(token)}
+                            className="flex w-full items-center gap-3 rounded-lg px-3 py-2 hover:bg-[#141A16]"
+                          >
+                            <TokenIcon
+                              src={token.logoURI || getTokenFallbackIcon(token.symbol)}
+                              symbol={token.symbol}
+                              alt={token.symbol}
+                              width={24}
+                              height={24}
+                            />
+                            <span className="text-sm text-[#E6ECE9]">{token.name}</span>
                       </button>
-
-                      {/* Add more assets here */}
+                        ))
+                      ) : (
+                        <div className="px-3 py-2 text-xs text-[#8A929A]">
+                          No tokens available
+                        </div>
+                      )}
                     </div>
                   </details>
                 </div>
@@ -1828,7 +2467,7 @@ function WalletPageMobile() {
                 {/* Warning */}
                 <div className="rounded-xl bg-[#2B1F0D] px-1 py-3 text-xs text-center text-[#FFF]">
                   Only send{" "}
-                  <span className="font-semibold">Ethereum (ETH)</span> to this
+                  <span className="font-semibold">{displayReceiveToken.name} ({displayReceiveToken.symbol})</span> to this
                   address. Other assets will be lost forever.
                 </div>
 
@@ -1846,15 +2485,38 @@ function WalletPageMobile() {
 
                   <div className="w-full">
                     <p className="text-center pt-4 text-xs break-all text-[#B5B5B5]">
-                      0x06193i092j9g9iu2ngmu0939i-4ti938hT432
+                      {connectedAddress || 'Connect wallet to see address'}
                     </p>
 
-                    <button className="flex w-full items-center justify-center gap-2 rounded-full border border-[#B1F128] px-3 py-1.5 text-xs text-[#B1F128] mt-3">
-                      <FiCopy size={14} />
-                      Copy Address
+                    <button 
+                      onClick={async () => {
+                        if (connectedAddress) {
+                          await navigator.clipboard.writeText(connectedAddress);
+                          setCopied(true);
+                          setTimeout(() => setCopied(false), 1500);
+                        }
+                      }}
+                      className="flex w-full items-center justify-center gap-2 rounded-full border border-[#B1F128] px-3 py-1.5 text-xs text-[#B1F128] mt-3"
+                    >
+                      {copied ? <FiCheck size={14} /> : <FiCopy size={14} />}
+                      {copied ? 'Copied!' : 'Copy Address'}
                     </button>
 
-                    <button className="flex w-full items-center justify-center gap-2 rounded-full border border-[#B1F128] px-3 py-1.5 text-xs text-[#B1F128] mt-2">
+                    <button 
+                      onClick={async () => {
+                        if (connectedAddress && navigator.share) {
+                          try {
+                            await navigator.share({
+                              title: 'My Wallet Address',
+                              text: connectedAddress,
+                            });
+                          } catch (err) {
+                            // User cancelled or error
+                          }
+                        }
+                      }}
+                      className="flex w-full items-center justify-center gap-2 rounded-full border border-[#B1F128] px-3 py-1.5 text-xs text-[#B1F128] mt-2"
+                    >
                       <GoShareAndroid size={14} />
                       Share Address
                     </button>
@@ -1862,45 +2524,32 @@ function WalletPageMobile() {
                 </div>
               </div>
             )}
+          </>
+            )}
 
             {/* ACTIVITIES */}
             {activeTab === "activities" && (
               <div className="animate-in fade-in slide-in-from-right-4 duration-300">
-                {transactionsLoading ? (
-                  <div className="flex flex-col gap-6 mt-2">
-                    {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
-                      <div key={i} className="flex justify-between items-start">
-                        <div className="flex flex-col gap-1">
-                          <Skeleton className="h-5 w-20" />
-                          <Skeleton className="h-4 w-24" />
-                        </div>
-                        <div className="flex flex-col gap-1 items-end">
-                          <Skeleton className="h-5 w-24" />
-                          <Skeleton className="h-4 w-20" />
-                        </div>
+            {transactionsLoading ? (
+              <TransactionListSkeleton />
+            ) : transactionsError ? (
+              <div className="flex flex-col items-center justify-center py-12">
+                <p className="text-red-400 text-sm mb-4">
+                  Error loading transactions: {transactionsError}
+                </p>
                       </div>
-                    ))}
-                  </div>
-                ) : transactionsError ? (
-                  <div className="flex flex-col items-center justify-center py-12">
-                    <p className="text-red-400 text-sm mb-4">
-                      Error loading transactions: {transactionsError}
-                    </p>
-                  </div>
-                ) : transactions.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center py-12">
-                    <p className="text-[#8A929A] text-sm">No transactions found</p>
-                  </div>
-                ) : (
-                  <div className="flex flex-col gap-6 mt-2">
-                    {transactions.map((tx) => (
-                      <TransactionRow key={tx.id} transaction={tx} />
-                    ))}
-                  </div>
-                )}
-              </div>
+            ) : transactions.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-12">
+                <p className="text-[#8A929A] text-sm">No transactions found</p>
+                      </div>
+            ) : (
+              <div className="flex flex-col gap-6 mt-2">
+                {transactions.map((tx) => (
+                  <TransactionRow key={tx.id} transaction={tx} />
+                  ))}
+                </div>
             )}
-          </>
+              </div>
         )}
       </div>
     </div>
@@ -1911,6 +2560,54 @@ function WalletPageMobile() {
 //  MAIN PAGE (Responsive Logic)
 // ==========================================
 export default function WalletPage() {
+  const queryClient = useQueryClient();
+  const { connectedAddress } = useWalletConnection();
+
+  // Prefetch portfolio data when wallet is connected
+  useEffect(() => {
+    if (!connectedAddress) return;
+
+    // Prefetch wallet balances
+    import('@/hooks/useWalletBalances').then((module) => {
+      if (module.getWalletBalancesQueryKey && module.fetchWalletBalances) {
+        queryClient.prefetchQuery({
+          queryKey: module.getWalletBalancesQueryKey(connectedAddress),
+          queryFn: () => module.fetchWalletBalances(connectedAddress),
+        });
+      }
+    }).catch(() => {
+      // Silently fail - prefetching is optional
+    });
+
+    // Prefetch wallet transactions
+    import('@/hooks/useWalletTransactions').then((module) => {
+      if (module.getWalletTransactionsQueryKey && module.fetchWalletTransactions) {
+        queryClient.prefetchQuery({
+          queryKey: module.getWalletTransactionsQueryKey(connectedAddress, 50),
+          queryFn: () => module.fetchWalletTransactions({
+            walletAddress: connectedAddress,
+            limit: 50,
+            offset: 0,
+          }),
+        });
+      }
+    }).catch(() => {
+      // Silently fail - prefetching is optional
+    });
+
+    // Prefetch wallet NFTs
+    import('@/hooks/useWalletNFTs').then((module) => {
+      if (module.getWalletNFTsQueryKey && module.fetchWalletNFTs) {
+        queryClient.prefetchQuery({
+          queryKey: module.getWalletNFTsQueryKey(connectedAddress),
+          queryFn: () => module.fetchWalletNFTs(connectedAddress),
+        });
+      }
+    }).catch(() => {
+      // Silently fail - prefetching is optional
+    });
+  }, [connectedAddress, queryClient]);
+
   return (
     <>
       {/* Show MobileView only on small screens (hidden on md and up) */}

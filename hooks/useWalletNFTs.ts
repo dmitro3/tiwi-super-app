@@ -19,14 +19,16 @@ interface WalletNFTsResponse {
 interface UseWalletNFTsReturn {
   nfts: NFT[];
   isLoading: boolean;
+  isFetching: boolean;
   error: string | null;
   refetch: () => void;
 }
 
 /**
  * Query function to fetch wallet NFTs
+ * Exported for use in prefetching
  */
-async function fetchWalletNFTs(
+export async function fetchWalletNFTs(
   walletAddress: string,
   chainIds?: number[]
 ): Promise<WalletNFTsResponse> {
@@ -55,8 +57,9 @@ async function fetchWalletNFTs(
 
 /**
  * Generate query key for wallet NFTs
+ * Exported for use in prefetching
  */
-function getWalletNFTsQueryKey(
+export function getWalletNFTsQueryKey(
   walletAddress: string | null,
   chainIds?: number[]
 ): readonly unknown[] {
@@ -77,6 +80,7 @@ export function useWalletNFTs(
   const {
     data,
     isLoading,
+    isFetching,
     error,
     refetch,
   } = useQuery({
@@ -89,9 +93,14 @@ export function useWalletNFTs(
     retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
   });
 
+  // Enhanced loading state: show skeleton if loading OR fetching without data
+  const hasData = !!data;
+  const showSkeleton = isLoading || (isFetching && !hasData);
+
   return {
     nfts: data?.nfts || [],
-    isLoading,
+    isLoading: showSkeleton,
+    isFetching,
     error: error ? (error instanceof Error ? error.message : 'Failed to fetch NFTs') : null,
     refetch: () => {
       refetch();

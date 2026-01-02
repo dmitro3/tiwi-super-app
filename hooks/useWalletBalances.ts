@@ -14,14 +14,16 @@ interface UseWalletBalancesReturn {
   dailyChange?: number;
   dailyChangeUSD?: string;
   isLoading: boolean;
+  isFetching: boolean;
   error: string | null;
   refetch: () => void;
 }
 
 /**
  * Query function to fetch wallet balances
+ * Exported for use in prefetching
  */
-async function fetchWalletBalances(walletAddress: string): Promise<WalletBalanceResponse> {
+export async function fetchWalletBalances(walletAddress: string): Promise<WalletBalanceResponse> {
   const response = await fetch(
     `/api/v1/wallet/balances?address=${encodeURIComponent(walletAddress)}`
   );
@@ -43,8 +45,9 @@ async function fetchWalletBalances(walletAddress: string): Promise<WalletBalance
 
 /**
  * Generate query key for wallet balances
+ * Exported for use in prefetching
  */
-function getWalletBalancesQueryKey(walletAddress: string | null): readonly unknown[] {
+export function getWalletBalancesQueryKey(walletAddress: string | null): readonly unknown[] {
   return ['wallet-balances', walletAddress?.toLowerCase()] as const;
 }
 
@@ -60,6 +63,7 @@ export function useWalletBalances(
   const {
     data,
     isLoading,
+    isFetching,
     error,
     refetch,
   } = useQuery({
@@ -72,12 +76,17 @@ export function useWalletBalances(
     retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
   });
 
+  // Enhanced loading state: show skeleton if loading OR fetching without data
+  const hasData = !!data;
+  const showSkeleton = isLoading || (isFetching && !hasData);
+
   return {
     balances: data?.balances || [],
     totalUSD: data?.totalUSD || '0.00',
     dailyChange: data?.dailyChange,
     dailyChangeUSD: data?.dailyChangeUSD,
-    isLoading,
+    isLoading: showSkeleton,
+    isFetching,
     error: error ? (error instanceof Error ? error.message : 'Failed to fetch wallet balances') : null,
     refetch: () => {
       refetch();

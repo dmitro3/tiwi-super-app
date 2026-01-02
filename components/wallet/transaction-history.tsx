@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import Image from "next/image";
 import type { Transaction } from "@/lib/backend/types/wallet";
 import TransactionSkeleton from "@/components/ui/transaction-skeleton";
+import { useBalanceVisibilityStore } from "@/lib/frontend/store/balance-visibility-store";
 
 interface TransactionHistoryProps {
   transactions: Transaction[];
@@ -22,6 +23,7 @@ export default function TransactionHistory({
   onLoadMore,
   isLoadingMore = false,
 }: TransactionHistoryProps) {
+  const { isBalanceVisible } = useBalanceVisibilityStore();
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const observerRef = useRef<IntersectionObserver | null>(null);
 
@@ -125,10 +127,10 @@ export default function TransactionHistory({
             <div className="flex flex-col gap-1 lg:gap-0.5 xl:gap-0.5 2xl:gap-1 items-end justify-center leading-[0] relative shrink-0 text-right whitespace-nowrap">
               <div className="flex flex-col font-bold justify-center relative shrink-0 text-lg lg:text-sm xl:text-base 2xl:text-lg">
                 <p className={`leading-5 lg:leading-[14px] xl:leading-4 2xl:leading-5 ${amountColor}`}>
-                  {amount}
+                  {isBalanceVisible ? amount : "****"}
                 </p>
               </div>
-              {usdValue && (
+              {isBalanceVisible && usdValue && (
                 <div className="flex flex-col font-medium justify-center relative shrink-0 text-base lg:text-xs xl:text-sm 2xl:text-base text-[#8a929a]">
                   <p className="leading-5 lg:leading-[14px] xl:leading-4 2xl:leading-5">{usdValue}</p>
                 </div>

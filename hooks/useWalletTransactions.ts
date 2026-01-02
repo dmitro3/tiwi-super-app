@@ -17,6 +17,7 @@ interface UseWalletTransactionsReturn {
   total: number;
   hasMore: boolean;
   isLoading: boolean;
+  isFetching: boolean;
   isFetchingNextPage: boolean;
   error: string | null;
   loadMore: () => void;
@@ -25,8 +26,9 @@ interface UseWalletTransactionsReturn {
 
 /**
  * Query function to fetch wallet transactions
+ * Exported for use in prefetching
  */
-async function fetchWalletTransactions({
+export async function fetchWalletTransactions({
   walletAddress,
   limit,
   offset,
@@ -62,8 +64,9 @@ async function fetchWalletTransactions({
 
 /**
  * Generate query key for wallet transactions
+ * Exported for use in prefetching
  */
-function getWalletTransactionsQueryKey(
+export function getWalletTransactionsQueryKey(
   walletAddress: string | null,
   limit: number
 ): readonly unknown[] {
@@ -86,6 +89,7 @@ export function useWalletTransactions(
   const {
     data,
     isLoading,
+    isFetching,
     isFetchingNextPage,
     error,
     fetchNextPage,
@@ -119,11 +123,16 @@ export function useWalletTransactions(
   const transactions = data?.pages.flatMap((page) => page.transactions) || [];
   const total = data?.pages[0]?.total || 0;
 
+  // Enhanced loading state: show skeleton if loading OR fetching without data
+  const hasData = transactions.length > 0;
+  const showSkeleton = isLoading || (isFetching && !hasData);
+
   return {
     transactions,
     total,
     hasMore: hasNextPage ?? false,
-    isLoading,
+    isLoading: showSkeleton,
+    isFetching,
     isFetchingNextPage,
     error: error ? (error instanceof Error ? error.message : 'Failed to fetch transaction history') : null,
     loadMore: () => {

@@ -492,6 +492,32 @@ html::-webkit-scrollbar-corner {
   background: #010501;
 }
 
+/* Custom scrollbar for dropdown menus (smaller than other scrollbars) */
+.dropdown-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: #1f261e #0b0f0a;
+}
+
+.dropdown-scrollbar::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+  display: block !important;
+}
+
+.dropdown-scrollbar::-webkit-scrollbar-track {
+  background: #0b0f0a;
+  border-radius: 2px;
+}
+
+.dropdown-scrollbar::-webkit-scrollbar-thumb {
+  background: #1f261e;
+  border-radius: 2px;
+}
+
+.dropdown-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #2a3229;
+}
+
 /* Range input styling for percentage slider */
 input[type="range"] {
   -webkit-appearance: none;
@@ -543,5 +569,17 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .animate-shimmer {
+  animation: shimmer 2s ease-in-out infinite;
+}
+
+/* Enhanced skeleton shimmer for portfolio (Bybit-style) */
+.skeleton-shimmer {
+  background: linear-gradient(
+    90deg,
+    #0E1310 0%,
+    #1A1F1A 50%,
+    #0E1310 100%
+  );
+  background-size: 200% 100%;
   animation: shimmer 2s ease-in-out infinite;
 }

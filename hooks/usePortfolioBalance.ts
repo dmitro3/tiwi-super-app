@@ -18,6 +18,7 @@ export interface PortfolioBalanceData {
 export interface UsePortfolioBalanceReturn {
   data: PortfolioBalanceData | null;
   isLoading: boolean;
+  isFetching: boolean;
   error: string | null;
   refetch: () => void;
 }
@@ -81,6 +82,7 @@ export function usePortfolioBalance(
     dailyChange, 
     dailyChangeUSD, 
     isLoading, 
+    isFetching,
     error, 
     refetch 
   } = useWalletBalances(walletAddress);
@@ -102,6 +104,7 @@ export function usePortfolioBalance(
   return {
     data,
     isLoading,
+    isFetching,
     error,
     refetch,
   };

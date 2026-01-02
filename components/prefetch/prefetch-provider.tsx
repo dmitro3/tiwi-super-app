@@ -149,6 +149,63 @@ export function PrefetchProvider({ children }: { children: React.ReactNode }) {
     // TanStack Query manages the cache lifecycle
   }, [queryClient]);
 
+  // Prefetch portfolio data when wallet is connected
+  useEffect(() => {
+    // Import wallet connection hook dynamically to avoid circular dependencies
+    const prefetchPortfolioData = async () => {
+      try {
+        // Get wallet address from localStorage or window (if available)
+        // This is a lightweight check - actual wallet connection is handled by WalletProviders
+        const walletAddress = typeof window !== 'undefined' 
+          ? localStorage.getItem('wallet-address') || null
+          : null;
+
+        if (walletAddress) {
+          // Prefetch wallet balances
+          const { getWalletBalancesQueryKey } = await import('@/hooks/useWalletBalances');
+          const { fetchWalletBalances } = await import('@/hooks/useWalletBalances');
+          
+          queryClient.prefetchQuery({
+            queryKey: getWalletBalancesQueryKey(walletAddress),
+            queryFn: () => fetchWalletBalances(walletAddress),
+          });
+
+          // Prefetch wallet transactions
+          const { getWalletTransactionsQueryKey } = await import('@/hooks/useWalletTransactions');
+          const { fetchWalletTransactions } = await import('@/hooks/useWalletTransactions');
+          
+          queryClient.prefetchQuery({
+            queryKey: getWalletTransactionsQueryKey(walletAddress, 50),
+            queryFn: () => fetchWalletTransactions({
+              walletAddress,
+              limit: 50,
+              offset: 0,
+            }),
+          });
+
+          // Prefetch wallet NFTs
+          const { getWalletNFTsQueryKey } = await import('@/hooks/useWalletNFTs');
+          const { fetchWalletNFTs } = await import('@/hooks/useWalletNFTs');
+          
+          queryClient.prefetchQuery({
+            queryKey: getWalletNFTsQueryKey(walletAddress),
+            queryFn: () => fetchWalletNFTs(walletAddress),
+          });
+        }
+      } catch (error) {
+        // Silently fail - prefetching is optional
+        console.debug('[Prefetch] Portfolio data prefetch skipped:', error);
+      }
+    };
+
+    // Prefetch with a small delay to avoid blocking initial page load
+    const timeoutId = setTimeout(() => {
+      prefetchPortfolioData();
+    }, 200);
+
+    return () => clearTimeout(timeoutId);
+  }, [queryClient]);
+
   // This component doesn't render anything, it just triggers prefetching
   return <>{children}</>;
 }

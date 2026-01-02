@@ -33,6 +33,42 @@ export function formatCurrency(value: string | undefined): string {
 }
 
 /**
+ * Format token amount to prevent wrapping
+ * Limits to max 6 decimal places, removes trailing zeros
+ * @param amount - Token amount string (e.g., "0.000337227178712815")
+ * @param maxDecimals - Maximum decimal places (default: 6)
+ * @returns Formatted amount string (e.g., "0.000337")
+ */
+export function formatTokenAmount(amount: string | undefined, maxDecimals: number = 6): string {
+  if (!amount || amount === '0' || amount === '0.00') return '0.00';
+  
+  const num = parseFloat(amount);
+  if (isNaN(num)) return '0.00';
+  
+  // If number is very large (>= 1 billion), use compact notation
+  if (num >= 1e9) {
+    return num.toLocaleString('en-US', {
+      maximumFractionDigits: 2,
+      notation: 'compact',
+      compactDisplay: 'short',
+    });
+  }
+  
+  // Format with max decimals
+  const formatted = num.toFixed(maxDecimals);
+  
+  // Remove trailing zeros but keep at least one decimal place if needed
+  const trimmed = formatted.replace(/\.?0+$/, '');
+  
+  // If we removed everything after decimal, ensure we have .00
+  if (!trimmed.includes('.')) {
+    return `${trimmed}.00`;
+  }
+  
+  return trimmed;
+}
+
+/**
  * Get trend from 24h price change
  */
 export function getTrendFromPriceChange(priceChange24h?: string): 'bullish' | 'bearish' {
@@ -76,7 +112,7 @@ export function mapWalletTokenToAsset(token: WalletToken): PortfolioAsset {
   return {
     name: token.name,
     symbol: token.symbol,
-    amount: token.balanceFormatted,
+    amount: formatTokenAmount(token.balanceFormatted, 6), // Format to prevent wrapping
     value: formatCurrency(token.usdValue),
     icon: token.logoURI || getTokenFallbackIcon(token.symbol),
     trend: getTrendFromPriceChange(token.priceChange24h),
