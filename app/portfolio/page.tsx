@@ -6,13 +6,14 @@ import Image from "next/image";
 import { useWalletConnection } from "@/hooks/useWalletConnection";
 import { usePortfolioBalance } from "@/hooks/usePortfolioBalance";
 import { useWalletBalances } from "@/hooks/useWalletBalances";
+import { useWalletTransactions } from "@/hooks/useWalletTransactions";
 import { useWalletNFTs } from "@/hooks/useWalletNFTs";
 import { useNFTActivity } from "@/hooks/useNFTActivity";
 import { mapWalletTokensToAssets } from "@/lib/shared/utils/portfolio-formatting";
 import NFTGrid from "@/components/nft/nft-grid";
 import NFTDetailCard from "@/components/nft/nft-detail-card";
-import PortfolioActivities from "@/components/portfolio/portfolio-activities";
 import type { NFT } from "@/lib/backend/types/nft";
+import type { Transaction } from "@/lib/backend/types/wallet";
 import Skeleton from "@/components/ui/skeleton";
 import {
   IoEyeOutline,
@@ -87,7 +88,62 @@ const assets = [
   },
 ];
 // Mock NFTs removed - using real data from useWalletNFTs hook
-// Mock transactions removed - using real data from PortfolioActivities component
+// Mock transactions removed - using real data from useWalletTransactions hook
+
+// ==========================================
+//  TRANSACTION ROW COMPONENT (Matches Figma Design)
+// ==========================================
+function TransactionRow({ transaction }: { transaction: Transaction }) {
+  const isReceived = transaction.type === "Received" || transaction.type.toLowerCase().includes("receive");
+  const amountText = `${transaction.amountFormatted} ${transaction.tokenSymbol}`.toUpperCase();
+  const usdValue = transaction.usdValue
+    ? `$${parseFloat(transaction.usdValue).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+    : "";
+
+  // Content matching Figma design exactly
+  const content = (
+    <div className="flex justify-between items-start w-full">
+      <div className="flex flex-col gap-1">
+        <span className="text-lg font-bold text-white capitalize">
+          {transaction.type}
+        </span>
+        <span className="text-base font-medium text-[#B5B5B5]">
+          {transaction.date}
+        </span>
+      </div>
+      <div className="flex flex-col gap-1 items-end">
+        <span
+          className={`text-lg font-medium uppercase ${isReceived ? "text-[#498F00]" : "text-white"
+            }`}
+        >
+          {amountText}
+        </span>
+        {usdValue && (
+          <span className="text-base font-medium text-[#B5B5B5]">
+            {usdValue}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+
+  // If explorer URL exists, wrap in link (opens in new tab)
+  if (transaction.explorerUrl) {
+    return (
+      <a
+        href={transaction.explorerUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="block hover:opacity-80 transition-opacity cursor-pointer"
+      >
+        {content}
+      </a>
+    );
+  }
+
+  // If no explorer URL, return content without link
+  return content;
+}
 
 // ==========================================
 //  DESKTOP VIEW COMPONENT
@@ -113,32 +169,39 @@ function WalletPageDesktop() {
 
   // Get connected wallet address
   const { connectedAddress } = useWalletConnection();
-  
+
   // Fetch portfolio balance and daily change
-  const { 
-    data: balanceData, 
-    isLoading: balanceLoading, 
-    error: balanceError 
+  const {
+    data: balanceData,
+    isLoading: balanceLoading,
+    error: balanceError
   } = usePortfolioBalance(connectedAddress);
-  
+
   // Fetch wallet token balances
-  const { 
-    balances: walletTokens, 
-    isLoading: tokensLoading, 
-    error: tokensError 
+  const {
+    balances: walletTokens,
+    isLoading: tokensLoading,
+    error: tokensError
   } = useWalletBalances(connectedAddress);
 
+  // Fetch wallet transactions
+  const {
+    transactions,
+    isLoading: transactionsLoading,
+    error: transactionsError
+  } = useWalletTransactions(connectedAddress, { limit: 50 });
+
   // Fetch wallet NFTs
-  const { 
-    nfts, 
-    isLoading: nftsLoading, 
-    error: nftsError 
+  const {
+    nfts,
+    isLoading: nftsLoading,
+    error: nftsError
   } = useWalletNFTs(connectedAddress);
 
   // Fetch NFT activity when an NFT is selected
-  const { 
-    activities, 
-    isLoading: activitiesLoading 
+  const {
+    activities,
+    isLoading: activitiesLoading
   } = useNFTActivity(
     connectedAddress,
     selectedNft?.contractAddress || null,
@@ -216,21 +279,19 @@ function WalletPageDesktop() {
             <div className="bg-[#1B1B1B] rounded-full">
               <button
                 onClick={() => setActiveLeftTab("assets")}
-                className={`cursor-pointer rounded-full font-semibold text-base px-4 py-1 ${
-                  activeLeftTab === "assets"
+                className={`cursor-pointer rounded-full font-semibold text-base px-4 py-1 ${activeLeftTab === "assets"
                     ? "bg-[#081F02] text-[#B1F128]"
                     : "text-[#6E7873]"
-                }`}
+                  }`}
               >
                 Assets
               </button>
               <button
                 onClick={() => setActiveLeftTab("nft")}
-                className={`cursor-pointer rounded-full font-semibold text-base px-4 py-1 ${
-                  activeLeftTab === "nft"
+                className={`cursor-pointer rounded-full font-semibold text-base px-4 py-1 ${activeLeftTab === "nft"
                     ? "bg-[#081F02] text-[#B1F128]"
                     : "text-[#6E7873]"
-                }`}
+                  }`}
               >
                 NFTs
               </button>
@@ -273,16 +334,16 @@ function WalletPageDesktop() {
                     {[1, 2, 3, 4, 5].map((i) => (
                       <li
                         key={i}
-                        className="flex items-center justify-between rounded-xl bg-[#0E1310] px-2 py-3"
+                        className="grid grid-cols-[20px_120px_80px_1fr] gap-3 items-center rounded-xl bg-[#0E1310] px-2 py-3"
                       >
-                        <div className="flex items-center gap-2">
-                          <Skeleton className="h-5 w-5 rounded-full" />
-                          <div className="space-y-1">
-                            <Skeleton className="h-4 w-16" />
-                            <Skeleton className="h-3 w-24" />
-                          </div>
+                        <Skeleton className="h-5 w-5 rounded-full" />
+                        <div className="space-y-1">
+                          <Skeleton className="h-4 w-16" />
+                          <Skeleton className="h-3 w-24" />
                         </div>
-                        <Skeleton className="h-7 w-20" />
+                        <div className="flex justify-start">
+                          <Skeleton className="h-7 w-20" />
+                        </div>
                         <div className="text-right space-y-1">
                           <Skeleton className="h-4 w-16" />
                           <Skeleton className="h-3 w-20" />
@@ -311,46 +372,48 @@ function WalletPageDesktop() {
                 ) : (
                   <ul className="space-y-3">
                     {assets.map((asset, i) => (
-                  <li
-                    key={i}
-                    className="flex items-center justify-between rounded-xl bg-[#0E1310] px-2 py-3 hover:bg-[#141A16]"
-                  >
-                    {/* Left: Asset Info */}
-                    <div className="flex items-center gap-2">
-                      <Image
-                        src={asset.icon}
-                        alt={`${asset.symbol} icon`}
-                        width={20}
-                        height={20}
-                        className="opacity-90"
-                      />
-                      <span className="">
-                        <p className="text-sm font-medium text-[#FFFFFF]">
-                          {asset.symbol}
-                        </p>
-                        <p className="text-xs text-[#8A929A]">{asset.name}</p>
-                      </span>
-                    </div>
+                      <li
+                        key={i}
+                        className="grid grid-cols-[20px_120px_80px_1fr] gap-3 items-center rounded-xl bg-[#0E1310] px-2 py-3 hover:bg-[#141A16]"
+                      >
+                        {/* Column 1: Logo */}
+                        <div className="shrink-0 flex items-center justify-start">
+                          <Image
+                            src={asset.icon}
+                            alt={`${asset.symbol} icon`}
+                            width={20}
+                            height={20}
+                            className="opacity-90"
+                          />
+                        </div>
 
-                    {/* Middle: Chart */}
-                    <div className="">
-                      <Image
-                        src={asset.trend === "bearish" ? bearish : bullish}
-                        alt={`${asset.symbol} chart`}
-                        width={80}
-                        height={28}
-                        className="opacity-90"
-                      />
-                    </div>
+                        {/* Column 2: Symbol and Name (Fixed width to keep chart aligned) */}
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-[#FFFFFF] truncate">
+                            {asset.symbol}
+                          </p>
+                          <p className="text-xs text-[#8A929A] truncate">{asset.name}</p>
+                        </div>
 
-                    {/* Right: Numbers */}
-                    <div className="text-right">
-                      <p className="text-sm font-medium text-[#FFF]">
-                        {asset.amount}
-                      </p>
-                      <p className="text-xs text-[#8A929A]">{asset.value}</p>
-                    </div>
-                  </li>
+                        {/* Column 3: Chart (Fixed position, justify-start) */}
+                        <div className="flex justify-start shrink-0">
+                          <Image
+                            src={asset.trend === "bearish" ? bearish : bullish}
+                            alt={`${asset.symbol} chart`}
+                            width={80}
+                            height={28}
+                            className="opacity-90"
+                          />
+                        </div>
+
+                        {/* Column 4: Amount and USD Value (Right-aligned) */}
+                        <div className="text-right min-w-0">
+                          <p className="text-sm font-medium text-[#FFF] break-all">
+                            {asset.amount}
+                          </p>
+                          <p className="text-xs text-[#8A929A]">{asset.value}</p>
+                        </div>
+                      </li>
                     ))}
                   </ul>
                 )}
@@ -447,7 +510,8 @@ function WalletPageDesktop() {
         </div>
 
         {/* RIGHT PANEL */}
-        <div className="pt-2 w-full max-w-125 mx-auto font-manrope">
+        <div className="pt-2 w-full max-w-125 mx-auto font-manrope relative">
+          <div className="pointer-events-none absolute inset-x-4 bottom-px h-px rounded-full bg-[linear-gradient(to_right,rgba(177,241,40,0),rgba(177,241,40,0.95),rgba(177,241,40,0))]" />
           {/* Top Actions */}
           <div className="bg-[#010501] p-1 rounded-2xl relative mb-6">
             <div className="pointer-events-none absolute inset-x-4 bottom-px h-px rounded-full bg-[linear-gradient(to_right,rgba(177,241,40,0),rgba(177,241,40,0.95),rgba(177,241,40,0))]" />
@@ -455,11 +519,10 @@ function WalletPageDesktop() {
               <button
                 onClick={() => setActiveTab("send")}
                 className={`flex h-full w-full cursor-pointer items-center justify-center gap-2 rounded-2xl py-3.25 text-sm font-medium transition
-                ${
-                  activeTab === "send"
+                ${activeTab === "send"
                     ? "bg-[#081F02] text-[#B1F128]"
                     : "bg-[#0B0F0A] text-[#B5B5B5]"
-                }`}
+                  }`}
               >
                 <RiSendPlaneLine size={16} />
                 Send
@@ -468,11 +531,10 @@ function WalletPageDesktop() {
               <button
                 onClick={() => setActiveTab("receive")}
                 className={`flex h-full w-full cursor-pointer items-center justify-center gap-2 rounded-2xl py-3.25 text-sm font-medium transition
-                ${
-                  activeTab === "receive"
+                ${activeTab === "receive"
                     ? "bg-[#081F02] text-[#B1F128]"
                     : "bg-[#0B0F0A] text-[#B5B5B5]"
-                }`}
+                  }`}
               >
                 <HiDownload size={16} />
                 Receive
@@ -481,10 +543,9 @@ function WalletPageDesktop() {
               <button
                 onClick={() => setActiveTab("activities")}
                 className={`flex h-full w-full cursor-pointer items-center justify-center gap-2 rounded-2xl py-3.25 text-sm font-medium transition
-                  ${
-                    activeTab === "activities"
-                      ? "bg-[#081F02] text-[#B1F128]"
-                      : "bg-[#0B0F0A] text-[#B5B5B5]"
+                  ${activeTab === "activities"
+                    ? "bg-[#081F02] text-[#B1F128]"
+                    : "bg-[#0B0F0A] text-[#B5B5B5]"
                   }`}
               >
                 <MdHistory size={16} />
@@ -555,11 +616,10 @@ function WalletPageDesktop() {
                           <button
                             onClick={() => setActiveSendTab("single")}
                             className={`flex h-full cursor-pointer px-6 items-center justify-center gap-2 pb-1 text-sm font-medium
-                           ${
-                             activeSendTab === "single"
-                               ? "border-b-[1.5px] border-[#B1F128] text-[#B1F128]"
-                               : "border-b-[1.5px] border-transparent text-[#B5B5B5]"
-                           }`}
+                           ${activeSendTab === "single"
+                                ? "border-b-[1.5px] border-[#B1F128] text-[#B1F128]"
+                                : "border-b-[1.5px] border-transparent text-[#B5B5B5]"
+                              }`}
                           >
                             Send To One
                           </button>
@@ -567,11 +627,10 @@ function WalletPageDesktop() {
                           <button
                             onClick={() => setActiveSendTab("multi")}
                             className={`flex h-full cursor-pointer px-6 items-center justify-center gap-2 pb-1 text-sm font-medium
-                           ${
-                             activeSendTab === "multi"
-                               ? "border-b-[1.5px] border-[#B1F128] text-[#B1F128]"
-                               : "border-b-[1.5px] border-transparent text-[#B5B5B5]"
-                           }`}
+                           ${activeSendTab === "multi"
+                                ? "border-b-[1.5px] border-[#B1F128] text-[#B1F128]"
+                                : "border-b-[1.5px] border-transparent text-[#B5B5B5]"
+                              }`}
                           >
                             Multi-Send
                           </button>
@@ -984,7 +1043,38 @@ function WalletPageDesktop() {
               {/* Activities tab content */}
               {activeTab === "activities" && (
                 <div className="h-125.5 w-full overflow-y-auto rounded-2xl px-4">
-                  <PortfolioActivities />
+                  {transactionsLoading ? (
+                    <div className="flex flex-col gap-6 mt-2">
+                      {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
+                        <div key={i} className="flex justify-between items-start">
+                          <div className="flex flex-col gap-1">
+                            <Skeleton className="h-5 w-20" />
+                            <Skeleton className="h-4 w-24" />
+                          </div>
+                          <div className="flex flex-col gap-1 items-end">
+                            <Skeleton className="h-5 w-24" />
+                            <Skeleton className="h-4 w-20" />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : transactionsError ? (
+                    <div className="flex flex-col items-center justify-center py-12">
+                      <p className="text-red-400 text-sm mb-4">
+                        Error loading transactions: {transactionsError}
+                      </p>
+                    </div>
+                  ) : transactions.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-12">
+                      <p className="text-[#8A929A] text-sm">No transactions found</p>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col gap-6 mt-2">
+                      {transactions.map((tx) => (
+                        <TransactionRow key={tx.id} transaction={tx} />
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </>
@@ -1019,32 +1109,39 @@ function WalletPageMobile() {
 
   // Get connected wallet address
   const { connectedAddress } = useWalletConnection();
-  
+
   // Fetch portfolio balance and daily change
-  const { 
-    data: balanceData, 
-    isLoading: balanceLoading, 
-    error: balanceError 
+  const {
+    data: balanceData,
+    isLoading: balanceLoading,
+    error: balanceError
   } = usePortfolioBalance(connectedAddress);
-  
+
   // Fetch wallet token balances
-  const { 
-    balances: walletTokens, 
-    isLoading: tokensLoading, 
-    error: tokensError 
+  const {
+    balances: walletTokens,
+    isLoading: tokensLoading,
+    error: tokensError
   } = useWalletBalances(connectedAddress);
 
+  // Fetch wallet transactions
+  const {
+    transactions,
+    isLoading: transactionsLoading,
+    error: transactionsError
+  } = useWalletTransactions(connectedAddress, { limit: 50 });
+
   // Fetch wallet NFTs
-  const { 
-    nfts, 
-    isLoading: nftsLoading, 
-    error: nftsError 
+  const {
+    nfts,
+    isLoading: nftsLoading,
+    error: nftsError
   } = useWalletNFTs(connectedAddress);
 
   // Fetch NFT activity when an NFT is selected
-  const { 
-    activities, 
-    isLoading: activitiesLoading 
+  const {
+    activities,
+    isLoading: activitiesLoading
   } = useNFTActivity(
     connectedAddress,
     selectedNft?.contractAddress || null,
@@ -1061,10 +1158,10 @@ function WalletPageMobile() {
     });
   }, [walletTokens]);
 
-  // Use real balance data or fallback to mock for development
-  const displayBalance = balanceData?.totalUSD || "0.00";
+  // Use real balance data - show skeleton when loading
+  const displayBalance = balanceData?.totalUSD;
   const dailyChangeText = balanceData?.dailyChangeFormatted;
-  const dailyChangeColor = balanceData?.dailyChangeColor || '#B1F128';
+  const dailyChangeColor = balanceData?.dailyChangeColor || '#3FEA9B';
 
   const handleCopy = async () => {
     if (!inputRef.current) return;
@@ -1136,7 +1233,7 @@ function WalletPageMobile() {
                     Error loading balance
                   </p>
                 </>
-              ) : (
+              ) : displayBalance ? (
                 <>
                   <h1 className="text-3xl font-bold text-white mb-1">${displayBalance}</h1>
                   {dailyChangeText ? (
@@ -1149,6 +1246,13 @@ function WalletPageMobile() {
                     </p>
                   )}
                 </>
+              ) : (
+                <>
+                  <h1 className="text-3xl font-bold text-white mb-1">$0.00</h1>
+                  <p className="text-[#8A929A] text-sm">
+                    No balance data
+                  </p>
+                </>
               )}
             </div>
 
@@ -1158,33 +1262,30 @@ function WalletPageMobile() {
               <div className="grid grid-cols-3 gap-2">
                 <button
                   onClick={() => setActiveTab("send")}
-                  className={`flex flex-col items-center justify-center py-4 rounded-2xl border transition-all duration-200 ${
-                    activeTab === "send"
+                  className={`flex flex-col items-center justify-center py-4 rounded-2xl border transition-all duration-200 ${activeTab === "send"
                       ? "bg-[#081F02] border-[#B1F128] text-[#B1F128]"
                       : "bg-[#151A15] border-transparent text-[#8A929A] hover:bg-[#1A201A]"
-                  }`}
+                    }`}
                 >
                   <RiSendPlaneLine size={20} className="mb-2" />
                   <span className="text-xs font-medium">Send</span>
                 </button>
                 <button
                   onClick={() => setActiveTab("receive")}
-                  className={`flex flex-col items-center justify-center py-4 rounded-2xl border transition-all duration-200 ${
-                    activeTab === "receive"
+                  className={`flex flex-col items-center justify-center py-4 rounded-2xl border transition-all duration-200 ${activeTab === "receive"
                       ? "bg-[#081F02] border-[#B1F128] text-[#B1F128]"
                       : "bg-[#151A15] border-transparent text-[#8A929A] hover:bg-[#1A201A]"
-                  }`}
+                    }`}
                 >
                   <HiDownload size={20} className="mb-2" />
                   <span className="text-xs font-medium">Receive</span>
                 </button>
                 <button
                   onClick={() => setActiveTab("activities")}
-                  className={`flex flex-col items-center justify-center py-4 rounded-2xl border transition-all duration-200 ${
-                    activeTab === "activities"
+                  className={`flex flex-col items-center justify-center py-4 rounded-2xl border transition-all duration-200 ${activeTab === "activities"
                       ? "bg-[#081F02] border-[#B1F128] text-[#B1F128]"
                       : "bg-[#151A15] border-transparent text-[#8A929A] hover:bg-[#1A201A]"
-                  }`}
+                    }`}
                 >
                   <MdHistory size={20} className="mb-2" />
                   <span className="text-xs font-medium">Activities</span>
@@ -1199,21 +1300,19 @@ function WalletPageMobile() {
                   <div className="flex bg-[#151A15] rounded-full p-1">
                     <button
                       onClick={() => setActiveAssetFilter("assets")}
-                      className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-colors ${
-                        activeAssetFilter === "assets"
+                      className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-colors ${activeAssetFilter === "assets"
                           ? "bg-[#B1F128] text-black"
                           : "text-[#8A929A]"
-                      }`}
+                        }`}
                     >
                       Assets
                     </button>
                     <button
                       onClick={() => setActiveAssetFilter("nft")}
-                      className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-colors ${
-                        activeAssetFilter === "nft"
+                      className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-colors ${activeAssetFilter === "nft"
                           ? "bg-[#B1F128] text-black"
                           : "text-[#8A929A]"
-                      }`}
+                        }`}
                     >
                       NFTs
                     </button>
@@ -1256,16 +1355,16 @@ function WalletPageMobile() {
                         {[1, 2, 3, 4, 5].map((i) => (
                           <div
                             key={i}
-                            className="flex items-center justify-between p-3 rounded-2xl bg-[#0F120F] border border-[#1A1F1A]"
+                            className="grid grid-cols-[32px_120px_60px_1fr] gap-3 items-center p-3 rounded-2xl bg-[#0F120F] border border-[#1A1F1A]"
                           >
-                            <div className="flex items-center gap-3">
-                              <Skeleton className="h-10 w-10 rounded-full" />
-                              <div className="space-y-1">
-                                <Skeleton className="h-4 w-20" />
-                                <Skeleton className="h-3 w-32" />
-                              </div>
+                            <Skeleton className="h-8 w-8 rounded-full" />
+                            <div className="space-y-1">
+                              <Skeleton className="h-4 w-20" />
+                              <Skeleton className="h-3 w-32" />
                             </div>
-                            <Skeleton className="h-5 w-16" />
+                            <div className="flex justify-start">
+                              <Skeleton className="h-5 w-16" />
+                            </div>
                             <div className="text-right space-y-1">
                               <Skeleton className="h-4 w-16" />
                               <Skeleton className="h-3 w-20" />
@@ -1296,25 +1395,31 @@ function WalletPageMobile() {
                         {assets.map((asset, i) => (
                           <div
                             key={i}
-                            className="flex items-center justify-between p-3 rounded-2xl bg-[#0F120F] border border-[#1A1F1A]"
+                            className="grid grid-cols-[32px_120px_60px_1fr] gap-3 items-center p-3 rounded-2xl bg-[#0F120F] border border-[#1A1F1A]"
                           >
-                            <div className="flex items-center gap-3">
+                            {/* Column 1: Logo */}
+                            <div className="shrink-0 flex items-center justify-start">
                               <Image
                                 src={asset.icon}
                                 alt={asset.symbol}
                                 width={32}
                                 height={32}
+                                className="rounded-full"
                               />
-                              <div>
-                                <p className="text-sm font-bold text-white">
-                                  {asset.symbol}
-                                </p>
-                                <p className="text-[10px] text-[#8A929A]">
-                                  {asset.name}
-                                </p>
-                              </div>
                             </div>
-                            <div>
+
+                            {/* Column 2: Symbol and Name (Fixed width to keep chart aligned) */}
+                            <div className="min-w-0">
+                              <p className="text-sm font-bold text-white truncate">
+                                {asset.symbol}
+                              </p>
+                              <p className="text-[10px] text-[#8A929A] truncate">
+                                {asset.name}
+                              </p>
+                            </div>
+
+                            {/* Column 3: Chart (Fixed position, justify-start) */}
+                            <div className="flex justify-start shrink-0">
                               <Image
                                 src={asset.trend === "bullish" ? bullish : bearish}
                                 alt="trend"
@@ -1322,8 +1427,10 @@ function WalletPageMobile() {
                                 height={20}
                               />
                             </div>
-                            <div className="text-right">
-                              <p className="text-sm font-bold text-white">
+
+                            {/* Column 4: Amount and USD Value (Right-aligned) */}
+                            <div className="text-right min-w-0">
+                              <p className="text-sm font-bold text-white break-all">
                                 {asset.amount}
                               </p>
                               <p className="text-[10px] text-[#8A929A]">
@@ -1438,21 +1545,19 @@ function WalletPageMobile() {
                 <div className="flex border-b border-[#1A1F1A] mb-6">
                   <button
                     onClick={() => setActiveSendTab("single")}
-                    className={`flex-1 pb-3 text-sm font-medium border-b-2 transition-colors ${
-                      activeSendTab === "single"
+                    className={`flex-1 pb-3 text-sm font-medium border-b-2 transition-colors ${activeSendTab === "single"
                         ? "border-[#B1F128] text-[#B1F128]"
                         : "border-transparent text-[#8A929A]"
-                    }`}
+                      }`}
                   >
                     Send To One
                   </button>
                   <button
                     onClick={() => setActiveSendTab("multi")}
-                    className={`flex-1 pb-3 text-sm font-medium border-b-2 transition-colors ${
-                      activeSendTab === "multi"
+                    className={`flex-1 pb-3 text-sm font-medium border-b-2 transition-colors ${activeSendTab === "multi"
                         ? "border-[#B1F128] text-[#B1F128]"
                         : "border-transparent text-[#8A929A]"
-                    }`}
+                      }`}
                   >
                     Multi-Send
                   </button>
@@ -1761,34 +1866,38 @@ function WalletPageMobile() {
             {/* ACTIVITIES */}
             {activeTab === "activities" && (
               <div className="animate-in fade-in slide-in-from-right-4 duration-300">
-                <div className="flex flex-col gap-6 mt-2">
-                  {transactions.map((tx, i) => (
-                    <div key={i} className="flex justify-between items-start">
-                      <div className="flex flex-col gap-1">
-                        <span className="text-sm font-bold text-white capitalize">
-                          {tx.type}
-                        </span>
-                        <span className="text-xs font-medium text-[#8A929A]">
-                          {tx.date}
-                        </span>
+                {transactionsLoading ? (
+                  <div className="flex flex-col gap-6 mt-2">
+                    {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
+                      <div key={i} className="flex justify-between items-start">
+                        <div className="flex flex-col gap-1">
+                          <Skeleton className="h-5 w-20" />
+                          <Skeleton className="h-4 w-24" />
+                        </div>
+                        <div className="flex flex-col gap-1 items-end">
+                          <Skeleton className="h-5 w-24" />
+                          <Skeleton className="h-4 w-20" />
+                        </div>
                       </div>
-                      <div className="flex flex-col gap-1 items-end">
-                        <span
-                          className={`text-sm font-bold ${
-                            tx.type === "received"
-                              ? "text-[#B1F128]"
-                              : "text-white"
-                          }`}
-                        >
-                          {tx.amount}
-                        </span>
-                        <span className="text-xs font-medium text-[#8A929A]">
-                          {tx.usd}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                ) : transactionsError ? (
+                  <div className="flex flex-col items-center justify-center py-12">
+                    <p className="text-red-400 text-sm mb-4">
+                      Error loading transactions: {transactionsError}
+                    </p>
+                  </div>
+                ) : transactions.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-12">
+                    <p className="text-[#8A929A] text-sm">No transactions found</p>
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-6 mt-2">
+                    {transactions.map((tx) => (
+                      <TransactionRow key={tx.id} transaction={tx} />
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </>

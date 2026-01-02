@@ -282,7 +282,6 @@ async function makeMoralisRequest<T>(
     cacheTTL?: number;
   } = {}
 ): Promise<T> {
-console.log("🚀 ~ makeMoralisRequest ~ params:1", options)
 const {
     method = 'GET',
     params = {},
@@ -583,8 +582,16 @@ export async function getWalletNetWorth(
 }
 
 /**
- * Get wallet transactions for EVM chain
- * Moralis API: GET /{address} returns transactions
+ * Get wallet transactions for EVM chain (Legacy method)
+ * 
+ * NOTE: This endpoint is deprecated. Use getWalletHistory instead.
+ * This function is kept for backward compatibility but should be replaced.
+ * 
+ * The correct Moralis endpoint is:
+ * - GET /wallets/{address}/history (preferred - comprehensive history)
+ * - GET /{address}/verbose (alternative - verbose transaction details)
+ * 
+ * @deprecated Use getWalletHistory instead
  */
 export async function getEVMWalletTransactions(
   address: string,
@@ -597,19 +604,14 @@ export async function getEVMWalletTransactions(
     throw new Error(`Invalid EVM address: ${address}`);
   }
 
-  const cacheKey = `moralis:evm:wallet-tx:${chainId}:${address.toLowerCase()}:${limit}`;
+  // Use the wallet history endpoint instead of the non-existent /{address} endpoint
+  // This ensures we get proper transaction data with chain information
+  console.warn('[getEVMWalletTransactions] This function is deprecated. Consider using getWalletHistory instead.');
   
-  // Moralis API endpoint: GET /{address} with chain parameter
-  return makeMoralisRequest(
-    `/${address}`,
-    {
-      params: {
-        chain: chainHex,
-        limit,
-      },
-      cacheKey,
-      cacheTTL: CACHE_TTL.TRANSACTIONS,
-    }
+  return getWalletHistory(
+    address,
+    [chainId],
+    { limit }
   );
 }
 
@@ -689,12 +691,57 @@ export async function getSolanaTransactions(
 // ============================================================================
 
 /**
+ * Get wallet history for a single chain
+ * Endpoint: GET /wallets/{address}/history?chain={chainName}
+ * 
+ * Fetches transaction history for one specific chain.
+ * This is the preferred method when you need chain-specific data.
+ * 
+ * @param address - Wallet address
+ * @param chainName - Chain name (e.g., "eth", "bsc", "polygon")
+ * @param options - Query options (limit, cursor)
+ * @returns Wallet history response for the specified chain
+ */
+export async function getWalletHistoryForChain(
+  address: string,
+  chainName: string,
+  options?: {
+    limit?: number;
+    cursor?: string;
+  }
+): Promise<any> {
+  // Validate address
+  if (!isValidEVMAddress(address)) {
+    throw new Error(`Invalid EVM address: ${address}`);
+  }
+
+  // Build params with single chain
+  const params: Record<string, string | number> = {
+    chain: chainName,
+    limit: options?.limit || 100,
+    ...(options?.cursor && { cursor: options.cursor }),
+  };
+  
+  const cacheKey = `moralis:wallets:history:${chainName}:${address.toLowerCase()}:${options?.limit || 100}`;
+   
+  const history = await makeMoralisRequest(
+    `/wallets/${address}/history`,
+    {
+      params,
+      cacheKey,
+      cacheTTL: 2 * 60 * 1000, // 2 minutes (transactions change frequently)
+    }
+  );
+  return history;
+}
+
+/**
  * Get wallet history (all transaction types across multiple chains)
  * Endpoint: GET /wallets/{address}/history
  * Documentation: https://docs.moralis.com/web3-data-api/evm/wallet-history
  * 
- * This endpoint provides comprehensive transaction history with automatic categorization.
- * Returns all transaction types (native, token, ERC721, ERC1155, internal) in one call.
+ * @deprecated This function attempts to pass multiple chains as array, which Moralis doesn't support.
+ * Use getWalletHistoryForChain() for single-chain requests, or fetch per chain in parallel.
  * 
  * @param address - Wallet address
  * @param chainIds - Array of chain IDs to fetch
@@ -729,8 +776,8 @@ export async function getWalletHistory(
   });
   
   const cacheKey = `moralis:wallets:history:${chainNames.join(',')}:${address.toLowerCase()}:${options?.limit || 100}`;
-  
-  return makeMoralisRequest(
+   
+  const history = await makeMoralisRequest(
     `/wallets/${address}/history`,
     {
       params,
@@ -738,6 +785,7 @@ export async function getWalletHistory(
       cacheTTL: 2 * 60 * 1000, // 2 minutes (transactions change frequently)
     }
   );
+  return history;
 }
 
 // ============================================================================
