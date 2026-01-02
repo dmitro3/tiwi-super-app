@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import TradingChart from "@/components/swap/trading-chart";
 import SwapCard from "@/components/swap/swap-card";
 import SwapBackgroundElements from "@/components/swap/swap-background-elements";
@@ -223,9 +223,52 @@ export default function SwapPage() {
   };
 
   // Recipient wallet state for wallet-to-wallet transfers
-  const [recipientAddress, setRecipientAddress] = useState<string | null>(null);
+  // Default to primary wallet address if available
+  const [recipientAddress, setRecipientAddress] = useState<string | null>(connectedAddress);
   const [isExecutingTransfer, setIsExecutingTransfer] = useState(false);
   const [transferStatus, setTransferStatus] = useState<string>("");
+  const prevConnectedAddressRef = useRef<string | null>(connectedAddress);
+  const userChangedRecipientRef = useRef(false);
+
+  // Update recipient address to primary wallet when primary wallet connects or changes
+  // Only auto-update if user hasn't manually changed it
+  useEffect(() => {
+    const prevAddress = prevConnectedAddressRef.current;
+    
+    // If user hasn't manually changed recipient, auto-update to primary wallet
+    if (!userChangedRecipientRef.current) {
+      if (connectedAddress) {
+        setRecipientAddress(connectedAddress);
+      } else {
+        setRecipientAddress(null);
+      }
+    } else {
+      // User has manually changed recipient
+      // Only update if the recipient was set to the previous primary wallet address
+      if (prevAddress && recipientAddress && recipientAddress.toLowerCase() === prevAddress.toLowerCase()) {
+        // Recipient was set to old primary wallet, update to new one
+        if (connectedAddress) {
+          setRecipientAddress(connectedAddress);
+        } else {
+          setRecipientAddress(null);
+        }
+      }
+    }
+    
+    // Update ref for next comparison
+    prevConnectedAddressRef.current = connectedAddress;
+  }, [connectedAddress, recipientAddress]);
+
+  // Track when user manually changes recipient
+  const handleRecipientChange = (address: string | null) => {
+    // If user sets recipient back to primary wallet, reset the flag
+    if (address && connectedAddress && address.toLowerCase() === connectedAddress.toLowerCase()) {
+      userChangedRecipientRef.current = false;
+    } else {
+      userChangedRecipientRef.current = true;
+    }
+    setRecipientAddress(address);
+  };
 
   const handleSwapClick = async () => {
     // Check if this is a wallet-to-wallet transfer (same token, same chain, different recipient)
@@ -530,7 +573,7 @@ export default function SwapPage() {
               limitPriceUsd={limitPriceUsd}
               expires={expires}
               recipientAddress={recipientAddress}
-              onRecipientChange={setRecipientAddress}
+              onRecipientChange={handleRecipientChange}
               connectedAddress={connectedAddress}
               onTabChange={handleTabChange}
               onFromTokenSelect={handleFromTokenSelect}
@@ -572,6 +615,9 @@ export default function SwapPage() {
         onOpenChange={setIsTokenModalOpen}
         onTokenSelect={handleTokenSelect}
         selectedToken={tokenModalType === "from" ? fromToken : toToken}
+        connectedAddress={connectedAddress}
+        recipientAddress={recipientAddress}
+        tokenModalType={tokenModalType}
       />
 
       {/* Error Toast */}

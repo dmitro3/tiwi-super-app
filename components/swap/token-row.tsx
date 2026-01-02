@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { formatAddressMobile, formatPrice } from "@/lib/shared/utils/formatting";
+import { formatAddressMobile } from "@/lib/shared/utils/formatting";
 import type { Token } from "@/lib/frontend/types/tokens";
 
 interface TokenRowProps {
@@ -19,8 +19,6 @@ export default function TokenRow({
   isSelected,
   onClick,
 }: TokenRowProps) {
-  const hasBalance = token.balance && parseFloat(token.balance) > 0;
-
   return (
     <button
       onClick={onClick}
@@ -76,30 +74,21 @@ export default function TokenRow({
         </div>
       </div>
 
-      {/* Right Side - Balance and Price */}
-      {hasBalance ? (
+      {/* Right Side - Balance and USD Value */}
+      {(formattedBalance || token.usdValue) && (
         <div className="flex flex-col gap-1 sm:gap-[4px] items-end justify-center leading-0 relative shrink-0 text-right min-w-0 ml-2">
           {/* Balance */}
-          <div className="flex flex-col font-semibold justify-center leading-0 relative shrink-0 text-base sm:text-lg lg:text-[18px] text-white">
-            <p className="leading-[20px] truncate max-w-[80px] sm:max-w-[120px] lg:max-w-none">{formattedBalance}</p>
-          </div>
+          {formattedBalance && (
+            <div className="flex flex-col font-semibold justify-center leading-0 relative shrink-0 text-base sm:text-lg lg:text-[18px] text-white">
+              <p className="leading-[20px] truncate max-w-[80px] sm:max-w-[120px] lg:max-w-none">{formattedBalance}</p>
+            </div>
+          )}
           {/* USD Value */}
           {token.usdValue && (
             <div className="flex flex-col font-medium justify-center leading-0 relative shrink-0 text-[#b5b5b5] text-sm sm:text-base lg:text-[16px]">
               <p className="leading-[20px] truncate">{token.usdValue}</p>
             </div>
           )}
-          {/* Price */}
-          <div className="flex flex-col font-medium justify-center leading-0 relative shrink-0 text-[#7c7c7c] text-xs sm:text-sm lg:text-[14px]">
-            <p className="leading-[20px] truncate">{formatPrice(token.price)}</p>
-          </div>
-        </div>
-      ) : (
-        <div className="flex flex-col gap-[4px] items-end justify-center leading-0 relative shrink-0 text-right min-w-0 ml-2">
-          {/* Price (shown when no balance) */}
-          <div className="flex flex-col font-medium justify-center leading-0 relative shrink-0 text-[#b5b5b5] text-sm sm:text-base lg:text-[16px]">
-            <p className="leading-[20px] truncate">{formatPrice(token.price)}</p>
-          </div>
         </div>
       )}
     </button>

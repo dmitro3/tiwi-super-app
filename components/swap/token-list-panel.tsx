@@ -7,7 +7,8 @@ import { formatAddress, formatBalance } from "@/lib/shared/utils/formatting";
 import type { Token } from "@/lib/frontend/types/tokens";
 
 interface TokenListPanelProps {
-  tokens: Token[];
+  walletTokens: Token[];
+  otherTokens: Token[];
   searchQuery: string;
   onSearchChange: (query: string) => void;
   onTokenSelect: (token: Token) => void;
@@ -16,10 +17,12 @@ interface TokenListPanelProps {
   isSearching?: boolean; // True when background fetch is happening
   isApiFetching?: boolean; // True when API is actively fetching (for skeleton display)
   error?: Error | null;
+  connectedAddress?: string | null;
 }
 
 export default function TokenListPanel({
-  tokens,
+  walletTokens,
+  otherTokens,
   searchQuery,
   onSearchChange,
   onTokenSelect,
@@ -28,7 +31,26 @@ export default function TokenListPanel({
   isSearching = false,
   isApiFetching = false,
   error = null,
+  connectedAddress,
 }: TokenListPanelProps) {
+  // Filter wallet tokens and other tokens by search query
+  const filteredWalletTokens = walletTokens.filter((token) =>
+    !searchQuery.trim() ||
+    token.symbol.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    token.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    token.address.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const filteredOtherTokens = otherTokens.filter((token) =>
+    !searchQuery.trim() ||
+    token.symbol.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    token.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    token.address.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const hasWalletTokens = connectedAddress && filteredWalletTokens.length > 0;
+  const hasOtherTokens = filteredOtherTokens.length > 0;
+  const totalTokens = filteredWalletTokens.length + filteredOtherTokens.length;
   return (
     <div className="flex flex-col items-start relative shrink-0 w-full h-full overflow-hidden">
       {/* Search Bar */}
@@ -96,7 +118,7 @@ export default function TokenListPanel({
         )}
 
         {/* Empty State - Only show when API completed and no tokens */}
-        {!isLoading && !isApiFetching && !error && tokens.length === 0 && (
+        {!isLoading && !isApiFetching && !error && totalTokens === 0 && (
           <div className="flex flex-col items-center justify-center px-6 py-12 w-full">
             <p className="text-[#7c7c7c] font-medium text-base text-center">
               {searchQuery.trim() ? "No tokens found" : "No tokens available"}
@@ -105,18 +127,51 @@ export default function TokenListPanel({
         )}
 
         {/* Token List - Show tokens if available */}
-        {!isLoading && !error && tokens.length > 0 && (
+        {!isLoading && !error && totalTokens > 0 && (
           <>
-            {tokens.map((token) => (
-              <TokenRow
-                key={token.id}
-                token={token}
-                formattedAddress={formatAddress(token.address)}
-                formattedBalance={formatBalance(token.balance)}
-                isSelected={selectedToken?.id === token.id}
-                onClick={() => onTokenSelect(token)}
-              />
-            ))}
+            {/* Your Wallet Section */}
+            {hasWalletTokens && (
+              <>
+                <div className="px-4 sm:px-6 lg:px-[24px] py-2 bg-[#121712]/50 border-b border-[#1f261e] w-full">
+                  <p className="text-xs sm:text-sm font-semibold text-[#b1f128]">
+                    Your Wallet
+                  </p>
+                </div>
+                {filteredWalletTokens.map((token) => (
+                  <TokenRow
+                    key={token.id}
+                    token={token}
+                    formattedAddress={formatAddress(token.address)}
+                    formattedBalance={token.balance ? formatBalance(token.balance) : "0.00"}
+                    isSelected={selectedToken?.id === token.id}
+                    onClick={() => onTokenSelect(token)}
+                  />
+                ))}
+              </>
+            )}
+
+            {/* Other Tokens Section */}
+            {hasOtherTokens && (
+              <>
+                {hasWalletTokens && (
+                  <div className="px-4 sm:px-6 lg:px-[24px] py-2 bg-[#0b0f0a] border-b border-[#1f261e] w-full">
+                    <p className="text-xs sm:text-sm font-semibold text-[#7c7c7c]">
+                      Other Tokens
+                    </p>
+                  </div>
+                )}
+                {filteredOtherTokens.map((token) => (
+                  <TokenRow
+                    key={token.id}
+                    token={token}
+                    formattedAddress={formatAddress(token.address)}
+                    formattedBalance={token.balance ? formatBalance(token.balance) : ""}
+                    isSelected={selectedToken?.id === token.id}
+                    onClick={() => onTokenSelect(token)}
+                  />
+                ))}
+              </>
+            )}
             
             {/* Show skeletons at bottom when API is fetching (even if tokens exist) */}
             {isApiFetching && (
@@ -130,7 +185,7 @@ export default function TokenListPanel({
         )}
 
         {/* Show skeletons when searching but no tokens yet */}
-        {!isLoading && !error && tokens.length === 0 && isApiFetching && (
+        {!isLoading && !error && totalTokens === 0 && isApiFetching && (
           <div className="flex flex-col items-start relative w-full">
             {Array.from({ length: 8 }).map((_, index) => (
               <TokenRowSkeleton key={`skeleton-search-${index}`} />

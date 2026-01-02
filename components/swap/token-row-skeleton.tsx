@@ -36,10 +36,12 @@ export default function TokenRowSkeleton() {
         </div>
       </div>
 
-      {/* Right Side - Price Skeleton */}
-      <div className="flex flex-col gap-[4px] items-end justify-center leading-0 relative shrink-0 text-right min-w-0 ml-2">
-        {/* Price Skeleton */}
+      {/* Right Side - Balance and USD Value Skeleton */}
+      <div className="flex flex-col gap-1 sm:gap-[4px] items-end justify-center leading-0 relative shrink-0 text-right min-w-0 ml-2">
+        {/* Balance Skeleton */}
         <div className="h-5 sm:h-6 lg:h-[20px] bg-[#121712] rounded animate-pulse w-[60px] sm:w-[80px] lg:w-[100px]"></div>
+        {/* USD Value Skeleton */}
+        <div className="h-4 sm:h-5 lg:h-[16px] bg-[#121712] rounded animate-pulse w-[50px] sm:w-[70px] lg:w-[90px]"></div>
       </div>
     </div>
   );

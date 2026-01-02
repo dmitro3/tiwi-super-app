@@ -17,6 +17,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { getTokensQueryKey } from "@/hooks/useTokensQuery";
 import { fetchTokens } from "@/lib/frontend/api/tokens";
 import { cleanImageUrl } from "@/lib/shared/utils/formatting";
+import { useWalletBalances } from "@/hooks/useWalletBalances";
 import type { Token, Chain } from "@/lib/frontend/types/tokens";
 
 // Re-export types for backward compatibility
@@ -27,6 +28,9 @@ interface TokenSelectorModalProps {
   onOpenChange: (open: boolean) => void;
   onTokenSelect: (token: Token) => void;
   selectedToken?: Token | null;
+  connectedAddress?: string | null;
+  recipientAddress?: string | null;
+  tokenModalType?: "from" | "to";
 }
 
 export default function TokenSelectorModal({
@@ -34,12 +38,28 @@ export default function TokenSelectorModal({
   onOpenChange,
   onTokenSelect,
   selectedToken,
+  connectedAddress,
+  recipientAddress,
+  tokenModalType = "from",
 }: TokenSelectorModalProps) {
   const [selectedChain, setSelectedChain] = useState<Chain | "all">("all");
   const [chainSearchQuery, setChainSearchQuery] = useState("");
   const [showChainList, setShowChainList] = useState(false); // Mobile: toggle between token list and chain list
 
   const queryClient = useQueryClient();
+
+  // Determine which wallet address to use:
+  // - For "to" section: use recipientAddress if available, otherwise connectedAddress
+  // - For "from" section: always use connectedAddress
+  const walletAddressToUse = useMemo(() => {
+    if (tokenModalType === "to" && recipientAddress) {
+      return recipientAddress;
+    }
+    return connectedAddress || null;
+  }, [tokenModalType, recipientAddress, connectedAddress]);
+
+  // Fetch wallet balances for the appropriate wallet
+  const { balances: walletBalances } = useWalletBalances(walletAddressToUse);
 
   // Fetch chains from API
   const { chains, isLoading: chainsLoading, error: chainsError } = useChains();
@@ -120,35 +140,83 @@ export default function TokenSelectorModal({
     return map;
   }, [chains]);
 
-  // Enrich tokens with chain logo and normalized chain name
+  // Create a map of wallet balances by token address and chainId for quick lookup
+  const walletBalanceMap = useMemo(() => {
+    const map = new Map<string, { balance: string; usdValue: string }>();
+    if (walletBalances) {
+      walletBalances.forEach((walletToken) => {
+        const key = `${walletToken.address.toLowerCase()}-${walletToken.chainId}`;
+        // Only add to map if token has balance data (token is in wallet)
+        if (walletToken.balanceFormatted) {
+          map.set(key, {
+            balance: walletToken.balanceFormatted,
+            usdValue: walletToken.usdValue || undefined,
+          });
+        }
+      });
+    }
+    return map;
+  }, [walletBalances]);
+
+  // Enrich tokens with chain logo, normalized chain name, and wallet balance data
   const tokensWithChainLogo = useMemo(() => {
     return tokens.map((token) => {
       const chainMatchById = token.chainId ? chainsById.get(token.chainId) : undefined;
       const chainMatchByName = chainsByName.get(token.chain.toLowerCase());
       const chainMatch = chainMatchById || chainMatchByName;
 
+      // Look up wallet balance for this token
+      const balanceKey = token.chainId
+        ? `${token.address.toLowerCase()}-${token.chainId}`
+        : null;
+      const walletBalance = balanceKey ? walletBalanceMap.get(balanceKey) : null;
+
       return {
         ...token,
         chain: chainMatch?.name || token.chain,
         chainLogo: cleanImageUrl(chainMatch?.logo),
+        // Override balance and usdValue with wallet data if available
+        // Only set if walletBalance exists (token is in wallet)
+        balance: walletBalance ? walletBalance.balance : token.balance,
+        usdValue: walletBalance ? walletBalance.usdValue : token.usdValue,
       };
     });
-  }, [tokens, chainsById, chainsByName]);
+  }, [tokens, chainsById, chainsByName, walletBalanceMap]);
 
-  // Sort tokens: tokens with balances first, then preserve backend order (volume-based)
-  const sortedTokens = useMemo(() => {
-    return [...tokensWithChainLogo].sort((a, b) => {
-      const aHasBalance = a.balance && parseFloat(a.balance) > 0;
-      const bHasBalance = b.balance && parseFloat(b.balance) > 0;
-
-      // Only prioritize tokens with balances
-      if (aHasBalance && !bHasBalance) return -1;
-      if (!aHasBalance && bHasBalance) return 1;
+  // Separate wallet tokens from other tokens
+  const { walletTokens, otherTokens } = useMemo(() => {
+    const wallet: Token[] = [];
+    const other: Token[] = [];
+    
+    tokensWithChainLogo.forEach((token) => {
+      // Check if token has wallet balance (token is in wallet)
+      const balanceKey = token.chainId
+        ? `${token.address.toLowerCase()}-${token.chainId}`
+        : null;
+      const hasWalletBalance = balanceKey ? walletBalanceMap.has(balanceKey) : false;
       
-      // Preserve backend order (volume-based, mixed by chain) - no alphabetical sorting
-      return 0;
+      // Include token in wallet section if it's in the wallet (even with 0 balance)
+      if (hasWalletBalance) {
+        wallet.push(token);
+      } else {
+        other.push(token);
+      }
     });
-  }, [tokensWithChainLogo]);
+    
+    // Sort wallet tokens by USD value (descending), then by balance (descending)
+    wallet.sort((a, b) => {
+      const aUsdValue = a.usdValue ? parseFloat(a.usdValue.replace(/[^0-9.-]/g, '')) : 0;
+      const bUsdValue = b.usdValue ? parseFloat(b.usdValue.replace(/[^0-9.-]/g, '')) : 0;
+      if (aUsdValue !== bUsdValue) {
+        return bUsdValue - aUsdValue; // Descending order
+      }
+      const aBalance = a.balance ? parseFloat(a.balance) : 0;
+      const bBalance = b.balance ? parseFloat(b.balance) : 0;
+      return bBalance - aBalance; // Descending order
+    });
+    
+    return { walletTokens: wallet, otherTokens: other };
+  }, [tokensWithChainLogo, walletBalanceMap]);
 
   // Filter chains based on search query (client-side filtering for chains)
   const filteredChains = useMemo(() => {
@@ -268,7 +336,8 @@ export default function TokenSelectorModal({
               />
             ) : (
               <TokenListPanel
-                tokens={sortedTokens}
+                walletTokens={walletTokens}
+                otherTokens={otherTokens}
                 searchQuery={searchQuery}
                 onSearchChange={setSearchQuery}
                 onTokenSelect={handleTokenSelect}
@@ -277,6 +346,7 @@ export default function TokenSelectorModal({
                 isSearching={isSearching}
                 isApiFetching={isApiFetching}
                 error={tokensError}
+                connectedAddress={walletAddressToUse}
               />
             )}
           </div>
