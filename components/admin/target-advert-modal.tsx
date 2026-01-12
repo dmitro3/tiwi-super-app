@@ -8,11 +8,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { IoChevronDownOutline } from "react-icons/io5";
+import { updateAdvert } from "@/lib/frontend/api/adverts";
 
 interface TargetAdvertModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   advertId?: string;
+  onPublish?: () => void;
 }
 
 const audienceTargeting = [
@@ -47,6 +49,7 @@ export default function TargetAdvertModal({
   open,
   onOpenChange,
   advertId,
+  onPublish,
 }: TargetAdvertModalProps) {
   const [audience, setAudience] = useState(audienceTargeting[0]);
   const [advertFormat, setAdvertFormat] = useState(advertFormats[0]);
@@ -58,6 +61,7 @@ export default function TargetAdvertModal({
     "Partner verified": false,
   });
   const [confirmation, setConfirmation] = useState(false);
+  const [isPublishing, setIsPublishing] = useState(false);
   const [showAudienceDropdown, setShowAudienceDropdown] = useState(false);
   const [showFormatDropdown, setShowFormatDropdown] = useState(false);
   const [showPriorityDropdown, setShowPriorityDropdown] = useState(false);
@@ -90,10 +94,36 @@ export default function TargetAdvertModal({
     }));
   };
 
-  const handlePublish = () => {
-    // Handle publish logic
-    console.log("Publishing advert...");
-    onOpenChange(false);
+  const handlePublish = async () => {
+    if (!advertId) {
+      alert("Advert ID is required");
+      return;
+    }
+
+    try {
+      setIsPublishing(true);
+      await updateAdvert({
+        id: advertId,
+        audienceTargeting: audience as any,
+        priorityLevel: priority as any,
+        complianceNoMisleading: compliance["No misleading API or guarantees"],
+        complianceNoUnsolicited: compliance["No unsolicited contract claims"],
+        complianceClearRiskLanguage: compliance["Clear risk language (FDIC related)"],
+        compliancePartnerVerified: compliance["Partner verified"],
+        complianceConfirmed: confirmation,
+        status: "published",
+      });
+      
+      if (onPublish) {
+        onPublish();
+      }
+      onOpenChange(false);
+    } catch (error) {
+      console.error("Error publishing advert:", error);
+      alert("Failed to publish advert. Please try again.");
+    } finally {
+      setIsPublishing(false);
+    }
   };
 
   return (
@@ -273,10 +303,10 @@ export default function TargetAdvertModal({
             <div className="pt-4">
               <button
                 onClick={handlePublish}
-                disabled={!confirmation}
+                disabled={!confirmation || isPublishing || !advertId}
                 className="w-full px-6 py-2.5 bg-[#b1f128] text-[#010501] rounded-lg hover:bg-[#9dd81f] transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Publish
+                {isPublishing ? "Publishing..." : "Publish"}
               </button>
             </div>
           </div>

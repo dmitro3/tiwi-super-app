@@ -14,64 +14,8 @@ import {
   IoTrashOutline,
 } from "react-icons/io5";
 import Image from "next/image";
-
-interface Advert {
-  id: number;
-  name: string;
-  image?: string;
-  campaignType?: string;
-  advertFormat?: string;
-  headline?: string;
-  messageBody?: string;
-  audience?: string;
-  priority?: string;
-  compliance?: Record<string, boolean>;
-}
-
-const adverts: Advert[] = [
-  { 
-    id: 1, 
-    name: "FOMO Friday",
-    image: "/assets/icons/home/hero-banner.svg",
-    campaignType: "Internal Promotion (TW features, staking pools, governance, updates)",
-    advertFormat: "Banner (Horizontal)",
-    headline: "FOMO Friday Special",
-    messageBody: "Join us for FOMO Friday and get exclusive rewards!",
-    audience: "All Users",
-    priority: "Normal",
-    compliance: {
-      "No misleading API or guarantees": true,
-      "No unsolicited contract claims": true,
-      "Clear risk language (FDIC related)": false,
-      "Partner verified": false,
-    }
-  },
-  { 
-    id: 2, 
-    name: "FOMO Friday",
-    image: "/assets/icons/home/hero-banner.svg",
-  },
-  { 
-    id: 3, 
-    name: "FOMO Friday",
-    image: "/assets/icons/home/hero-banner.svg",
-  },
-  { 
-    id: 4, 
-    name: "FOMO Friday",
-    image: "/assets/icons/home/hero-banner.svg",
-  },
-  { 
-    id: 5, 
-    name: "FOMO Friday",
-    image: "/assets/icons/home/hero-banner.svg",
-  },
-  { 
-    id: 6, 
-    name: "FOMO Friday",
-    image: "/assets/icons/home/hero-banner.svg",
-  },
-];
+import { fetchAdverts, deleteAdvert } from "@/lib/frontend/api/adverts";
+import type { Advert } from "@/lib/shared/types/adverts";
 
 const filters = ["All", "Internal", "Partner", "Sponsored"];
 
@@ -83,9 +27,55 @@ export default function AdvertsPage() {
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [selectedAdvert, setSelectedAdvert] = useState<Advert | null>(null);
-  const [advertsList, setAdvertsList] = useState<Advert[]>(adverts);
-  const [openMenuId, setOpenMenuId] = useState<number | null>(null);
-  const menuRefs = useRef<Record<number, HTMLDivElement | null>>({});
+  const [advertsList, setAdvertsList] = useState<Advert[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [currentAdvertId, setCurrentAdvertId] = useState<string | null>(null);
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const menuRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
+  // Fetch adverts from API
+  useEffect(() => {
+    loadAdverts();
+  }, [activeFilter]);
+
+  const loadAdverts = async () => {
+    try {
+      setIsLoading(true);
+      let status: Advert['status'] | undefined;
+      
+      // Map filter to status (for now, we'll fetch all and filter client-side)
+      // You can extend this to use API filters later
+      const adverts = await fetchAdverts();
+      setAdvertsList(adverts);
+    } catch (error) {
+      console.error('Error loading adverts:', error);
+      // Keep existing adverts on error
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Filter adverts based on active filter and search query
+  const filteredAdverts = advertsList.filter((advert) => {
+    // Filter by campaign type
+    if (activeFilter !== "All") {
+      if (activeFilter === "Internal" && !advert.campaignType?.includes("Internal")) return false;
+      if (activeFilter === "Partner" && !advert.campaignType?.includes("Partner")) return false;
+      if (activeFilter === "Sponsored" && !advert.campaignType?.includes("Sponsored")) return false;
+    }
+    
+    // Filter by search query
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      if (!advert.name.toLowerCase().includes(query) && 
+          !advert.headline?.toLowerCase().includes(query) &&
+          !advert.messageBody?.toLowerCase().includes(query)) {
+        return false;
+      }
+    }
+    
+    return true;
+  });
 
   // Close menu when clicking outside
   useEffect(() => {
@@ -114,19 +104,43 @@ export default function AdvertsPage() {
     setOpenMenuId(null);
   };
 
-  const handleDelete = (advertId: number) => {
+  const handleDelete = async (advertId: string) => {
     if (confirm("Are you sure you want to delete this advert?")) {
-      setAdvertsList(advertsList.filter((a) => a.id !== advertId));
-      setOpenMenuId(null);
+      try {
+        await deleteAdvert(advertId);
+        setAdvertsList(advertsList.filter((a) => a.id !== advertId));
+        setOpenMenuId(null);
+      } catch (error) {
+        console.error('Error deleting advert:', error);
+        alert('Failed to delete advert. Please try again.');
+      }
     }
   };
 
-  const handleSaveEdit = (updatedAdvert: Advert) => {
-    setAdvertsList(
-      advertsList.map((a) => (a.id === updatedAdvert.id ? updatedAdvert : a))
-    );
-    setIsEditModalOpen(false);
-    setSelectedAdvert(null);
+  const handleSaveEdit = async () => {
+    try {
+      // Reload adverts to get updated data
+      await loadAdverts();
+      setIsEditModalOpen(false);
+      setSelectedAdvert(null);
+    } catch (error) {
+      console.error('Error saving advert:', error);
+      alert('Failed to save advert. Please try again.');
+    }
+  };
+
+  const handleAdvertCreated = () => {
+    // Reload adverts after creation
+    loadAdverts();
+    setIsCreateModalOpen(false);
+    setIsTargetModalOpen(false);
+    setCurrentAdvertId(null);
+  };
+
+  const handleCreateNext = (advertId: string) => {
+    setCurrentAdvertId(advertId);
+    setIsCreateModalOpen(false);
+    setIsTargetModalOpen(true);
   };
 
   return (
@@ -184,91 +198,96 @@ export default function AdvertsPage() {
         </div>
 
         {/* Adverts Grid */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-4 gap-4">
-          {advertsList.map((advert) => (
-            <div
-              key={advert.id}
-              className="bg-[#121712] border border-[#1f261e] rounded-xl overflow-hidden hover:border-[#b1f128] transition-colors relative group"
-            >
-              {/* Image */}
-              <div className="w-full h-48 bg-[#0b0f0a] flex items-center justify-center relative">
-                {advert.image ? (
-                  <Image
-                    src={advert.image}
-                    alt={advert.name}
-                    width={200}
-                    height={200}
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <div className="w-full h-full bg-[#081f02] flex items-center justify-center">
-                    <span className="text-[#b5b5b5] text-sm">No Image</span>
-                  </div>
-                )}
-              </div>
-              
-              {/* Title */}
-              <div className="p-4">
-                <h3 className="text-white font-medium text-sm truncate">{advert.name}</h3>
-              </div>
+        {isLoading ? (
+          <div className="text-center text-[#b5b5b5] py-12">Loading adverts...</div>
+        ) : filteredAdverts.length === 0 ? (
+          <div className="text-center text-[#b5b5b5] py-12">No adverts found</div>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {filteredAdverts.map((advert) => (
+              <div
+                key={advert.id}
+                className="bg-[#121712] border border-[#1f261e] rounded-xl overflow-hidden hover:border-[#b1f128] transition-colors relative group"
+              >
+                {/* Image */}
+                <div className="w-full bg-[#0b0f0a] flex items-center justify-center relative min-h-56">
+                  {advert.imageUrl ? (
+                    <Image
+                      src={advert.imageUrl}
+                      alt={advert.name}
+                      width={400}
+                      height={300}
+                      className="w-full h-auto object-contain"
+                    />
+                  ) : (
+                    <div className="w-full min-h-56 bg-[#081f02] flex items-center justify-center py-12">
+                      <span className="text-[#b5b5b5] text-sm">No Image</span>
+                    </div>
+                  )}
+                </div>
+                
+                {/* Title */}
+                <div className="p-4">
+                  <h3 className="text-white font-medium text-sm truncate">{advert.name}</h3>
+                </div>
 
-              {/* Three Dots Menu */}
-              <div className="absolute top-2 right-2" ref={(el) => (menuRefs.current[advert.id] = el)}>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setOpenMenuId(openMenuId === advert.id ? null : advert.id);
-                  }}
-                  className="p-2 bg-[#0b0f0a] bg-opacity-80 hover:bg-opacity-100 rounded-lg transition-opacity"
-                >
-                  <IoEllipsisVertical className="w-5 h-5 text-[#b5b5b5] hover:text-white" />
-                </button>
+                {/* Three Dots Menu */}
+                <div className="absolute top-2 right-2" ref={(el) => { menuRefs.current[advert.id] = el; }}>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setOpenMenuId(openMenuId === advert.id ? null : advert.id);
+                    }}
+                    className="p-2 bg-[#0b0f0a] bg-opacity-80 hover:bg-opacity-100 rounded-lg transition-opacity"
+                  >
+                    <IoEllipsisVertical className="w-5 h-5 text-[#b5b5b5] hover:text-white" />
+                  </button>
 
-                {/* Dropdown Menu */}
-                {openMenuId === advert.id && (
-                  <div className="absolute right-0 top-10 z-50 w-40 bg-[#0b0f0a] border border-[#1f261e] rounded-lg shadow-lg overflow-hidden">
-                    <button
-                      onClick={() => handleView(advert)}
-                      className="w-full px-4 py-2.5 text-left text-sm text-[#b5b5b5] hover:bg-[#121712] hover:text-white transition-colors flex items-center gap-2"
-                    >
-                      <IoEyeOutline className="w-4 h-4" />
-                      <span>View</span>
-                    </button>
-                    <button
-                      onClick={() => handleEdit(advert)}
-                      className="w-full px-4 py-2.5 text-left text-sm text-[#b5b5b5] hover:bg-[#121712] hover:text-white transition-colors flex items-center gap-2"
-                    >
-                      <IoCreateOutline className="w-4 h-4" />
-                      <span>Edit</span>
-                    </button>
-                    <button
-                      onClick={() => handleDelete(advert.id)}
-                      className="w-full px-4 py-2.5 text-left text-sm text-[#b5b5b5] hover:bg-[#121712] hover:text-red-500 transition-colors flex items-center gap-2"
-                    >
-                      <IoTrashOutline className="w-4 h-4" />
-                      <span>Delete</span>
-                    </button>
-                  </div>
-                )}
+                  {/* Dropdown Menu */}
+                  {openMenuId === advert.id && (
+                    <div className="absolute right-0 top-10 z-50 w-40 bg-[#0b0f0a] border border-[#1f261e] rounded-lg shadow-lg overflow-hidden">
+                      <button
+                        onClick={() => handleView(advert)}
+                        className="w-full px-4 py-2.5 text-left text-sm text-[#b5b5b5] hover:bg-[#121712] hover:text-white transition-colors flex items-center gap-2"
+                      >
+                        <IoEyeOutline className="w-4 h-4" />
+                        <span>View</span>
+                      </button>
+                      <button
+                        onClick={() => handleEdit(advert)}
+                        className="w-full px-4 py-2.5 text-left text-sm text-[#b5b5b5] hover:bg-[#121712] hover:text-white transition-colors flex items-center gap-2"
+                      >
+                        <IoCreateOutline className="w-4 h-4" />
+                        <span>Edit</span>
+                      </button>
+                      <button
+                        onClick={() => handleDelete(advert.id)}
+                        className="w-full px-4 py-2.5 text-left text-sm text-[#b5b5b5] hover:bg-[#121712] hover:text-red-500 transition-colors flex items-center gap-2"
+                      >
+                        <IoTrashOutline className="w-4 h-4" />
+                        <span>Delete</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
 
         {/* Create Advert Modal */}
         <CreateAdvertModal
           open={isCreateModalOpen}
           onOpenChange={setIsCreateModalOpen}
-          onNext={() => {
-            setIsCreateModalOpen(false);
-            setIsTargetModalOpen(true);
-          }}
+          onNext={handleCreateNext}
         />
 
         {/* Target Advert Modal */}
         <TargetAdvertModal
           open={isTargetModalOpen}
           onOpenChange={setIsTargetModalOpen}
+          advertId={currentAdvertId || undefined}
+          onPublish={handleAdvertCreated}
         />
 
         {/* View Advert Modal */}

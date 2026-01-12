@@ -1,12 +1,11 @@
 /**
- * Home banner API (frontend mock)
+ * Home banner API
  *
- * In production this would call a backend endpoint to fetch
- * active promotional banners configured from the admin.
- * Here we mimic that behaviour with a small async helper.
+ * Fetches active promotional banners (published adverts) from the database.
  */
 
-import { HERO_ART } from "@/lib/home/mock-data";
+import { fetchAdverts } from "./adverts";
+import type { Advert } from "@/lib/shared/types/adverts";
 
 export interface HomeBanner {
   id: string;
@@ -16,34 +15,30 @@ export interface HomeBanner {
   order: number;
 }
 
-// Simulated backend fetch
+// Fetch published adverts and convert to HomeBanner format
 export async function fetchHomeBanners(): Promise<HomeBanner[]> {
-  // Simulate small network delay
-  await new Promise((resolve) => setTimeout(resolve, 150));
-
-  return [
-    {
-      id: "fomo-friday",
-      imageUrl: HERO_ART.shield,
-      alt: "FOMO Friday — Trade TWC, Stake TWC, 25,000 TWC",
+  try {
+    // Fetch published adverts from the API
+    const adverts = await fetchAdverts({ status: "published" });
+    
+    // Filter adverts that have images and take the first 3
+    const advertsWithImages = adverts
+      .filter((advert) => advert.imageUrl)
+      .slice(0, 3);
+    
+    // Map adverts to HomeBanner format
+    return advertsWithImages.map((advert, index) => ({
+      id: advert.id,
+      imageUrl: advert.imageUrl!,
+      alt: advert.headline || advert.name || "Promotional banner",
       href: undefined,
-      order: 1,
-    },
-    {
-      id: "stake-twc-yield",
-      imageUrl: "/assets/icons/home/hero-banner-stake.svg",
-      alt: "Stake TWC to earn yield across chains",
-      href: undefined,
-      order: 2,
-    },
-    {
-      id: "smart-markets",
-      imageUrl: "/assets/icons/home/hero-banner-markets.svg",
-      alt: "Discover smart markets powered by Tiwi Protocol",
-      href: undefined,
-      order: 3,
-    },
-  ];
+      order: index + 1,
+    }));
+  } catch (error) {
+    console.error("[fetchHomeBanners] Error fetching adverts:", error);
+    // Return empty array on error to prevent crashes
+    return [];
+  }
 }
 
 

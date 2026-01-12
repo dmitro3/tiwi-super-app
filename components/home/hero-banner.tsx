@@ -17,22 +17,10 @@ import { fetchHomeBanners } from "@/lib/frontend/api/home-banners";
 export function HeroBanner() {
   const [banners, setBanners] = useState<HomeBanner[]>([]);
   const [activeIndex, setActiveIndex] = useState(0);
-  const [isMobile, setIsMobile] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const touchStartXRef = useRef<number | null>(null);
 
-  // Detect mobile screen size
-  useEffect(() => {
-    const checkMobile = () => {
-      setIsMobile(window.innerWidth < 1024); // lg breakpoint
-    };
-    
-    checkMobile();
-    window.addEventListener("resize", checkMobile);
-    return () => window.removeEventListener("resize", checkMobile);
-  }, []);
-
-  // Fetch banners (simulating backend served adverts)
+  // Fetch banners from published adverts
   useEffect(() => {
     let mounted = true;
     setIsLoading(true);
@@ -108,25 +96,7 @@ export function HeroBanner() {
   }
 
   const current = banners[activeIndex];
-
-  // Get the appropriate image URL based on screen size
-  // For mobile, use mobile-specific image if available, otherwise use the regular image
-  const getImageUrl = (banner: HomeBanner): string => {
-    if (isMobile) {
-      // For mobile, check if there's a mobile-specific version
-      // If the banner ID matches the first banner (fomo-friday), use mobile-specific image
-      if (banner.id === "fomo-friday") {
-        return "/assets/icons/home/stake-claim-mobile.svg";
-      }
-      // For other banners, you can add mobile-specific versions if needed
-      // For now, use the regular image URL
-      return banner.imageUrl;
-    }
-    // Desktop uses the regular image URL
-    return banner.imageUrl;
-  };
-
-  const imageUrl = getImageUrl(current);
+  const imageUrl = current.imageUrl;
 
   return (
     <div className="w-full flex flex-col">
