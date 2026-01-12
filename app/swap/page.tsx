@@ -464,7 +464,7 @@ export default function SwapPage() {
 
     setTransferStatus("Preparing EVM transfer...");
 
-    // Get wallet client - this will need to be implemented based on your wallet connection setup
+    // Get wallet client - this will need to be implemented based on your wsallet connection setup
     // For now, we'll use a placeholder that needs to be connected to your actual wallet system
     const { createWalletClient, custom } = await import("viem");
     const { mainnet, arbitrum, optimism, polygon, base, bsc } = await import("viem/chains");
