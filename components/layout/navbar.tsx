@@ -161,7 +161,7 @@ export default function Navbar() {
 
           {/* Wallet UI - Desktop */}
           <div className="hidden md:flex items-center gap-2">
-            {wallet.isConnected && connectedAddress ? (
+            {connectedAddress ? (
               <>
                 {/* Share Knowledge Icon (Referrals) - Green border */}
                 <button
@@ -252,7 +252,7 @@ export default function Navbar() {
 
           {/* Mobile Right Side - Wallet UI or Connect Button and Menu */}
           <div className="md:hidden flex items-center gap-3">
-            {wallet.isConnected && connectedAddress ? (
+            {connectedAddress ? (
               <>
                 {/* Wallet Address Button */}
                 <button

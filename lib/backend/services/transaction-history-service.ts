@@ -18,6 +18,7 @@ import {
   isValidSolanaAddress,
 } from '@/lib/backend/providers/moralis-rest-client';
 import { TransactionParser } from './transaction-parser';
+import { getTIWIActivityService } from './tiwi-activity-service';
 
 // ============================================================================
 // Transaction History Service Class
@@ -26,13 +27,15 @@ import { TransactionParser } from './transaction-parser';
 export class TransactionHistoryService {
   private cache = getCache();
   private parser = new TransactionParser();
+  private tiwiActivityService = getTIWIActivityService();
 
   /**
    * Get transaction history for a wallet
+   * ONLY returns transactions performed within the TIWI ecosystem/dApp platform
    * 
    * @param address - Wallet address
    * @param options - Query options
-   * @returns Transaction history response with pagination
+   * @returns Transaction history response with pagination (TIWI platform transactions only)
    */
   async getTransactionHistory(
     address: string,
@@ -50,56 +53,19 @@ export class TransactionHistoryService {
       offset = 0,
     } = options;
 
-    // Default to major chains if not specified
-    const chainsToFetch = chainIds || [
-      1,      // Ethereum
-      56,     // BSC
-      137,    // Polygon
-      42161,  // Arbitrum
-      43114,  // Avalanche
-      8453,   // Base
-      SOLANA_CHAIN_ID, // Solana
-    ];
-
     // Check cache
-    const cacheKey = `transactions:${address.toLowerCase()}:${chainsToFetch.sort().join(',')}:${limit}:${offset}`;
+    const cacheKey = `tiwi-transactions:${address.toLowerCase()}:${chainIds?.sort().join(',') || 'all'}:${types?.join(',') || 'all'}:${limit}:${offset}`;
     const cached = this.cache.get<TransactionHistoryResponse>(cacheKey);
     if (cached) {
       return cached;
     }
 
-    // Try to use new wallet history endpoint first (for EVM addresses)
-    const addressType = getAddressType(address);
-    let transactions: Transaction[] = [];
-    
-    if (addressType === 'evm') {
-      // Use new wallet history endpoint for EVM addresses
-      try {
-        transactions = await this.fetchWalletHistory(
-          address,
-          chainsToFetch.filter(id => id !== SOLANA_CHAIN_ID), // Exclude Solana
-          limit + offset
-        );
-      } catch (error) {
-        console.error('[TransactionHistoryService] Error fetching wallet history, falling back to legacy method:', error);
-        // Fallback to legacy method
-        transactions = await this.fetchTransactionsFromMoralis(
-          address,
-          chainsToFetch,
-          types,
-          limit + offset
-        );
-        console.log("🚀 ~ TransactionHistoryService ~ fetchTransactionsFromMoralis ~ transactions:", transactions)
-      }
-    } else {
-      // For Solana addresses, use legacy method
-      transactions = await this.fetchTransactionsFromMoralis(
-        address,
-        chainsToFetch,
-        types,
-        limit + offset
-      );
-    }
+    // Fetch ONLY TIWI platform transactions from database
+    const transactions = await this.tiwiActivityService.getTransactions(address, {
+      chainIds,
+      types,
+      limit: limit + offset, // Fetch more to handle pagination
+    });
 
     // Apply pagination
     const paginatedTransactions = transactions.slice(offset, offset + limit);
@@ -109,7 +75,7 @@ export class TransactionHistoryService {
     const response: TransactionHistoryResponse = {
       address,
       transactions: paginatedTransactions,
-      total: transactions.length, // This would be actual total from API
+      total: transactions.length,
       limit,
       offset,
       hasMore,

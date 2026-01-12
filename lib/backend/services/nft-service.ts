@@ -14,6 +14,7 @@ import {
   getCollectionStats, 
   getTokenSales 
 } from '@/lib/backend/providers/market-data-provider';
+import { getTIWIActivityService } from './tiwi-activity-service';
 import type { NFT, NFTActivity } from '@/lib/backend/types/nft';
 
 // ============================================================================
@@ -21,6 +22,8 @@ import type { NFT, NFTActivity } from '@/lib/backend/types/nft';
 // ============================================================================
 
 export class NFTService {
+  private tiwiActivityService = getTIWIActivityService();
+
   /**
    * Get all NFTs for a wallet across multiple chains
    * 
@@ -63,62 +66,88 @@ export class NFTService {
     chainId: number
   ): Promise<NFT[]> {
     try {
-      const response = await getWalletNFTs(address, chainId, {
-        limit: 100,
-        normalizeMetadata: true,
-      });
+      const allNFTs: NFT[] = [];
+      let cursor: string | undefined = undefined;
+      let hasMore = true;
+      const maxPages = 10; // Limit to prevent infinite loops
+      let pageCount = 0;
 
-      const nfts: NFT[] = [];
-      const tokenDataArray = response.result || [];
-      
-      if (!Array.isArray(tokenDataArray)) {
-        console.warn('[NFTService] Invalid response format from getWalletNFTs');
-        return [];
-      }
-      
-      // Process NFTs in batches to avoid overwhelming the API
-      // Fetch market data for unique collections
-      const uniqueCollections = new Set<string>();
-      for (const item of tokenDataArray) {
-        if (item.token_address) {
-          uniqueCollections.add(item.token_address.toLowerCase());
+      // Fetch NFTs with pagination (handle large collections)
+      while (hasMore && pageCount < maxPages) {
+        const response = await getWalletNFTs(address, chainId, {
+          limit: 100,
+          normalizeMetadata: true,
+          cursor,
+        });
+
+        const tokenDataArray = response.result || [];
+        
+        if (!Array.isArray(tokenDataArray)) {
+          console.warn('[NFTService] Invalid response format from getWalletNFTs');
+          break;
         }
-      }
-      
-      // Fetch collection stats for all unique collections in parallel
-      const collectionStatsPromises = Array.from(uniqueCollections).map(
-        contractAddress => getCollectionStats(contractAddress, chainId)
-      );
-      const collectionStatsResults = await Promise.allSettled(collectionStatsPromises);
-      
-      // Create a map of contract address to stats
-      const statsMap = new Map<string, any>();
-      let statsIndex = 0;
-      for (const contractAddress of uniqueCollections) {
-        const result = collectionStatsResults[statsIndex];
-        if (result.status === 'fulfilled' && result.value) {
-          statsMap.set(contractAddress, result.value);
+
+        // If no results, break
+        if (tokenDataArray.length === 0) {
+          hasMore = false;
+          break;
         }
-        statsIndex++;
-      }
       
-      // Normalize each NFT
-      for (const item of tokenDataArray) {
-        try {
-          const contractAddress = item.token_address?.toLowerCase();
-          const collectionStats = contractAddress ? statsMap.get(contractAddress) : null;
-          
-          const nft = await this.normalizeNFT(item, chainId, collectionStats);
-          if (nft) {
-            nfts.push(nft);
+        // Process NFTs in batches to avoid overwhelming the API
+        // Fetch market data for unique collections
+        const uniqueCollections = new Set<string>();
+        for (const item of tokenDataArray) {
+          if (item.token_address) {
+            uniqueCollections.add(item.token_address.toLowerCase());
           }
-        } catch (error) {
-          console.error('[NFTService] Error processing NFT:', error);
-          continue;
+        }
+        
+        // Fetch collection stats for all unique collections in parallel
+        const collectionStatsPromises = Array.from(uniqueCollections).map(
+          contractAddress => getCollectionStats(contractAddress, chainId)
+        );
+        const collectionStatsResults = await Promise.allSettled(collectionStatsPromises);
+        
+        // Create a map of contract address to stats
+        const statsMap = new Map<string, any>();
+        let statsIndex = 0;
+        for (const contractAddress of uniqueCollections) {
+          const result = collectionStatsResults[statsIndex];
+          if (result.status === 'fulfilled' && result.value) {
+            statsMap.set(contractAddress, result.value);
+          }
+          statsIndex++;
+        }
+        
+        // Normalize each NFT
+        for (const item of tokenDataArray) {
+          try {
+            const contractAddress = item.token_address?.toLowerCase();
+            const collectionStats = contractAddress ? statsMap.get(contractAddress) : null;
+            
+            const nft = await this.normalizeNFT(item, chainId, collectionStats);
+            if (nft) {
+              allNFTs.push(nft);
+            }
+          } catch (error) {
+            console.error('[NFTService] Error processing NFT:', error);
+            continue;
+          }
+        }
+
+        // Check for pagination cursor (Moralis returns cursor if there are more results)
+        cursor = response.cursor;
+        hasMore = !!cursor && tokenDataArray.length >= 100; // If we got 100, there might be more
+        pageCount++;
+        
+        // Safety check: if we've processed a lot of NFTs, stop pagination
+        if (allNFTs.length >= 1000) {
+          console.log(`[NFTService] Reached max NFT limit (1000) for chain ${chainId}, stopping pagination`);
+          hasMore = false;
         }
       }
       
-      return nfts;
+      return allNFTs;
     } catch (error) {
       console.error(`[NFTService] Error fetching NFTs for chain ${chainId}:`, error);
       return [];
@@ -139,14 +168,98 @@ export class NFTService {
     collectionStats?: any
   ): Promise<NFT | null> {
     try {
-      // Extract image URL (try multiple sources)
-      const image = item.metadata?.image || 
+      // Extract image URL (try multiple sources in order of preference)
+      // Check both normalized metadata and raw metadata fields
+      // Moralis can return images in various fields depending on normalization
+      let image = item.metadata?.image || 
+                   item.metadata?.image_url ||
+                   item.metadata?.imageUrl ||
+                   item.metadata?.image_uri ||
+                   item.metadata?.imageURI ||
+                   item.metadata?.image_data ||
+                   item.metadata?.imageData ||
                    item.token_uri?.image || 
+                   item.token_uri?.image_url ||
+                   item.token_uri?.imageUrl ||
                    item.image || 
+                   item.image_url ||
+                   item.thumbnail ||
+                   item.thumbnail_url ||
+                   item.media?.image?.original ||
+                   item.media?.image?.thumbnail ||
+                   item.media?.image ||
                    null;
       
+      // Sometimes the image is nested deeper in metadata
+      if (!image && item.metadata) {
+        // Check for nested image objects
+        if (typeof item.metadata.image === 'object' && item.metadata.image) {
+          image = item.metadata.image.original || 
+                  item.metadata.image.url || 
+                  item.metadata.image.uri ||
+                  null;
+        }
+      }
+      
+      // If no image in metadata, try fetching from token_uri
+      if (!image && item.token_uri) {
+        try {
+          const tokenUriResponse = await fetch(item.token_uri, {
+            signal: AbortSignal.timeout(8000), // 8 second timeout
+            headers: {
+              'Accept': 'application/json, */*',
+            },
+          });
+          if (tokenUriResponse.ok) {
+            const tokenMetadata = await tokenUriResponse.json();
+            image = tokenMetadata.image || 
+                   tokenMetadata.image_url ||
+                   tokenMetadata.imageUrl ||
+                   tokenMetadata.image_uri ||
+                   tokenMetadata.imageURI ||
+                   tokenMetadata.image_data ||
+                   tokenMetadata.imageData ||
+                   null;
+            
+            // Check for nested image objects in token metadata
+            if (!image && typeof tokenMetadata.image === 'object' && tokenMetadata.image) {
+              image = tokenMetadata.image.original || 
+                      tokenMetadata.image.url || 
+                      tokenMetadata.image.uri ||
+                      null;
+            }
+          }
+        } catch (error) {
+          // Failed to fetch token_uri, continue with available data
+          console.warn(`[NFTService] Failed to fetch token_uri ${item.token_uri}:`, error);
+        }
+      }
+      
       // Normalize image URL (handle IPFS, HTTP, etc.)
-      const normalizedImage = this.normalizeImageUrl(image);
+      let normalizedImage = this.normalizeImageUrl(image);
+      
+      // If we have a normalized URL, use it - don't validate aggressively
+      // Frontend will handle broken images with fallbacks
+      // Only use placeholder if we truly don't have a valid URL
+      if (!normalizedImage) {
+        // No image URL found, use default placeholder
+        if (image) {
+          // Log when we have an image but normalization failed (for debugging)
+          console.warn(`[NFTService] Failed to normalize image URL for NFT ${item.token_id}: ${image}`);
+        }
+        const tokenId = item.token_id || '0';
+        const placeholderIndex = (parseInt(tokenId) % 6) + 1;
+        normalizedImage = `/nft${placeholderIndex}.svg`;
+      } else if (normalizedImage.startsWith('/')) {
+        // Already a local path, keep it
+      } else if (!normalizedImage.startsWith('http') && !normalizedImage.startsWith('data:')) {
+        // Invalid URL format, use placeholder
+        console.warn(`[NFTService] Invalid URL format for NFT ${item.token_id}: ${normalizedImage}`);
+        const tokenId = item.token_id || '0';
+        const placeholderIndex = (parseInt(tokenId) % 6) + 1;
+        normalizedImage = `/nft${placeholderIndex}.svg`;
+      }
+      // Otherwise, use the normalized URL as-is (frontend will handle validation)
       
       // Calculate listed percentage
       let listedPercentage: number | undefined;
@@ -171,8 +284,8 @@ export class NFTService {
         tokenId: item.token_id,
         name: item.name || item.metadata?.name || `#${item.token_id}`,
         description: item.metadata?.description,
-        image: normalizedImage,
-        imageThumbnail: normalizedImage, // Could generate thumbnail later
+        image: normalizedImage || '/nft1.svg', // Always provide an image (fallback to default)
+        imageThumbnail: normalizedImage || '/nft1.svg', // Always provide a thumbnail
         chainId,
         collectionName: item.metadata?.collection?.name || collectionStats?.name,
         collectionSymbol: item.symbol,
@@ -202,12 +315,13 @@ export class NFTService {
 
   /**
    * Get NFT transfers/activity for a specific NFT
+   * ONLY returns activities performed within the TIWI ecosystem/dApp platform
    * 
    * @param address - Wallet address
    * @param contractAddress - NFT contract address
    * @param tokenId - Token ID
    * @param chainId - Chain ID
-   * @returns Array of activities sorted by timestamp (newest first)
+   * @returns Array of activities sorted by timestamp (newest first) - TIWI platform activities only
    */
   async getNFTActivity(
     address: string,
@@ -216,44 +330,13 @@ export class NFTService {
     chainId: number
   ): Promise<NFTActivity[]> {
     try {
-      // Fetch transfers from Moralis
-      const transfersResponse = await getNFTTransfers(address, chainId, {
-        limit: 50,
-        direction: 'both',
+      // Fetch ONLY TIWI platform NFT activities from database
+      const activities = await this.tiwiActivityService.getNFTActivities(address, {
         contractAddress,
+        tokenId,
+        chainId,
+        limit: 50,
       });
-
-      const activities: NFTActivity[] = [];
-      const transfers = transfersResponse.result || [];
-      
-      // Fetch sale data from Reservoir for price information
-      const salesData = await getTokenSales(contractAddress, tokenId, chainId);
-      const salesMap = new Map<string, { price: string; priceUSD?: string }>();
-      
-      if (salesData) {
-        for (const sale of salesData) {
-          salesMap.set(sale.transactionHash.toLowerCase(), {
-            price: sale.price.native,
-            priceUSD: sale.price.usd?.toString(),
-          });
-        }
-      }
-      
-      // Process transfers
-      for (const transfer of transfers) {
-        // Filter by token ID
-        if (transfer.token_id !== tokenId) continue;
-        
-        const activity = this.normalizeTransferToActivity(
-          transfer,
-          address,
-          contractAddress,
-          salesMap
-        );
-        if (activity) {
-          activities.push(activity);
-        }
-      }
       
       // Sort by timestamp (newest first)
       return activities.sort((a, b) => b.timestamp - a.timestamp);
@@ -325,38 +408,122 @@ export class NFTService {
   }
 
   /**
+   * Fetch and validate image URL (DEPRECATED - not used anymore)
+   * We now trust the normalized URLs and let the frontend handle validation
+   * This method is kept for potential future use but is not called
+   * 
+   * @param url - Image URL to validate
+   * @returns Validated URL or null if image cannot be fetched
+   */
+  private async fetchAndValidateImage(url: string): Promise<string | null> {
+    // This method is no longer used - we trust normalized URLs
+    // Frontend will handle broken images with fallbacks
+    return url;
+  }
+
+  /**
    * Normalize image URL (handle IPFS, HTTP, etc.)
    * 
    * @param url - Image URL (can be IPFS, HTTP, data URI, etc.)
    * @returns Normalized URL or undefined
    */
   private normalizeImageUrl(url: string | null | undefined): string | undefined {
-    if (!url) return undefined;
+    if (!url || typeof url !== 'string') return undefined;
     
-    // Handle IPFS
-    if (url.startsWith('ipfs://')) {
-      const ipfsHash = url.replace('ipfs://', '').replace('ipfs/', '');
-      return `https://ipfs.io/ipfs/${ipfsHash}`;
+    // Clean the URL (remove whitespace, control characters, and common issues)
+    let cleanedUrl = url.trim().replace(/[\x00-\x1F\x7F]/g, '');
+    
+    // Remove leading/trailing quotes if present
+    cleanedUrl = cleanedUrl.replace(/^["']|["']$/g, '');
+    
+    // Handle array format (sometimes URLs are in arrays)
+    if (cleanedUrl.startsWith('[') && cleanedUrl.endsWith(']')) {
+      try {
+        const parsed = JSON.parse(cleanedUrl);
+        if (Array.isArray(parsed) && parsed.length > 0 && typeof parsed[0] === 'string') {
+          cleanedUrl = parsed[0];
+        }
+      } catch {
+        // Not valid JSON, continue with original
+      }
     }
     
-    // Handle IPFS gateway URLs
-    if (url.includes('ipfs.io') || url.includes('gateway.pinata.cloud')) {
-      return url;
+    if (!cleanedUrl || cleanedUrl === 'null' || cleanedUrl === 'undefined') return undefined;
+    
+    // Handle IPFS protocols (ipfs://)
+    if (cleanedUrl.startsWith('ipfs://')) {
+      const ipfsHash = cleanedUrl.replace('ipfs://', '').replace(/^\/+/, '').split('?')[0].split('#')[0];
+      if (ipfsHash) {
+        // Use ipfs.io as primary gateway (most reliable)
+        // Frontend can try other gateways if this fails
+        return `https://ipfs.io/ipfs/${ipfsHash}`;
+      }
     }
     
-    // Handle HTTP/HTTPS
-    if (url.startsWith('http://') || url.startsWith('https://')) {
-      return url;
+    // Handle IPFS gateway URLs (already normalized) - check for various formats
+    if (cleanedUrl.includes('/ipfs/')) {
+      // Extract IPFS hash from URL
+      const ipfsMatch = cleanedUrl.match(/\/ipfs\/([^/?&#]+)/);
+      if (ipfsMatch) {
+        const ipfsHash = ipfsMatch[1];
+        // If it's already a full URL, return as-is, otherwise construct it
+        if (cleanedUrl.startsWith('http://') || cleanedUrl.startsWith('https://')) {
+          return cleanedUrl;
+        } else {
+          return `https://ipfs.io/ipfs/${ipfsHash}`;
+        }
+      }
     }
     
-    // Handle data URIs
-    if (url.startsWith('data:')) {
-      return url;
+    // Handle HTTP/HTTPS URLs (including relative URLs that start with //)
+    if (cleanedUrl.startsWith('http://') || cleanedUrl.startsWith('https://')) {
+      return cleanedUrl;
     }
     
-    // Try to construct IPFS URL if it looks like a hash
-    if (/^[a-zA-Z0-9]{46}$/.test(url)) {
-      return `https://ipfs.io/ipfs/${url}`;
+    // Handle protocol-relative URLs (//example.com/image.png)
+    if (cleanedUrl.startsWith('//')) {
+      return `https:${cleanedUrl}`;
+    }
+    
+    // Handle data URIs (base64 encoded images)
+    if (cleanedUrl.startsWith('data:')) {
+      return cleanedUrl;
+    }
+    
+    // Handle Qm hash (IPFS CID v0 - 46 characters starting with Qm)
+    if (/^Qm[1-9A-HJ-NP-Za-km-z]{44}$/.test(cleanedUrl)) {
+      return `https://ipfs.io/ipfs/${cleanedUrl}`;
+    }
+    
+    // Handle IPFS CID v1 (starts with bafy or bafk)
+    if (/^baf[ky][a-z0-9]{54,}$/.test(cleanedUrl)) {
+      return `https://ipfs.io/ipfs/${cleanedUrl}`;
+    }
+    
+    // Handle relative IPFS paths
+    if (cleanedUrl.startsWith('/ipfs/')) {
+      return `https://ipfs.io${cleanedUrl}`;
+    }
+    
+    // Handle Arweave URLs (ar://)
+    if (cleanedUrl.startsWith('ar://')) {
+      const arweaveHash = cleanedUrl.replace('ar://', '');
+      return `https://arweave.net/${arweaveHash}`;
+    }
+    
+    // Handle relative URLs that might be valid (but be careful)
+    // Only if they look like they might be part of a known CDN or service
+    if (cleanedUrl.startsWith('/') && cleanedUrl.length > 1) {
+      // Could be a relative URL, but we'll be conservative
+      // Most NFT images should be absolute URLs
+      return undefined;
+    }
+    
+    // If it's a valid-looking hash but doesn't match patterns above, try as IPFS
+    // This is a fallback for various IPFS hash formats
+    if (/^[a-zA-Z0-9]{32,}$/.test(cleanedUrl) && cleanedUrl.length <= 100) {
+      // Could be an IPFS hash, try it
+      return `https://ipfs.io/ipfs/${cleanedUrl}`;
     }
     
     return undefined;

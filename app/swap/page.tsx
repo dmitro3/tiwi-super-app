@@ -283,8 +283,37 @@ export default function SwapPage() {
       return;
     }
     
-    // TODO: Implement swap functionality
-    console.log("Swap clicked");
+    // Execute swap
+    if (!route || !connectedAddress || !fromToken || !toToken || !fromAmount) {
+      console.error('Missing required swap parameters');
+      setTransferStatus('Error: Missing required swap parameters');
+      return;
+    }
+    
+    setIsExecutingTransfer(true);
+    setTransferStatus('Preparing swap...');
+    
+    try {
+      const { executeSwap } = await import('@/lib/frontend/services/swap-executor');
+      const result = await executeSwap(route, connectedAddress);
+      
+      if (result.success && result.transactionHash) {
+        setTransferStatus(`Swap successful! Transaction: ${result.transactionHash}`);
+        
+        // Clear swap amounts after successful swap
+        setTimeout(() => {
+          setFromAmount('');
+          setToAmount('');
+        }, 3000);
+      } else {
+        setTransferStatus(`Swap failed: ${result.error || 'Unknown error'}`);
+      }
+    } catch (error: any) {
+      console.error('Swap execution error:', error);
+      setTransferStatus(`Error: ${error.message || 'Swap failed'}`);
+    } finally {
+      setIsExecutingTransfer(false);
+    }
   };
 
   const executeWalletToWalletTransfer = async () => {

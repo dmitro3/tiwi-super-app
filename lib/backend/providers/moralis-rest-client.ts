@@ -336,6 +336,13 @@ const {
         error.isMoralisError = true;
         error.code = response.status === 401 ? 'C0006' : undefined;
 
+        // Log API key issues for debugging
+        if (response.status === 401) {
+          const currentKeyIndex = getCurrentKeyIndex();
+          console.error(`[MoralisREST] API key ${currentKeyIndex + 1} returned 401 Unauthorized. Error:`, errorData);
+          console.error(`[MoralisREST] This usually means the API key is invalid, expired, or has reached its plan limit.`);
+        }
+
         // Check if rate limit error
         if (isRateLimitError(error) && attempt < maxRetries - 1) {
           console.warn(`[MoralisREST] Rate limit hit on attempt ${attempt + 1}, rotating to next API key...`);

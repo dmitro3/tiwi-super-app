@@ -34,10 +34,26 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Parse chain IDs
+    // Parse chain IDs - if not provided, fetch from ALL supported chains (matching token balance pattern)
     const chainIds = chainIdsParam
       ? chainIdsParam.split(',').map(id => parseInt(id, 10)).filter(id => !isNaN(id))
-      : [1, 56, 137, 42161, 43114, 8453]; // Default chains (Ethereum, BSC, Polygon, Arbitrum, Avalanche, Base)
+      : [
+          // ALL chains supported by Moralis (matching CHAIN_NAME_MAP)
+          1,      // Ethereum
+          10,     // Optimism
+          56,     // BSC
+          137,    // Polygon
+          42161,  // Arbitrum
+          43114,  // Avalanche
+          8453,   // Base
+          250,    // Fantom
+          100,    // Gnosis
+          1101,   // Polygon zkEVM
+          324,    // zkSync Era
+          5000,   // Mantle
+          59144,  // Linea
+          534352, // Scroll
+        ];
 
     // For now, only support EVM chains (Solana support can be added later)
     const evmAddress = isValidEVMAddress(address);

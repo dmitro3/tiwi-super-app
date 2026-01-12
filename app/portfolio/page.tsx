@@ -2,14 +2,18 @@
 
 import { useRef, useState, useMemo, useEffect, useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { useWalletClient, usePublicClient, useAccount, useChainId } from "wagmi";
+import { formatUnits, parseUnits, isAddress } from "viem";
 
 import Image from "next/image";
 import { useWalletConnection } from "@/hooks/useWalletConnection";
+import { useWallet } from "@/lib/wallet/hooks/useWallet";
 import { usePortfolioBalance } from "@/hooks/usePortfolioBalance";
 import { useWalletBalances } from "@/hooks/useWalletBalances";
 import { useWalletTransactions } from "@/hooks/useWalletTransactions";
 import { useWalletNFTs } from "@/hooks/useWalletNFTs";
 import { useNFTActivity } from "@/hooks/useNFTActivity";
+import { useUnifiedActivities } from "@/hooks/useUnifiedActivities";
 import { useTWCPrice } from "@/hooks/useTWCPrice";
 import { mapWalletTokensToAssets, formatCurrency, getTokenFallbackIcon, formatTokenAmount } from "@/lib/shared/utils/portfolio-formatting";
 import { TokenIcon } from "@/components/portfolio/token-icon";
@@ -18,6 +22,17 @@ import NFTGrid from "@/components/nft/nft-grid";
 import NFTDetailCard from "@/components/nft/nft-detail-card";
 import type { NFT } from "@/lib/backend/types/nft";
 import type { Transaction, WalletToken } from "@/lib/backend/types/wallet";
+import { 
+  transferNativeToken, 
+  transferERC20Token, 
+  isNativeToken, 
+  toSmallestUnit,
+  getPublicClient,
+  SOLANA_CHAIN_ID 
+} from "@/lib/wallet/utils/transfer";
+import { getCanonicalChain, CHAIN_REGISTRY } from "@/lib/backend/registry/chains";
+import { useTokensQuery } from "@/hooks/useTokensQuery";
+import type { Token } from "@/lib/frontend/types/tokens";
 // Option A: Token Selector Modal (prepared but disabled)
 // import TokenSelectorModal from "@/components/swap/token-selector-modal";
 // import type { Token } from "@/lib/frontend/types/tokens";
@@ -47,6 +62,8 @@ import { GoShareAndroid } from "react-icons/go";
 import { CiStar } from "react-icons/ci";
 import { HiOutlineBadgeCheck } from "react-icons/hi";
 import { TbArrowBarToRight } from "react-icons/tb";
+import ShareWalletModal from "@/components/portfolio/share-wallet-modal";
+import SearchInput from "@/components/ui/search-input";
 
 // Using string paths for public assets
 const bearish = "/bearish.svg";
@@ -106,6 +123,100 @@ const assets = [
 // Mock transactions removed - using real data from useWalletTransactions hook
 
 // ==========================================
+//  NFT ACTIVITY ROW COMPONENT
+// ==========================================
+function NFTActivityRow({ 
+  activity 
+}: { 
+  activity: {
+    type: 'received' | 'sent' | 'mint' | 'burn' | 'list' | 'sale' | 'transfer';
+    date: string;
+    timestamp: number;
+    price?: string;
+    priceUSD?: string;
+    from?: string;
+    to?: string;
+    transactionHash: string;
+    contractAddress: string;
+    tokenId: string;
+    chainId: number;
+    nftName?: string;
+    nftImage?: string;
+  };
+}) {
+  const isReceived = activity.type === "received" || activity.type === "mint";
+  const activityTypeLabel = activity.type.charAt(0).toUpperCase() + activity.type.slice(1);
+  
+  const priceText = activity.price 
+    ? `${activity.price} ETH`
+    : activity.priceUSD
+    ? `$${parseFloat(activity.priceUSD).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+    : "";
+
+  const displayName = activity.nftName || `${activity.contractAddress.slice(0, 6)}...${activity.contractAddress.slice(-4)} #${activity.tokenId}`;
+
+  const content = (
+    <div className="flex justify-between items-start w-full">
+      <div className="flex items-center gap-3 flex-1">
+        {/* NFT Image */}
+        {activity.nftImage && (
+          <div className="w-12 h-12 rounded-lg overflow-hidden shrink-0">
+            <Image
+              src={activity.nftImage}
+              alt={displayName}
+              width={48}
+              height={48}
+              className="w-full h-full object-cover"
+              onError={(e) => {
+                // Fallback to default NFT image
+                (e.target as HTMLImageElement).src = '/nft1.svg';
+              }}
+            />
+          </div>
+        )}
+        <div className="flex flex-col gap-1 flex-1 min-w-0">
+          <span className="text-lg font-bold text-white capitalize">
+            {activityTypeLabel} NFT
+          </span>
+          <span className="text-base font-medium text-[#B5B5B5] truncate">
+            {displayName}
+          </span>
+          <span className="text-sm text-[#8A929A]">
+            {activity.date}
+          </span>
+        </div>
+      </div>
+      {priceText && (
+        <div className="flex flex-col gap-1 items-end">
+          <span className={`text-lg font-medium ${isReceived ? "text-[#498F00]" : "text-white"}`}>
+            {priceText}
+          </span>
+        </div>
+      )}
+    </div>
+  );
+
+  // Build explorer URL if possible
+  const explorerUrl = activity.transactionHash 
+    ? `https://etherscan.io/tx/${activity.transactionHash}` // Default to Etherscan, could be enhanced with chain-specific explorers
+    : null;
+
+  if (explorerUrl) {
+    return (
+      <a
+        href={explorerUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="block hover:opacity-80 transition-opacity cursor-pointer"
+      >
+        {content}
+      </a>
+    );
+  }
+
+  return <div>{content}</div>;
+}
+
 //  TRANSACTION ROW COMPONENT (Matches Figma Design)
 // ==========================================
 function TransactionRow({ transaction, isBalanceVisible = true }: { transaction: Transaction; isBalanceVisible?: boolean }) {
@@ -186,6 +297,13 @@ function WalletPageDesktop() {
   );
 
   const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  
+  // Search and filter state
+  const [assetSearchQuery, setAssetSearchQuery] = useState<string>('');
+  const [sortBy, setSortBy] = useState<'value' | 'recent'>('value');
+  const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
+  const [selectedChains, setSelectedChains] = useState<string[]>([]);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const [copied, setCopied] = useState(false);
@@ -193,9 +311,25 @@ function WalletPageDesktop() {
   // Send token selection state
   const [selectedSendToken, setSelectedSendToken] = useState<WalletToken | null>(null);
   const [sendAmount, setSendAmount] = useState<string>('');
+  const [recipientAddress, setRecipientAddress] = useState<string>('');
+  const [isSending, setIsSending] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
+  const [txHash, setTxHash] = useState<string | null>(null);
+  const [estimatedGasFee, setEstimatedGasFee] = useState<{ native: string; usd: string; symbol: string } | null>(null);
   
   // Receive token selection state
   const [selectedReceiveToken, setSelectedReceiveToken] = useState<WalletToken | null>(null);
+  const [receiveTokenSearchQuery, setReceiveTokenSearchQuery] = useState<string>('');
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
+  
+  // Wagmi hooks for wallet interaction
+  const { data: walletClient } = useWalletClient();
+  const publicClient = usePublicClient();
+  const { address: wagmiAddress } = useAccount();
+  const chainId = useChainId();
+  
+  // Get wallet info for chain detection
+  const wallet = useWallet();
   
   // Option A: Token Selector Modal state (prepared but disabled)
   // const [receiveModalOpen, setReceiveModalOpen] = useState(false);
@@ -263,10 +397,17 @@ function WalletPageDesktop() {
     error: nftsError
   } = useWalletNFTs(connectedAddress);
 
-  // Fetch NFT activity when an NFT is selected
+  // Fetch unified activities (token transactions + NFT activities)
+  const {
+    activities: unifiedActivities,
+    isLoading: activitiesLoading,
+    error: activitiesError
+  } = useUnifiedActivities(connectedAddress);
+
+  // Fetch NFT activity when an NFT is selected (for NFT detail view)
   const {
     activities,
-    isLoading: activitiesLoading
+    isLoading: selectedNFTActivitiesLoading
   } = useNFTActivity(
     connectedAddress,
     selectedNft?.contractAddress || null,
@@ -274,13 +415,79 @@ function WalletPageDesktop() {
     selectedNft?.chainId || null
   );
 
-  // Map wallet tokens to portfolio assets format
+  // Map wallet tokens to portfolio assets format with filtering and sorting
   const assets = useMemo(() => {
     if (!walletTokens || walletTokens.length === 0) return [];
-    return mapWalletTokensToAssets(walletTokens, {
+    
+    // Start with base assets
+    let filteredAssets = mapWalletTokensToAssets(walletTokens, {
       includeZeroBalances: false,
       sortBy: 'value',
     });
+    
+    // Apply search filter
+    if (assetSearchQuery.trim()) {
+      const query = assetSearchQuery.trim().toLowerCase();
+      filteredAssets = filteredAssets.filter(asset => 
+        asset.symbol.toLowerCase().includes(query) ||
+        asset.name.toLowerCase().includes(query)
+      );
+    }
+    
+    // Apply chain filter
+    if (selectedChains.length > 0) {
+      const chainMap: Record<string, number[]> = {
+        'BSC': [56],
+        'Polygon': [137],
+        'Ethereum': [1],
+        'Solana': [7565164],
+      };
+      
+      const allowedChainIds = new Set<number>();
+      selectedChains.forEach(chainName => {
+        const chainIds = chainMap[chainName] || [];
+        chainIds.forEach(id => allowedChainIds.add(id));
+      });
+      
+      filteredAssets = filteredAssets.filter(asset => {
+        const token = walletTokens?.find(t => t.symbol === asset.symbol);
+        return token && allowedChainIds.has(token.chainId);
+      });
+    }
+    
+    // Apply category filter (placeholder - would need token metadata)
+    // For now, we'll skip category filtering as we don't have category data
+    
+    // Apply sorting
+    if (sortBy === 'value') {
+      filteredAssets = filteredAssets.sort((a, b) => {
+        const aValue = parseFloat(a.value.replace(/[^0-9.]/g, ''));
+        const bValue = parseFloat(b.value.replace(/[^0-9.]/g, ''));
+        return bValue - aValue; // Highest first
+      });
+    } else if (sortBy === 'recent') {
+      // Sort by recent activity - would need transaction data
+      // For now, keep original order (which is already sorted by value)
+      // In a real implementation, you'd sort by most recent transaction timestamp
+    }
+    
+    return filteredAssets;
+  }, [walletTokens, assetSearchQuery, sortBy, selectedChains]);
+
+  // Filter tokens to match assets (only tokens with non-zero USD value)
+  // This ensures the Send To dropdown shows exactly the same tokens as Assets
+  const availableTokens = useMemo<WalletToken[]>(() => {
+    if (!walletTokens || walletTokens.length === 0) return [];
+    return walletTokens
+      .filter((token: WalletToken) => {
+        const usdValue = parseFloat(token.usdValue || '0');
+        return usdValue > 0;
+      })
+      .sort((a: WalletToken, b: WalletToken) => {
+        const aValue = parseFloat(a.usdValue || '0');
+        const bValue = parseFloat(b.usdValue || '0');
+        return bValue - aValue; // Highest first, same as assets
+      });
   }, [walletTokens]);
 
   // Get first token from wallet (sorted by USD value, highest first)
@@ -397,12 +604,276 @@ function WalletPageDesktop() {
   // Priority: selectedReceiveToken > firstToken > defaultToken
   const displayReceiveToken = selectedReceiveToken || firstToken || defaultToken;
 
+  // Detect wallet chain type (ERC/EVM vs Solana)
+  const walletChainType = useMemo(() => {
+    if (!wallet.primaryWallet) return null;
+    return wallet.primaryWallet.chain; // 'ethereum' | 'solana'
+  }, [wallet.primaryWallet]);
+
+  // Get chain IDs based on wallet type
+  const supportedChainIds = useMemo(() => {
+    if (!walletChainType) return [];
+    
+    if (walletChainType === 'solana') {
+      // Return Solana chain ID
+      return [SOLANA_CHAIN_ID];
+    } else if (walletChainType === 'ethereum') {
+      // Return all EVM chain IDs
+      return CHAIN_REGISTRY
+        .filter(chain => chain.type === 'EVM')
+        .map(chain => chain.id);
+    }
+    
+    return [];
+  }, [walletChainType]);
+
+  // Fetch all tokens supported by the wallet's chain type
+  const {
+    data: allSupportedTokens = [],
+    isLoading: isLoadingSupportedTokens,
+  } = useTokensQuery({
+    params: {
+      chains: supportedChainIds.length > 0 ? supportedChainIds : undefined,
+      query: receiveTokenSearchQuery.trim() || undefined,
+      limit: 100, // Fetch more tokens for better selection
+    },
+    enabled: supportedChainIds.length > 0, // Only fetch if wallet is connected
+  });
+
+  // Helper function to validate token icon URL
+  const isValidTokenIcon = useCallback((logoUrl?: string | null): boolean => {
+    if (!logoUrl || typeof logoUrl !== 'string') return false;
+    
+    const trimmed = logoUrl.trim();
+    if (trimmed === '' || trimmed === 'null' || trimmed === 'undefined') return false;
+    
+    // Valid if it's a valid HTTP/HTTPS URL
+    if (/^https?:\/\//i.test(trimmed)) {
+      try {
+        new URL(trimmed);
+        return true;
+      } catch {
+        return false;
+      }
+    }
+    
+    // Valid if it's a relative path starting with /
+    if (trimmed.startsWith('/')) {
+      return true;
+    }
+    
+    // Valid if it's a data URL
+    if (trimmed.startsWith('data:')) {
+      return true;
+    }
+    
+    return false;
+  }, []);
+
+  // Convert API tokens to WalletToken format for dropdown and filter out tokens without valid icons
+  const convertedTokens = useMemo(() => {
+    return allSupportedTokens
+      .filter((token: Token) => {
+        // Only include tokens with valid icon URLs
+        return isValidTokenIcon(token.logo);
+      })
+      .map((token: Token): WalletToken => ({
+        address: token.address,
+        symbol: token.symbol,
+        name: token.name,
+        decimals: token.decimals || 18,
+        balance: '0', // Not needed for receive dropdown
+        balanceFormatted: '0.00',
+        chainId: token.chainId || 1,
+        logoURI: token.logo || '',
+        usdValue: '0',
+        priceUSD: token.price || '0',
+        priceChange24h: token.priceChange24h?.toString(),
+      }));
+  }, [allSupportedTokens, isValidTokenIcon]);
+
+  // Filter tokens based on wallet chain type and search
+  const filteredReceiveTokens = useMemo(() => {
+    if (!walletChainType) {
+      // If no wallet connected, show empty or all tokens
+      return convertedTokens;
+    }
+
+    // Apply search filter (already applied via API query, but keep for client-side filtering if needed)
+    let filtered = convertedTokens;
+
+    if (receiveTokenSearchQuery.trim()) {
+      const query = receiveTokenSearchQuery.trim().toLowerCase();
+      filtered = filtered.filter(token => 
+        token.symbol.toLowerCase().includes(query) ||
+        token.name.toLowerCase().includes(query) ||
+        token.address.toLowerCase().includes(query)
+      );
+    }
+
+    return filtered;
+  }, [convertedTokens, walletChainType, receiveTokenSearchQuery]);
+
   // Max button handler
   const handleMaxClick = () => {
     if (displayToken) {
       setSendAmount(displayToken.balanceFormatted);
     }
   };
+
+  // Get native token info for current chain
+  const nativeTokenInfo = useMemo(() => {
+    if (!chainId) return null;
+    const chain = getCanonicalChain(chainId);
+    if (!chain) return null;
+    
+    // Find native token in wallet tokens
+    const nativeToken = walletTokens?.find(token => 
+      token.chainId === chainId && isNativeToken(token.address)
+    );
+    
+    return {
+      symbol: chain.nativeCurrency.symbol,
+      decimals: chain.nativeCurrency.decimals,
+      priceUSD: nativeToken?.priceUSD || '0',
+    };
+  }, [chainId, walletTokens]);
+
+  // Estimate gas fee
+  const estimateGasFee = useCallback(async () => {
+    if (!displayToken || !recipientAddress || !sendAmount || !publicClient || !wagmiAddress || !nativeTokenInfo) {
+      setEstimatedGasFee(null);
+      return;
+    }
+
+    try {
+      const isNative = isNativeToken(displayToken.address);
+      const decimals = displayToken.decimals || 18;
+      const amount = parseUnits(sendAmount, decimals);
+
+      let gasEstimate: bigint;
+      
+      if (isNative) {
+        gasEstimate = await publicClient.estimateGas({
+          account: wagmiAddress as `0x${string}`,
+          to: recipientAddress as `0x${string}`,
+          value: amount,
+        });
+      } else {
+        const { encodeFunctionData } = await import("viem");
+        const transferABI = [
+          {
+            constant: false,
+            inputs: [
+              { name: "_to", type: "address" },
+              { name: "_value", type: "uint256" },
+            ],
+            name: "transfer",
+            outputs: [{ name: "", type: "bool" }],
+            type: "function",
+          },
+        ] as const;
+
+        const data = encodeFunctionData({
+          abi: transferABI,
+          functionName: "transfer",
+          args: [recipientAddress as `0x${string}`, amount],
+        });
+
+        gasEstimate = await publicClient.estimateGas({
+          account: wagmiAddress as `0x${string}`,
+          to: displayToken.address as `0x${string}`,
+          data,
+        });
+      }
+
+      const gasPrice = await publicClient.getGasPrice();
+      const totalGasCost = gasEstimate * gasPrice;
+      
+      // Use native token decimals (not always 18, e.g., Solana uses 9)
+      const nativeAmount = formatUnits(totalGasCost, nativeTokenInfo.decimals);
+      
+      // Use native token price (not the token being sent)
+      const nativeTokenPrice = parseFloat(nativeTokenInfo.priceUSD || '0');
+      const usdValue = parseFloat(nativeAmount) * nativeTokenPrice;
+
+      setEstimatedGasFee({
+        native: nativeAmount,
+        usd: usdValue.toFixed(4),
+        symbol: nativeTokenInfo.symbol, // Store symbol for display
+      });
+    } catch (error) {
+      console.error('Error estimating gas:', error);
+      setEstimatedGasFee(null);
+    }
+  }, [displayToken, recipientAddress, sendAmount, publicClient, wagmiAddress, nativeTokenInfo]);
+
+  useEffect(() => {
+    if (sendStep === 'confirm' && recipientAddress && sendAmount && displayToken) {
+      estimateGasFee();
+    }
+  }, [sendStep, recipientAddress, sendAmount, displayToken, estimateGasFee]);
+
+  const handleNextClick = useCallback(() => {
+    if (!recipientAddress.trim()) {
+      setSendError('Please enter a recipient address');
+      return;
+    }
+    if (!isAddress(recipientAddress.trim())) {
+      setSendError('Invalid recipient address');
+      return;
+    }
+    if (!sendAmount || parseFloat(sendAmount) <= 0) {
+      setSendError('Please enter a valid amount');
+      return;
+    }
+    if (!displayToken) {
+      setSendError('Please select a token');
+      return;
+    }
+    setSendError(null);
+    setSendStep('confirm');
+  }, [recipientAddress, sendAmount, displayToken]);
+
+  const handleConfirmSend = useCallback(async () => {
+    if (!walletClient || !displayToken || !recipientAddress || !sendAmount) {
+      setSendError('Missing required information');
+      return;
+    }
+
+    setIsSending(true);
+    setSendError(null);
+
+    try {
+      const decimals = displayToken.decimals || 18;
+      const amount = parseUnits(sendAmount, decimals);
+      const isNative = isNativeToken(displayToken.address);
+
+      let hash: `0x${string}`;
+      if (isNative) {
+        hash = await transferNativeToken(walletClient, recipientAddress.trim(), amount);
+      } else {
+        hash = await transferERC20Token(walletClient, displayToken.address, recipientAddress.trim(), amount);
+      }
+
+      setTxHash(hash);
+      if (publicClient) {
+        await publicClient.waitForTransactionReceipt({ hash });
+      }
+
+      setTimeout(() => {
+        setSendStep('form');
+        setSendAmount('');
+        setRecipientAddress('');
+        setTxHash(null);
+        setIsSending(false);
+      }, 2000);
+    } catch (error: any) {
+      console.error('Error sending transaction:', error);
+      setSendError(error?.message || 'Failed to send transaction');
+      setIsSending(false);
+    }
+  }, [walletClient, displayToken, recipientAddress, sendAmount, publicClient]);
 
   // Calculate USD value of send amount
   const sendAmountUSD = useMemo(() => {
@@ -504,13 +975,32 @@ function WalletPageDesktop() {
             </div>
 
             <div className="flex items-center gap-2">
+              {isSearchOpen ? (
+                <div className="flex items-center gap-2">
+                  <SearchInput
+                    value={assetSearchQuery}
+                    onChange={(value) => {
+                      setAssetSearchQuery(value);
+                      if (!value) setIsSearchOpen(false);
+                    }}
+                    placeholder="Search assets..."
+                    className="max-w-[200px]"
+                  />
+                </div>
+              ) : (
+                <button
+                  onClick={() => setIsSearchOpen(true)}
+                  className="bg-[#1B1B1B] h-5 w-5 flex items-center justify-center rounded-full cursor-pointer transition-colors hover:bg-[#252525]"
+                >
               <Image
                 src="/assets/icons/search-01.svg"
-                alt=""
+                    alt="Search"
                 width={20}
                 height={20}
-                className="bg-[#1B1B1B] p-1 rounded-full"
+                    className="p-1"
               />
+                </button>
+              )}
               {/* TOGGLE FILTER BUTTON */}
               <button
                 onClick={() => setIsFilterOpen(!isFilterOpen)}
@@ -671,24 +1161,31 @@ function WalletPageDesktop() {
               <div className="mb-5">
                 <h3 className="text-sm font-medium text-white mb-3">Sort By</h3>
                 <div className="space-y-2">
-                  {["Highest Value → Lowest", "Recent Activity"].map(
-                    (label, i) => (
+                  {[
+                    { label: "Highest Value → Lowest", value: 'value' as const },
+                    { label: "Recent Activity", value: 'recent' as const }
+                  ].map((option) => (
                       <label
-                        key={i}
+                      key={option.value}
                         className="flex items-center gap-3 cursor-pointer group"
                       >
                         <input
                           type="radio"
                           name="sort"
+                        checked={sortBy === option.value}
+                        onChange={() => setSortBy(option.value)}
                           className="peer sr-only"
                         />
-                        <div className="w-4 h-4 rounded border border-[#3E453E] peer-checked:border-[#B1F128] peer-checked:bg-[#B1F128] transition-colors" />
+                      <div className={`w-4 h-4 rounded border transition-colors ${
+                        sortBy === option.value
+                          ? 'border-[#B1F128] bg-[#B1F128]'
+                          : 'border-[#3E453E]'
+                      }`} />
                         <span className="text-xs text-[#B5B5B5] group-hover:text-white transition-colors">
-                          {label}
+                        {option.label}
                         </span>
                       </label>
-                    )
-                  )}
+                  ))}
                 </div>
               </div>
 
@@ -699,18 +1196,36 @@ function WalletPageDesktop() {
                 </h3>
                 <div className="grid grid-cols-2 gap-x-2 gap-y-2">
                   {["DeFi Tokens", "Gaming", "Meme Coins", "New Listings"].map(
-                    (label, i) => (
+                    (label) => {
+                      const isChecked = selectedCategories.includes(label);
+                      return (
                       <label
-                        key={i}
+                          key={label}
                         className="flex items-center gap-3 cursor-pointer group"
                       >
-                        <input type="checkbox" className="peer sr-only" />
-                        <div className="w-4 h-4 rounded border border-[#3E453E] peer-checked:border-[#B1F128] peer-checked:bg-[#B1F128] shrink-0" />
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedCategories([...selectedCategories, label]);
+                              } else {
+                                setSelectedCategories(selectedCategories.filter(c => c !== label));
+                              }
+                            }}
+                            className="peer sr-only"
+                          />
+                          <div className={`w-4 h-4 rounded border shrink-0 transition-colors ${
+                            isChecked
+                              ? 'border-[#B1F128] bg-[#B1F128]'
+                              : 'border-[#3E453E]'
+                          }`} />
                         <span className="text-xs text-[#B5B5B5] group-hover:text-white transition-colors whitespace-nowrap">
                           {label}
                         </span>
                       </label>
-                    )
+                      );
+                    }
                   )}
                 </div>
               </div>
@@ -719,23 +1234,49 @@ function WalletPageDesktop() {
               <div className="mb-6">
                 <h3 className="text-sm font-medium text-white mb-3">Chain</h3>
                 <div className="grid grid-cols-2 gap-x-2 gap-y-2">
-                  {["BSC", "Polygon", "Ethereum", "Solana"].map((label, i) => (
+                  {["BSC", "Polygon", "Ethereum", "Solana"].map((label) => {
+                    const isChecked = selectedChains.includes(label);
+                    return (
                     <label
-                      key={i}
+                        key={label}
                       className="flex items-center gap-3 cursor-pointer group"
                     >
-                      <input type="checkbox" className="peer sr-only" />
-                      <div className="w-4 h-4 rounded border border-[#3E453E] peer-checked:border-[#B1F128] peer-checked:bg-[#B1F128] shrink-0" />
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedChains([...selectedChains, label]);
+                            } else {
+                              setSelectedChains(selectedChains.filter(c => c !== label));
+                            }
+                          }}
+                          className="peer sr-only"
+                        />
+                        <div className={`w-4 h-4 rounded border shrink-0 transition-colors ${
+                          isChecked
+                            ? 'border-[#B1F128] bg-[#B1F128]'
+                            : 'border-[#3E453E]'
+                        }`} />
                       <span className="text-xs text-[#B5B5B5] group-hover:text-white transition-colors">
                         {label}
                       </span>
                     </label>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
 
               {/* Reset Button */}
-              <button className="w-full bg-[#B1F128] text-[#010501] font-semibold text-sm py-3 rounded-full hover:opacity-90 transition-opacity">
+              <button
+                onClick={() => {
+                  setAssetSearchQuery('');
+                  setSortBy('value');
+                  setSelectedCategories([]);
+                  setSelectedChains([]);
+                }}
+                className="w-full bg-[#B1F128] text-[#010501] font-semibold text-sm py-3 rounded-full hover:opacity-90 transition-opacity"
+              >
                 Reset filters
               </button>
             </div>
@@ -927,8 +1468,8 @@ function WalletPageDesktop() {
 
                             {/* Dropdown menu */}
                               <div className="absolute left-0 z-10 mt-2 w-full min-w-55 max-h-[300px] overflow-y-auto rounded-xl bg-[#0B0F0A] p-2 shadow-[0_10px_30px_rgba(0,0,0,0.6)] dropdown-scrollbar">
-                                {walletTokens && walletTokens.length > 0 ? (
-                                  walletTokens.map((token) => (
+                                {availableTokens && availableTokens.length > 0 ? (
+                                  availableTokens.map((token) => (
                                     <button
                                       key={`${token.chainId}-${token.address}`}
                                       onClick={() => handleSendTokenSelect(token)}
@@ -996,6 +1537,11 @@ function WalletPageDesktop() {
                               <span className="relative w-full">
                                 <input
                                   ref={inputRef}
+                                  value={recipientAddress}
+                                  onChange={(e) => {
+                                    setRecipientAddress(e.target.value);
+                                    setSendError(null);
+                                  }}
                                   placeholder="Enter Wallet Address"
                                   className="w-full rounded-xl bg-[#010501] px-4 py-5 text-sm text-[#E6ECE9] placeholder-[#6E7873] outline-none focus:ring-1 focus:ring-[#B1F128]"
                                 />
@@ -1055,9 +1601,15 @@ function WalletPageDesktop() {
                           </>
                         )}
 
+                        {sendError && (
+                          <div className="text-sm text-red-500 px-4 py-2 bg-red-500/10 rounded-xl">
+                            {sendError}
+                          </div>
+                        )}
                         <button
-                          onClick={() => setSendStep("confirm")}
-                          className="cursor-pointer w-full rounded-full bg-[#B1F128] py-2 text-base font-semibold text-[#010501]"
+                          onClick={handleNextClick}
+                          className="cursor-pointer w-full rounded-full bg-[#B1F128] py-2 text-base font-semibold text-[#010501] disabled:opacity-50 disabled:cursor-not-allowed"
+                          disabled={!recipientAddress || !sendAmount}
                         >
                           Next
                         </button>
@@ -1082,8 +1634,8 @@ function WalletPageDesktop() {
                               <p className="text-xs text-[#B5B5B5] mb-1">
                                 From
                               </p>
-                              <p className="text-sm text-[#B5B5B5]">
-                                0x06187ejie9urourT432
+                              <p className="text-sm text-[#B5B5B5] break-all">
+                                {connectedAddress || wagmiAddress || 'Not connected'}
                               </p>
 
                               <div className="mt-5 flex justify-between items-start">
@@ -1091,16 +1643,28 @@ function WalletPageDesktop() {
                                   <p className="text-xs text-[#B5B5B5] mb-1">
                                     To:
                                   </p>
-                                  <p className="text-sm text-[#B5B5B5]">
-                                    0x06187ejie9urourT432
+                                  <p className="text-sm text-[#B5B5B5] break-all">
+                                    {recipientAddress || 'Not set'}
                                   </p>
                                 </div>
                                 <div className="text-right">
                                   <p className="text-xs text-[#B5B5B5] mb-1">
                                     Network
                                   </p>
-                                  <p className="text-sm text-[#B5B5B5]">ETH</p>
+                                  <p className="text-sm text-[#B5B5B5]">{displayToken?.symbol || 'Unknown'}</p>
                                 </div>
+                              </div>
+                              
+                              <div className="mt-4 pt-4 border-t border-[#1B1B1B]">
+                                <p className="text-xs text-[#B5B5B5] mb-1">
+                                  Amount
+                                </p>
+                                <p className="text-sm text-[#FFFFFF] font-medium">
+                                  {sendAmount} {displayToken?.symbol}
+                                </p>
+                                <p className="text-xs text-[#7C7C7C] mt-1">
+                                  ${sendAmountUSD}
+                                </p>
                               </div>
                             </div>
 
@@ -1135,13 +1699,35 @@ function WalletPageDesktop() {
                                 </span>
                               </span>
                               <div className="text-right">
-                                <p className="text-sm text-[#B5B5B5]">0.1ETH</p>
-                                <p className="text-xs text-[#B5B5B5]">$0.044</p>
+                                {estimatedGasFee ? (
+                                  <>
+                                    <p className="text-sm text-[#B5B5B5]">{formatTokenAmount(estimatedGasFee.native, 6)} {estimatedGasFee.symbol}</p>
+                                    <p className="text-xs text-[#B5B5B5]">${estimatedGasFee.usd}</p>
+                                  </>
+                                ) : (
+                                  <p className="text-sm text-[#7C7C7C]">Calculating...</p>
+                                )}
                               </div>
                             </div>
 
-                            <button className="cursor-pointer w-full rounded-full bg-[#B1F128] py-2 text-base font-semibold text-[#010501]">
-                              Confirm
+                            {sendError && (
+                              <div className="text-sm text-red-500 px-4 py-2 bg-red-500/10 rounded-xl">
+                                {sendError}
+                              </div>
+                            )}
+
+                            {txHash && (
+                              <div className="text-sm text-green-500 px-4 py-2 bg-green-500/10 rounded-xl">
+                                Transaction sent! Hash: {txHash.slice(0, 10)}...
+                              </div>
+                            )}
+
+                            <button 
+                              onClick={handleConfirmSend}
+                              disabled={isSending || !walletClient}
+                              className="cursor-pointer w-full rounded-full bg-[#B1F128] py-2 text-base font-semibold text-[#010501] disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              {isSending ? 'Sending...' : txHash ? 'Transaction Sent!' : 'Confirm'}
                             </button>
                           </>
                         ) : (
@@ -1340,11 +1926,30 @@ function WalletPageDesktop() {
 
                       {/* Dropdown menu */}
                             <div className="absolute left-0 z-10 mt-2 w-full min-w-55 max-h-[300px] overflow-y-auto rounded-xl bg-[#0B0F0A] p-2 shadow-[0_10px_30px_rgba(0,0,0,0.6)] dropdown-scrollbar">
-                              {walletTokens && walletTokens.length > 0 ? (
-                                walletTokens.map((token) => (
+                              {/* Search input */}
+                              <div className="sticky top-0 mb-2 z-10 bg-[#0B0F0A]">
+                                <input
+                                  type="text"
+                                  placeholder="Search tokens..."
+                                  value={receiveTokenSearchQuery}
+                                  onChange={(e) => setReceiveTokenSearchQuery(e.target.value)}
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="w-full px-3 py-2 rounded-lg bg-[#121712] border border-[#1f261e] text-sm text-white placeholder-[#7C7C7C] focus:outline-none focus:border-[#B1F128] transition-colors"
+                                />
+                              </div>
+                              {/* Token list */}
+                              {isLoadingSupportedTokens ? (
+                                <div className="px-3 py-2 text-xs text-[#8A929A]">
+                                  Loading tokens...
+                                </div>
+                              ) : filteredReceiveTokens && filteredReceiveTokens.length > 0 ? (
+                                filteredReceiveTokens.map((token) => (
                                   <button
                                     key={`${token.chainId}-${token.address}`}
-                                    onClick={() => handleReceiveTokenSelect(token)}
+                                    onClick={() => {
+                                      handleReceiveTokenSelect(token);
+                                      setReceiveTokenSearchQuery(''); // Clear search on selection
+                                    }}
                                     className="flex w-full items-center gap-3 rounded-lg px-3 py-2 hover:bg-[#141A16]"
                                   >
                                     <TokenIcon
@@ -1366,7 +1971,7 @@ function WalletPageDesktop() {
                                 ))
                               ) : (
                                 <div className="px-3 py-2 text-xs text-[#8A929A]">
-                                  No tokens available
+                                  {receiveTokenSearchQuery.trim() ? 'No tokens found' : walletChainType ? 'No tokens available for this wallet type' : 'Connect wallet to see tokens'}
                                 </div>
                               )}
                       </div>
@@ -1414,14 +2019,7 @@ function WalletPageDesktop() {
                       </button>
 
                           <button 
-                            onClick={() => {
-                              if (connectedAddress && navigator.share) {
-                                navigator.share({
-                                  title: 'My Wallet Address',
-                                  text: connectedAddress,
-                                });
-                              }
-                            }}
+                            onClick={() => setIsShareModalOpen(true)}
                             className="flex items-center gap-2 rounded-full border border-[#B1F128] w-40 px-3 py-1.5 text-xs text-[#B1F128] hover:bg-[#B1F128]/10 transition-colors"
                           >
                         <GoShareAndroid size={14} />
@@ -1434,26 +2032,42 @@ function WalletPageDesktop() {
                 </>
               )}
 
-              {/* Activities tab content */}
+              {/* Activities tab content - Unified (Token + NFT) */}
               {activeTab === "activities" && (
                   <div className="h-125.5 w-full overflow-y-auto rounded-2xl px-4">
-                  {transactionsLoading ? (
+                  {activitiesLoading ? (
                     <TransactionListSkeleton />
-                  ) : transactionsError ? (
+                  ) : activitiesError ? (
                     <div className="flex flex-col items-center justify-center py-12">
                       <p className="text-red-400 text-sm mb-4">
-                        Error loading transactions: {transactionsError}
+                        Error loading activities: {activitiesError}
                       </p>
                         </div>
-                  ) : transactions.length === 0 ? (
+                  ) : unifiedActivities.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-12">
-                      <p className="text-[#8A929A] text-sm">No transactions found</p>
+                      <p className="text-[#8A929A] text-sm">No activities found</p>
                         </div>
                   ) : (
                     <div className="flex flex-col gap-6 mt-2">
-                      {transactions.map((tx) => (
-                        <TransactionRow key={tx.id} transaction={tx} isBalanceVisible={isBalanceVisible} />
-                    ))}
+                      {unifiedActivities.map((activity: any) => {
+                        if (activity.type === 'token' && activity.transaction) {
+                          return (
+                            <TransactionRow 
+                              key={activity.id} 
+                              transaction={activity.transaction} 
+                              isBalanceVisible={isBalanceVisible} 
+                            />
+                          );
+                        } else if (activity.type === 'nft' && activity.nftActivity) {
+                          return (
+                            <NFTActivityRow 
+                              key={activity.id} 
+                              activity={activity.nftActivity} 
+                            />
+                          );
+                        }
+                        return null;
+                      })}
                   </div>
                   )}
                 </div>
@@ -1462,6 +2076,13 @@ function WalletPageDesktop() {
           )}
         </div>
       </div>
+
+      {/* Share Wallet Modal */}
+      <ShareWalletModal
+        open={isShareModalOpen}
+        onOpenChange={setIsShareModalOpen}
+        walletAddress={connectedAddress || ''}
+      />
     </section>
   );
 }
@@ -1484,6 +2105,13 @@ function WalletPageMobile() {
   );
 
   const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  
+  // Search and filter state
+  const [assetSearchQuery, setAssetSearchQuery] = useState<string>('');
+  const [sortBy, setSortBy] = useState<'value' | 'recent'>('value');
+  const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
+  const [selectedChains, setSelectedChains] = useState<string[]>([]);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const [copied, setCopied] = useState(false);
@@ -1494,6 +2122,11 @@ function WalletPageMobile() {
   
   // Receive token selection state
   const [selectedReceiveToken, setSelectedReceiveToken] = useState<WalletToken | null>(null);
+  const [receiveTokenSearchQuery, setReceiveTokenSearchQuery] = useState<string>('');
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
+  
+  // Get wallet info for chain detection
+  const wallet = useWallet();
   
   // Dropdown refs for closing on selection
   const sendDropdownRef = useRef<HTMLDetailsElement>(null);
@@ -1558,10 +2191,17 @@ function WalletPageMobile() {
     error: nftsError
   } = useWalletNFTs(connectedAddress);
 
-  // Fetch NFT activity when an NFT is selected
+  // Fetch unified activities (token transactions + NFT activities)
+  const {
+    activities: unifiedActivities,
+    isLoading: activitiesLoading,
+    error: activitiesError
+  } = useUnifiedActivities(connectedAddress);
+
+  // Fetch NFT activity when an NFT is selected (for NFT detail view)
   const {
     activities,
-    isLoading: activitiesLoading
+    isLoading: selectedNFTActivitiesLoading
   } = useNFTActivity(
     connectedAddress,
     selectedNft?.contractAddress || null,
@@ -1569,12 +2209,78 @@ function WalletPageMobile() {
     selectedNft?.chainId || null
   );
 
-  // Map wallet tokens to portfolio assets format
+  // Map wallet tokens to portfolio assets format with filtering and sorting
   const assets = useMemo(() => {
     if (!walletTokens || walletTokens.length === 0) return [];
-    return mapWalletTokensToAssets(walletTokens, {
+    
+    // Start with base assets
+    let filteredAssets = mapWalletTokensToAssets(walletTokens, {
       includeZeroBalances: false,
       sortBy: 'value',
+    });
+    
+    // Apply search filter
+    if (assetSearchQuery.trim()) {
+      const query = assetSearchQuery.trim().toLowerCase();
+      filteredAssets = filteredAssets.filter(asset => 
+        asset.symbol.toLowerCase().includes(query) ||
+        asset.name.toLowerCase().includes(query)
+      );
+    }
+    
+    // Apply chain filter
+    if (selectedChains.length > 0) {
+      const chainMap: Record<string, number[]> = {
+        'BSC': [56],
+        'Polygon': [137],
+        'Ethereum': [1],
+        'Solana': [7565164],
+      };
+      
+      const allowedChainIds = new Set<number>();
+      selectedChains.forEach(chainName => {
+        const chainIds = chainMap[chainName] || [];
+        chainIds.forEach(id => allowedChainIds.add(id));
+      });
+      
+      filteredAssets = filteredAssets.filter(asset => {
+        const token = walletTokens?.find(t => t.symbol === asset.symbol);
+        return token && allowedChainIds.has(token.chainId);
+      });
+    }
+    
+    // Apply category filter (placeholder - would need token metadata)
+    // For now, we'll skip category filtering as we don't have category data
+    
+    // Apply sorting
+    if (sortBy === 'value') {
+      filteredAssets = filteredAssets.sort((a, b) => {
+        const aValue = parseFloat(a.value.replace(/[^0-9.]/g, ''));
+        const bValue = parseFloat(b.value.replace(/[^0-9.]/g, ''));
+        return bValue - aValue; // Highest first
+      });
+    } else if (sortBy === 'recent') {
+      // Sort by recent activity - would need transaction data
+      // For now, keep original order (which is already sorted by value)
+      // In a real implementation, you'd sort by most recent transaction timestamp
+    }
+    
+    return filteredAssets;
+  }, [walletTokens, assetSearchQuery, sortBy, selectedChains]);
+
+  // Filter tokens to match assets (only tokens with non-zero USD value)
+  // This ensures the Send To dropdown shows exactly the same tokens as Assets
+  const availableTokens = useMemo<WalletToken[]>(() => {
+    if (!walletTokens || walletTokens.length === 0) return [];
+    return walletTokens
+      .filter((token: WalletToken) => {
+        const usdValue = parseFloat(token.usdValue || '0');
+        return usdValue > 0;
+      })
+      .sort((a: WalletToken, b: WalletToken) => {
+        const aValue = parseFloat(a.usdValue || '0');
+        const bValue = parseFloat(b.usdValue || '0');
+        return bValue - aValue; // Highest first, same as assets
     });
   }, [walletTokens]);
 
@@ -1687,6 +2393,116 @@ function WalletPageMobile() {
   // Receive token to display: selected token, or first token from wallet, or TWC default
   // Priority: selectedReceiveToken > firstToken > defaultToken
   const displayReceiveToken = selectedReceiveToken || firstToken || defaultToken;
+
+  // Detect wallet chain type (ERC/EVM vs Solana)
+  const walletChainType = useMemo(() => {
+    if (!wallet.primaryWallet) return null;
+    return wallet.primaryWallet.chain; // 'ethereum' | 'solana'
+  }, [wallet.primaryWallet]);
+
+  // Get chain IDs based on wallet type
+  const supportedChainIds = useMemo(() => {
+    if (!walletChainType) return [];
+    
+    if (walletChainType === 'solana') {
+      // Return Solana chain ID
+      return [SOLANA_CHAIN_ID];
+    } else if (walletChainType === 'ethereum') {
+      // Return all EVM chain IDs
+      return CHAIN_REGISTRY
+        .filter(chain => chain.type === 'EVM')
+        .map(chain => chain.id);
+    }
+    
+    return [];
+  }, [walletChainType]);
+
+  // Fetch all tokens supported by the wallet's chain type
+  const {
+    data: allSupportedTokens = [],
+    isLoading: isLoadingSupportedTokens,
+  } = useTokensQuery({
+    params: {
+      chains: supportedChainIds.length > 0 ? supportedChainIds : undefined,
+      query: receiveTokenSearchQuery.trim() || undefined,
+      limit: 100, // Fetch more tokens for better selection
+    },
+    enabled: supportedChainIds.length > 0, // Only fetch if wallet is connected
+  });
+
+  // Helper function to validate token icon URL
+  const isValidTokenIcon = useCallback((logoUrl?: string | null): boolean => {
+    if (!logoUrl || typeof logoUrl !== 'string') return false;
+    
+    const trimmed = logoUrl.trim();
+    if (trimmed === '' || trimmed === 'null' || trimmed === 'undefined') return false;
+    
+    // Valid if it's a valid HTTP/HTTPS URL
+    if (/^https?:\/\//i.test(trimmed)) {
+      try {
+        new URL(trimmed);
+        return true;
+      } catch {
+        return false;
+      }
+    }
+    
+    // Valid if it's a relative path starting with /
+    if (trimmed.startsWith('/')) {
+      return true;
+    }
+    
+    // Valid if it's a data URL
+    if (trimmed.startsWith('data:')) {
+      return true;
+    }
+    
+    return false;
+  }, []);
+
+  // Convert API tokens to WalletToken format for dropdown and filter out tokens without valid icons
+  const convertedTokens = useMemo(() => {
+    return allSupportedTokens
+      .filter((token: Token) => {
+        // Only include tokens with valid icon URLs
+        return isValidTokenIcon(token.logo);
+      })
+      .map((token: Token): WalletToken => ({
+        address: token.address,
+        symbol: token.symbol,
+        name: token.name,
+        decimals: token.decimals || 18,
+        balance: '0', // Not needed for receive dropdown
+        balanceFormatted: '0.00',
+        chainId: token.chainId || 1,
+        logoURI: token.logo || '',
+        usdValue: '0',
+        priceUSD: token.price || '0',
+        priceChange24h: token.priceChange24h?.toString(),
+      }));
+  }, [allSupportedTokens, isValidTokenIcon]);
+
+  // Filter tokens based on wallet chain type and search
+  const filteredReceiveTokens = useMemo(() => {
+    if (!walletChainType) {
+      // If no wallet connected, show empty or all tokens
+      return convertedTokens;
+    }
+
+    // Apply search filter (already applied via API query, but keep for client-side filtering if needed)
+    let filtered = convertedTokens;
+
+    if (receiveTokenSearchQuery.trim()) {
+      const query = receiveTokenSearchQuery.trim().toLowerCase();
+      filtered = filtered.filter(token => 
+        token.symbol.toLowerCase().includes(query) ||
+        token.name.toLowerCase().includes(query) ||
+        token.address.toLowerCase().includes(query)
+      );
+    }
+
+    return filtered;
+  }, [convertedTokens, walletChainType, receiveTokenSearchQuery]);
 
   // Max button handler
   const handleMaxClick = () => {
@@ -1869,34 +2685,47 @@ function WalletPageMobile() {
                       NFTs
                     </button>
                   </div>
-                  <div className="flex gap-2">
-                    <div className="w-8 h-8 rounded-full bg-[#151A15] flex items-center justify-center">
+                  <div className="flex gap-2 items-center">
+                    {isSearchOpen ? (
+                      <SearchInput
+                        value={assetSearchQuery}
+                        onChange={(value) => {
+                          setAssetSearchQuery(value);
+                          if (!value) setIsSearchOpen(false);
+                        }}
+                        placeholder="Search assets..."
+                        className="flex-1 max-w-[200px]"
+                      />
+                    ) : (
+                      <button
+                        onClick={() => setIsSearchOpen(true)}
+                        className="w-8 h-8 rounded-full bg-[#151A15] flex items-center justify-center"
+                      >
                       <Image
                         src="/assets/icons/search-01.svg"
                         alt="search"
                         width={16}
                         height={16}
                       />
-                    </div>
-                    <div className="w-8 h-8 rounded-full bg-[#151A15] flex items-center justify-center">
+                      </button>
+                    )}
                       {/* TOGGLE FILTER BUTTON */}
                       <button
                         onClick={() => setIsFilterOpen(!isFilterOpen)}
-                        className="bg-[#1B1B1B] h-5 w-5 flex items-center justify-center rounded-full cursor-pointer transition-colors hover:bg-[#252525]"
+                      className="bg-[#1B1B1B] h-8 w-8 flex items-center justify-center rounded-full cursor-pointer transition-colors hover:bg-[#252525] shrink-0"
                       >
                         {isFilterOpen ? (
-                          <IoClose size={14} className="text-[#B5B5B5]" />
+                        <IoClose size={16} className="text-[#B5B5B5]" />
                         ) : (
                           <Image
                             src="/filter.svg"
                             alt=""
-                            width={20}
-                            height={20}
+                          width={16}
+                          height={16}
                             className="p-0.5"
                           />
                         )}
                       </button>
-                    </div>
                   </div>
                 </div>
 
@@ -2040,24 +2869,31 @@ function WalletPageMobile() {
                         Sort By
                       </h3>
                       <div className="space-y-2">
-                        {["Highest Value → Lowest", "Recent Activity"].map(
-                          (label, i) => (
+                        {[
+                          { label: "Highest Value → Lowest", value: 'value' as const },
+                          { label: "Recent Activity", value: 'recent' as const }
+                        ].map((option) => (
                             <label
-                              key={i}
+                            key={option.value}
                               className="flex items-center gap-3 cursor-pointer group"
                             >
                               <input
                                 type="radio"
-                                name="sort"
+                              name="sort-mobile"
+                              checked={sortBy === option.value}
+                              onChange={() => setSortBy(option.value)}
                                 className="peer sr-only"
                               />
-                              <div className="w-4 h-4 rounded border border-[#3E453E] peer-checked:border-[#B1F128] peer-checked:bg-[#B1F128] transition-colors" />
+                            <div className={`w-4 h-4 rounded border transition-colors ${
+                              sortBy === option.value
+                                ? 'border-[#B1F128] bg-[#B1F128]'
+                                : 'border-[#3E453E]'
+                            }`} />
                               <span className="text-xs text-[#B5B5B5] group-hover:text-white transition-colors">
-                                {label}
+                              {option.label}
                               </span>
                             </label>
-                          )
-                        )}
+                        ))}
                       </div>
                     </div>
 
@@ -2072,18 +2908,36 @@ function WalletPageMobile() {
                           "Gaming",
                           "Meme Coins",
                           "New Listings",
-                        ].map((label, i) => (
+                        ].map((label) => {
+                          const isChecked = selectedCategories.includes(label);
+                          return (
                           <label
-                            key={i}
+                              key={label}
                             className="flex items-center gap-3 cursor-pointer group"
                           >
-                            <input type="checkbox" className="peer sr-only" />
-                            <div className="w-4 h-4 rounded border border-[#3E453E] peer-checked:border-[#B1F128] peer-checked:bg-[#B1F128] shrink-0" />
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setSelectedCategories([...selectedCategories, label]);
+                                  } else {
+                                    setSelectedCategories(selectedCategories.filter(c => c !== label));
+                                  }
+                                }}
+                                className="peer sr-only"
+                              />
+                              <div className={`w-4 h-4 rounded border shrink-0 transition-colors ${
+                                isChecked
+                                  ? 'border-[#B1F128] bg-[#B1F128]'
+                                  : 'border-[#3E453E]'
+                              }`} />
                             <span className="text-xs text-[#B5B5B5] group-hover:text-white transition-colors whitespace-nowrap">
                               {label}
                             </span>
                           </label>
-                        ))}
+                          );
+                        })}
                       </div>
                     </div>
 
@@ -2093,25 +2947,49 @@ function WalletPageMobile() {
                         Chain
                       </h3>
                       <div className="grid grid-cols-2 gap-x-2 gap-y-2">
-                        {["BSC", "Polygon", "Ethereum", "Solana"].map(
-                          (label, i) => (
+                        {["BSC", "Polygon", "Ethereum", "Solana"].map((label) => {
+                          const isChecked = selectedChains.includes(label);
+                          return (
                             <label
-                              key={i}
+                              key={label}
                               className="flex items-center gap-3 cursor-pointer group"
                             >
-                              <input type="checkbox" className="peer sr-only" />
-                              <div className="w-4 h-4 rounded border border-[#3E453E] peer-checked:border-[#B1F128] peer-checked:bg-[#B1F128] shrink-0" />
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setSelectedChains([...selectedChains, label]);
+                                  } else {
+                                    setSelectedChains(selectedChains.filter(c => c !== label));
+                                  }
+                                }}
+                                className="peer sr-only"
+                              />
+                              <div className={`w-4 h-4 rounded border shrink-0 transition-colors ${
+                                isChecked
+                                  ? 'border-[#B1F128] bg-[#B1F128]'
+                                  : 'border-[#3E453E]'
+                              }`} />
                               <span className="text-xs text-[#B5B5B5] group-hover:text-white transition-colors">
                                 {label}
                               </span>
                             </label>
-                          )
-                        )}
+                          );
+                        })}
                       </div>
                     </div>
 
                     {/* Reset Button */}
-                    <button className="w-full bg-[#B1F128] text-[#010501] font-semibold text-sm py-3 rounded-full hover:opacity-90 transition-opacity">
+                    <button
+                      onClick={() => {
+                        setAssetSearchQuery('');
+                        setSortBy('value');
+                        setSelectedCategories([]);
+                        setSelectedChains([]);
+                      }}
+                      className="w-full bg-[#B1F128] text-[#010501] font-semibold text-sm py-3 rounded-full hover:opacity-90 transition-opacity"
+                    >
                       Reset filters
                     </button>
                   </div>
@@ -2178,8 +3056,8 @@ function WalletPageMobile() {
                           </summary>
                           {/* Dropdown menu */}
                           <div className="absolute left-0 z-10 mt-2 w-full min-w-55 max-h-[300px] overflow-y-auto rounded-xl bg-[#0B0F0A] p-2 shadow-[0_10px_30px_rgba(0,0,0,0.6)] dropdown-scrollbar">
-                            {walletTokens && walletTokens.length > 0 ? (
-                              walletTokens.map((token) => (
+                            {availableTokens && availableTokens.length > 0 ? (
+                              availableTokens.map((token: WalletToken) => (
                                 <button
                                   key={`${token.chainId}-${token.address}`}
                                   onClick={() => handleSendTokenSelect(token)}
@@ -2438,11 +3316,30 @@ function WalletPageMobile() {
 
                     {/* Dropdown menu */}
                     <div className="absolute left-0 z-10 mt-2 w-full min-w-55 max-h-[300px] overflow-y-auto rounded-xl bg-[#0B0F0A] p-2 shadow-[0_10px_30px_rgba(0,0,0,0.6)] dropdown-scrollbar">
-                      {walletTokens && walletTokens.length > 0 ? (
-                        walletTokens.map((token) => (
+                      {/* Search input */}
+                      <div className="sticky top-0 mb-2 z-10 bg-[#0B0F0A]">
+                        <input
+                          type="text"
+                          placeholder="Search tokens..."
+                          value={receiveTokenSearchQuery}
+                          onChange={(e) => setReceiveTokenSearchQuery(e.target.value)}
+                          onClick={(e) => e.stopPropagation()}
+                          className="w-full px-3 py-2 rounded-lg bg-[#121712] border border-[#1f261e] text-sm text-white placeholder-[#7C7C7C] focus:outline-none focus:border-[#B1F128] transition-colors"
+                        />
+                      </div>
+                      {/* Token list */}
+                      {isLoadingSupportedTokens ? (
+                        <div className="px-3 py-2 text-xs text-[#8A929A]">
+                          Loading tokens...
+                        </div>
+                      ) : filteredReceiveTokens && filteredReceiveTokens.length > 0 ? (
+                        filteredReceiveTokens.map((token) => (
                           <button
                             key={`${token.chainId}-${token.address}`}
-                            onClick={() => handleReceiveTokenSelect(token)}
+                            onClick={() => {
+                              handleReceiveTokenSelect(token);
+                              setReceiveTokenSearchQuery(''); // Clear search on selection
+                            }}
                             className="flex w-full items-center gap-3 rounded-lg px-3 py-2 hover:bg-[#141A16]"
                           >
                             <TokenIcon
@@ -2457,7 +3354,7 @@ function WalletPageMobile() {
                         ))
                       ) : (
                         <div className="px-3 py-2 text-xs text-[#8A929A]">
-                          No tokens available
+                          {receiveTokenSearchQuery.trim() ? 'No tokens found' : walletChainType ? 'No tokens available for this wallet type' : 'Connect wallet to see tokens'}
                         </div>
                       )}
                     </div>
@@ -2503,18 +3400,7 @@ function WalletPageMobile() {
                     </button>
 
                     <button 
-                      onClick={async () => {
-                        if (connectedAddress && navigator.share) {
-                          try {
-                            await navigator.share({
-                              title: 'My Wallet Address',
-                              text: connectedAddress,
-                            });
-                          } catch (err) {
-                            // User cancelled or error
-                          }
-                        }
-                      }}
+                      onClick={() => setIsShareModalOpen(true)}
                       className="flex w-full items-center justify-center gap-2 rounded-full border border-[#B1F128] px-3 py-1.5 text-xs text-[#B1F128] mt-2"
                     >
                       <GoShareAndroid size={14} />
@@ -2527,31 +3413,54 @@ function WalletPageMobile() {
           </>
             )}
 
-            {/* ACTIVITIES */}
+            {/* ACTIVITIES - Unified (Token + NFT) */}
             {activeTab === "activities" && (
               <div className="animate-in fade-in slide-in-from-right-4 duration-300">
-            {transactionsLoading ? (
+            {activitiesLoading ? (
               <TransactionListSkeleton />
-            ) : transactionsError ? (
+            ) : activitiesError ? (
               <div className="flex flex-col items-center justify-center py-12">
                 <p className="text-red-400 text-sm mb-4">
-                  Error loading transactions: {transactionsError}
+                  Error loading activities: {activitiesError}
                 </p>
                       </div>
-            ) : transactions.length === 0 ? (
+            ) : unifiedActivities.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12">
-                <p className="text-[#8A929A] text-sm">No transactions found</p>
+                <p className="text-[#8A929A] text-sm">No activities found</p>
                       </div>
             ) : (
               <div className="flex flex-col gap-6 mt-2">
-                {transactions.map((tx) => (
-                  <TransactionRow key={tx.id} transaction={tx} />
-                  ))}
+                {unifiedActivities.map((activity: any) => {
+                  if (activity.type === 'token' && activity.transaction) {
+                    return (
+                      <TransactionRow 
+                        key={activity.id} 
+                        transaction={activity.transaction} 
+                        isBalanceVisible={isBalanceVisible} 
+                      />
+                    );
+                  } else if (activity.type === 'nft' && activity.nftActivity) {
+                    return (
+                      <NFTActivityRow 
+                        key={activity.id} 
+                        activity={activity.nftActivity} 
+                      />
+                    );
+                  }
+                  return null;
+                })}
                 </div>
             )}
               </div>
         )}
       </div>
+
+      {/* Share Wallet Modal */}
+      <ShareWalletModal
+        open={isShareModalOpen}
+        onOpenChange={setIsShareModalOpen}
+        walletAddress={connectedAddress || ''}
+      />
     </div>
   );
 }
