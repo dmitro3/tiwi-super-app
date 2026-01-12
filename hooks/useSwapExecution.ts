@@ -58,7 +58,7 @@ export function useSwapExecution(): UseSwapExecutionReturn {
         recipientAddress: params.recipientAddress,
         slippage: params.slippage,
         isFeeOnTransfer: params.isFeeOnTransfer,
-        onStatusUpdate: (newStatus) => {
+        onStatusUpdate: (newStatus: any) => {
           setStatus(newStatus);
         },
       };

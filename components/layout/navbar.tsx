@@ -55,6 +55,9 @@ export default function Navbar() {
     handleChainModalBack,
   } = useWalletConnection();
   const wallet = useWallet();
+  
+  // Determine if wallet is fully connected (not just connecting)
+  const isFullyConnected = connectedAddress && !wallet.isConnecting;
 
   const handleConnect = () => {
     openModal();
@@ -161,7 +164,24 @@ export default function Navbar() {
 
           {/* Wallet UI - Desktop */}
           <div className="hidden md:flex items-center gap-2">
-            {connectedAddress ? (
+            {connectedAddress && wallet.isConnecting ? (
+              <>
+                {/* Loading state: Only show settings icon */}
+                <button
+                  onClick={handleSettings}
+                  className="bg-[#081f02] p-2.5 sm:p-3 rounded-full hover:opacity-90 transition-opacity"
+                  aria-label="Settings"
+                >
+                  <Image
+                    src="/assets/icons/settings.svg"
+                    alt="Settings"
+                    width={24}
+                    height={24}
+                    className="[&_path]:stroke-[#b1f128] w-5 h-5 sm:w-6 sm:h-6"
+                  />
+                </button>
+              </>
+            ) : isFullyConnected ? (
               <>
                 {/* Share Knowledge Icon (Referrals) - Green border */}
                 <button
@@ -252,7 +272,7 @@ export default function Navbar() {
 
           {/* Mobile Right Side - Wallet UI or Connect Button and Menu */}
           <div className="md:hidden flex items-center gap-3">
-            {connectedAddress ? (
+            {isFullyConnected ? (
               <>
                 {/* Wallet Address Button */}
                 <button
@@ -363,7 +383,7 @@ export default function Navbar() {
       )}
 
       {/* Wallet Connected Toast */}
-      {connectedAddress && (
+      {isFullyConnected && (
         <WalletConnectedToast
           address={connectedAddress}
           open={isToastOpen}
@@ -379,7 +399,7 @@ export default function Navbar() {
       />
       
       {/* Wallet Balance Panel */}
-      {connectedAddress && (
+      {isFullyConnected && (
         <WalletBalancePanel
           isOpen={isWalletPanelOpen}
           onClose={handleCloseWalletPanel}

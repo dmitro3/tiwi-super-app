@@ -178,22 +178,22 @@ export class PancakeSwapAdapter extends BaseRouter {
       // Estimate gas cost (non-blocking - don't fail route if estimation fails)
       let gasEstimate = '0';
       let gasUSD = '0';
-      try {
-        const gasService = getGasEstimationService();
-        const gasResult = await gasService.estimateSwapGas({
-          chainId: fromChainId,
-          routerAddress,
-          fromToken: getAddress(params.fromToken),
-          toToken: getAddress(params.toToken),
-          amountIn,
-          path,
-        });
-        gasEstimate = gasResult.gasEstimate;
-        gasUSD = gasResult.gasUSD;
-      } catch (error) {
-        console.warn('[PancakeSwapAdapter] Gas estimation failed, using fallback:', error);
-        // Continue with '0' values (will be handled in normalizeRoute)
-      }
+      // try {
+      //   const gasService = getGasEstimationService();
+      //   const gasResult = await gasService.estimateSwapGas({
+      //     chainId: fromChainId,
+      //     routerAddress,
+      //     fromToken: getAddress(params.fromToken),
+      //     toToken: getAddress(params.toToken),
+      //     amountIn,
+      //     path,
+      //   });
+      //   gasEstimate = gasResult.gasEstimate;
+      //   gasUSD = gasResult.gasUSD;
+      // } catch (error) {
+      //   console.warn('[PancakeSwapAdapter] Gas estimation failed, using fallback:', error);
+      //   // Continue with '0' values (will be handled in normalizeRoute)
+      // }
       
       // Normalize to RouterRoute format
       const normalizedRoute = this.normalizeRoute(
@@ -315,6 +315,7 @@ export class PancakeSwapAdapter extends BaseRouter {
     publicClient: any
   ): Promise<{ path: Address[]; expectedOutput: bigint; priceImpact: number } | null> {
     const intermediates = this.getIntermediateTokens(chainId);
+    console.log("🚀 ~ PancakeSwapAdapter ~ findBestRoute ~ intermediates:", intermediates)
     
     // Build all possible paths
     const paths: Address[][] = [
@@ -350,6 +351,7 @@ export class PancakeSwapAdapter extends BaseRouter {
 
     // Try each path and collect valid routes
     const validRoutes: Array<{ path: Address[]; expectedOutput: bigint; priceImpact: number }> = [];
+    console.log("🚀 ~ PancakeSwapAdapter ~ findBestRoute ~ validRoutes:", validRoutes)
     
     // Test all paths in parallel for speed
     const pathTests = paths.map(async (path) => {
@@ -360,6 +362,7 @@ export class PancakeSwapAdapter extends BaseRouter {
           functionName: 'getAmountsOut',
           args: [amountIn, path],
         }) as bigint[];
+        console.log("🚀 ~ PancakeSwapAdapter ~ findBestRoute ~ amounts:", amounts)
 
         if (amounts && amounts.length > 0 && amounts[amounts.length - 1] > BigInt(0)) {
           // Calculate price impact (simplified)
