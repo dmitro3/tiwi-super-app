@@ -12,6 +12,7 @@ import { fetchTokens } from "@/lib/frontend/api/tokens";
 import type { Token } from "@/lib/frontend/types/tokens";
 import { TokenIcon } from "@/components/portfolio/token-icon";
 import { getTokenFallbackIcon } from "@/lib/shared/utils/portfolio-formatting";
+import { useDebounce } from "@/hooks/useDebounce";
 
 interface TokenSpotlightModalProps {
   open: boolean;
@@ -28,7 +29,7 @@ interface TokenSpotlightModalProps {
   onSave?: (tokenData: {
     id?: string;
     symbol: string;
-    rank: number;
+    rank?: number; // Optional - API will auto-assign if not provided
     startDate: string;
     endDate: string;
   }) => void;
@@ -56,15 +57,25 @@ export default function TokenSpotlightModal({
   const [showTokenDropdown, setShowTokenDropdown] = useState(false);
   const tokenRef = useRef<HTMLDivElement>(null);
 
-  // Fetch all tokens when modal opens (both add and edit modes)
+  // Debounce search query for API calls (400ms delay)
+  const debouncedSearchQuery = useDebounce(tokenSearchQuery, 400);
+
+  // Fetch all tokens from DexScreener across all chains (like portfolio receive)
+  // Initial load: fetch all tokens, then refetch with debounced search query
   useEffect(() => {
     if (open) {
       setIsLoadingTokens(true);
-      fetchTokens({ limit: 1000 }) // Fetch a large number of tokens
+      // Fetch tokens - use debounced query for server-side search
+      // No chains parameter = fetch from all supported chains (all DexScreener tokens)
+      fetchTokens({ 
+        limit: 1000, // High limit to get all available tokens from DexScreener
+        query: debouncedSearchQuery.trim() || undefined, // Pass debounced search query to API
+        // No chains parameter = get tokens from all chains
+      })
         .then((tokens) => {
           setAllTokens(tokens);
-          // Set first token as default if no token selected (only in add mode)
-          if (!isEditMode && tokens.length > 0 && !selectedToken) {
+          // Set first token as default if no token selected (only in add mode, no search)
+          if (!isEditMode && tokens.length > 0 && !selectedToken && !debouncedSearchQuery.trim()) {
             const firstToken = tokens[0];
             setSelectedToken({
               symbol: firstToken.symbol,
@@ -82,14 +93,17 @@ export default function TokenSpotlightModal({
           setIsLoadingTokens(false);
         });
     }
-  }, [open, isEditMode]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [open, isEditMode, debouncedSearchQuery]); // Refetch when debounced search query changes
 
-  // Filter tokens by search query
+  // Client-side filtering for instant results while typing (before debounce)
   const filteredTokens = useMemo(() => {
+    // If no search query, show all tokens
     if (!tokenSearchQuery.trim()) {
       return allTokens;
     }
-    const query = tokenSearchQuery.toLowerCase();
+    
+    // Instant client-side filtering while user types
+    const query = tokenSearchQuery.toLowerCase().trim();
     return allTokens.filter(
       (token) =>
         token.symbol.toLowerCase().includes(query) ||
@@ -141,13 +155,13 @@ export default function TokenSpotlightModal({
           logo: tokenLogo,
         });
       } else {
-        // Add mode: reset form
-        setRank(1);
+        // Add mode: reset form (but don't clear search query - let user keep typing)
+        setRank(0); // 0 means auto-assign
         setStartDate(getTodayDate());
         setEndDate(getDefaultEndDate());
-        setTokenSearchQuery("");
-        // Set first token as default if available (only in add mode)
-        if (allTokens.length > 0 && !selectedToken) {
+        // Don't clear search query here - let user keep their search
+        // Set first token as default if available (only in add mode, no search)
+        if (allTokens.length > 0 && !selectedToken && !tokenSearchQuery.trim()) {
           const firstToken = allTokens[0];
           setSelectedToken({
             symbol: firstToken.symbol,
@@ -181,10 +195,8 @@ export default function TokenSpotlightModal({
       return;
     }
 
-    if (rank < 1) {
-      alert("Rank must be at least 1");
-      return;
-    }
+    // Rank validation - allow 0 or empty to trigger auto-assignment
+    // API will auto-assign if rank is not provided or invalid
 
     if (!selectedToken) {
       alert("Please select a token");
@@ -197,7 +209,8 @@ export default function TokenSpotlightModal({
         symbol: selectedToken.symbol,
         name: selectedToken.name,
         address: selectedToken.address,
-        rank,
+        logo: selectedToken.logo, // Save the logo so table can display the same icon
+        rank: rank >= 1 ? rank : undefined, // Only send rank if valid, let API auto-assign if not
         startDate,
         endDate,
       };
@@ -361,7 +374,7 @@ export default function TokenSpotlightModal({
                             logo: token.logo || getTokenFallbackIcon(token.symbol),
                           });
                           setShowTokenDropdown(false);
-                          setTokenSearchQuery("");
+                          // Don't clear search query - keep it for next time dropdown opens
                         }}
                         className="w-full text-left px-4 py-3 text-white hover:bg-[#121712] transition-colors flex items-center gap-3 border-b border-[#1f261e] last:border-b-0"
                       >
@@ -394,25 +407,23 @@ export default function TokenSpotlightModal({
           {/* Rank Input */}
           <div>
             <label className="block text-[#b5b5b5] text-sm font-medium mb-2">
-              Rank
+              Rank (Optional - Auto-assigned if not set or taken)
             </label>
             <input
               type="number"
-              min="1"
-              placeholder="Enter rank (1 = highest priority)"
-              value={rank}
+              min="0"
+              placeholder="Enter rank (leave empty for auto-assignment)"
+              value={rank || ""}
               onChange={(e) => {
-                const value = parseInt(e.target.value, 10);
-                if (!isNaN(value) && value >= 1) {
+                const value = e.target.value === "" ? 0 : parseInt(e.target.value, 10);
+                if (!isNaN(value) && value >= 0) {
                   setRank(value);
-                } else if (e.target.value === "") {
-                  setRank(1);
                 }
               }}
               className="w-full bg-[#0b0f0a] border border-[#1f261e] rounded-lg px-4 py-2.5 text-white placeholder-[#7c7c7c] focus:outline-none focus:border-[#b1f128]"
             />
             <p className="text-[#7c7c7c] text-xs mt-1">
-              Lower numbers indicate higher priority. Rank will be considered within the date range.
+              Lower numbers indicate higher priority. Leave empty or set to 0 for auto-assignment. If rank is taken, it will be auto-assigned.
             </p>
           </div>
 

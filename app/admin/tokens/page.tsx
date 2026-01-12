@@ -21,6 +21,7 @@ interface SpotlightToken {
   symbol: string;
   name?: string;
   address?: string;
+  logo?: string;
   rank: number;
   startDate: string;
   endDate: string;
@@ -58,10 +59,14 @@ export default function TokensPage() {
     fetchSpotlightTokens();
   }, [fetchSpotlightTokens]);
 
-  // Fetch all tokens to get logos
+  // Fetch all tokens from all chains to get logos (like token spotlight modal)
   useEffect(() => {
     setIsLoadingTokens(true);
-    fetchTokens({ limit: 1000 })
+    // Fetch all tokens without chain filter to get tokens from all chains (DexScreener)
+    fetchTokens({ 
+      limit: 1000, // High limit to get all available tokens
+      // No chains parameter = fetch from all supported chains
+    })
       .then((tokens) => {
         setAllTokens(tokens);
       })
@@ -74,39 +79,39 @@ export default function TokensPage() {
       });
   }, []);
 
-  // Create a map of token logos by symbol and address
-  const tokenLogoMap = useMemo(() => {
-    const map = new Map<string, string>();
-    allTokens.forEach((token) => {
-      // Map by symbol (uppercase for case-insensitive lookup)
-      const symbolKey = token.symbol.toUpperCase();
-      if (!map.has(symbolKey)) {
-        map.set(symbolKey, token.logo || getTokenFallbackIcon(token.symbol));
-      }
-      // Map by address (lowercase for case-insensitive lookup)
-      const addressKey = token.address.toLowerCase();
-      if (!map.has(addressKey)) {
-        map.set(addressKey, token.logo || getTokenFallbackIcon(token.symbol));
-      }
-    });
-    return map;
-  }, [allTokens]);
-
-  // Get token logo for a spotlight token
+  // Get token logo for a spotlight token - use stored logo first, then lookup
+  // This ensures the EXACT same icon from the dropdown appears in the table
   const getTokenLogo = useCallback((token: SpotlightToken): string => {
-    // Try to find by address first (more specific)
+    // First priority: Use the logo that was saved when token was selected (same as dropdown)
+    if (token.logo && token.logo.trim()) {
+      return token.logo;
+    }
+    
+    // Second priority: Find the exact token object from allTokens (same source as modal dropdown)
+    let matchedToken: Token | undefined;
+    
+    // First, try exact address match (most specific - same as modal)
     if (token.address) {
-      const logoByAddress = tokenLogoMap.get(token.address.toLowerCase());
-      if (logoByAddress) return logoByAddress;
+      matchedToken = allTokens.find(
+        (t) => t.address.toLowerCase() === token.address?.toLowerCase()
+      );
     }
-    // Fallback to symbol
-    if (token.symbol) {
-      const logoBySymbol = tokenLogoMap.get(token.symbol.toUpperCase());
-      if (logoBySymbol) return logoBySymbol;
+    
+    // If no address match, try symbol match (case-insensitive)
+    if (!matchedToken && token.symbol) {
+      matchedToken = allTokens.find(
+        (t) => t.symbol.toUpperCase() === token.symbol.toUpperCase()
+      );
     }
-    // Final fallback
-    return getTokenFallbackIcon(token.symbol);
-  }, [tokenLogoMap]);
+    
+    // If we found a match, use its logo exactly like modal does: token.logo || getTokenFallbackIcon(token.symbol)
+    if (matchedToken) {
+      return matchedToken.logo || getTokenFallbackIcon(matchedToken.symbol);
+    }
+    
+    // Final fallback - use fallback icon (same as modal)
+    return getTokenFallbackIcon(token.symbol || '?');
+  }, [allTokens]);
 
   // Listen for spotlight token updates
   useEffect(() => {

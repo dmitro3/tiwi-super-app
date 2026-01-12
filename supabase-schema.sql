@@ -197,6 +197,7 @@ CREATE TABLE IF NOT EXISTS token_spotlight (
   symbol TEXT NOT NULL,
   name TEXT,
   address TEXT,
+  logo TEXT,
   rank INTEGER NOT NULL CHECK (rank >= 1),
   start_date DATE NOT NULL,
   end_date DATE NOT NULL,
@@ -216,4 +217,7 @@ CREATE INDEX IF NOT EXISTS idx_token_spotlight_created_at ON token_spotlight(cre
 CREATE UNIQUE INDEX IF NOT EXISTS idx_token_spotlight_unique_symbol_dates 
 ON token_spotlight(symbol, start_date, end_date) 
 WHERE start_date <= end_date;
+
+-- Add logo column to existing token_spotlight table (migration for existing databases)
+ALTER TABLE token_spotlight ADD COLUMN IF NOT EXISTS logo TEXT;
 
