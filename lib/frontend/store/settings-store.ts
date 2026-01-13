@@ -22,7 +22,7 @@ export interface SettingsState {
 export const useSettingsStore = create<SettingsState>()(
   persist(
     (set) => ({
-      slippageMode: 'fixed', // Default to fixed
+      slippageMode: 'auto', // Default to fixed
       slippageTolerance: 0.5, // Default 0.5%
       setSlippageMode: (mode) => set({ slippageMode: mode }),
       setSlippageTolerance: (tolerance) => set({ 

@@ -8,6 +8,7 @@ export interface Token {
   symbol: string;
   address: string;
   logo: string;
+  logoURI?: string;
   chain: string;
   chainId?: number;          // Canonical chain ID from backend
   chainLogo?: string;        // Derived from chain list (logoURI)

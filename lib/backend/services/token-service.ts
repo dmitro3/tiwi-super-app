@@ -11,10 +11,11 @@ import { resolveChain, isChainSupported } from '@/lib/backend/registry/chain-res
 import { getChainBadge } from '@/lib/backend/registry/chains';
 import { getTokenAggregationService } from './token-aggregation-service';
 import { LiFiProvider } from '@/lib/backend/providers/lifi';
-import type { NormalizedToken, ChainDTO, FetchTokensParams } from '@/lib/backend/types/backend-tokens';
+import type { NormalizedToken, ChainDTO, FetchTokensParams, ProviderToken } from '@/lib/backend/types/backend-tokens';
 import { MOCK_TOKENS } from '@/lib/backend/data/mock-tokens';
 import { getFeaturedTokens, getFeaturedTokensForChains } from '@/lib/backend/data/featured-tokens';
 import { DexScreenerProvider } from '@/lib/backend/providers/dexscreener';
+import { OneInchProvider } from '@/lib/backend/providers/oneinch';
 
 // Initialize providers (must be called before using aggregation service)
 import '@/lib/backend/providers/init';
@@ -118,6 +119,293 @@ export class TokenService {
       // Fallback to mock data on error
       return MOCK_TOKENS.slice(0, limit);
     }
+  }
+
+  /**
+   * Get tokens by category (Hot, New, Gainers, Losers)
+   * Uses 1inch API for categories, then enriches with DexScreener data
+   */
+  async getTokensByCategory(
+    category: 'hot' | 'new' | 'gainers' | 'losers',
+    limit: number = 30
+  ): Promise<NormalizedToken[]> {
+    try {
+      const oneinchProvider = new OneInchProvider();
+      const dexscreenerProvider = new DexScreenerProvider();
+      
+      // Map category to 1inch category
+      const categoryMap: Record<string, 'MOST_VIEWED' | 'GAINERS' | 'TRENDING' | 'LISTING_NEW'> = {
+        'hot': 'MOST_VIEWED',
+        'gainers': 'GAINERS',
+        'new': 'LISTING_NEW',
+        'losers': 'TRENDING', // 1inch doesn't have losers, use TRENDING and filter
+      };
+      
+      const oneinchCategory = categoryMap[category] || 'TRENDING';
+      
+      // Fetch from 1inch
+      const oneinchTokens = await oneinchProvider.fetchTrendingTokens(oneinchCategory, limit * 2);
+      
+      if (oneinchTokens.length === 0) {
+        // Fallback to DexScreener if 1inch fails
+        return this.getTokensByCategoryFromDexScreener(category, limit);
+      }
+      
+      // Enrich with DexScreener data (for holders/traders, price, liquidity)
+      const enrichedTokens = await this.enrichTokensWithDexScreener(oneinchTokens);
+      
+      // Filter losers if needed (1inch doesn't have losers category)
+      let filteredTokens = enrichedTokens;
+      if (category === 'losers') {
+        filteredTokens = enrichedTokens
+          .filter(t => (t.priceChange24h || 0) < 0)
+          .sort((a, b) => (a.priceChange24h || 0) - (b.priceChange24h || 0));
+      } else if (category === 'gainers') {
+        // Ensure only positive changes
+        filteredTokens = enrichedTokens
+          .filter(t => (t.priceChange24h || 0) > 0)
+          .sort((a, b) => (b.priceChange24h || 0) - (a.priceChange24h || 0));
+      } else if (category === 'hot') {
+        // Sort by volume
+        filteredTokens = enrichedTokens.sort((a, b) => (b.volume24h || 0) - (a.volume24h || 0));
+      }
+      
+      // Normalize tokens
+      const normalizedTokens: NormalizedToken[] = [];
+      for (const token of filteredTokens.slice(0, limit)) {
+        const chain = typeof token.chainId === 'number' ? getCanonicalChain(token.chainId) : null;
+        if (chain) {
+          const normalized = oneinchProvider.normalizeToken(token, chain);
+          // Preserve enriched data - prioritize DexScreener image URL
+          normalized.volume24h = token.volume24h;
+          normalized.priceChange24h = token.priceChange24h;
+          normalized.liquidity = token.liquidity;
+          normalized.holders = token.holders;
+          normalized.priceUSD = token.priceUSD || normalized.priceUSD;
+          // Prioritize DexScreener image URL (from enrichment) over 1inch logoURI
+          normalized.logoURI = token.logoURI || normalized.logoURI;
+          normalizedTokens.push(normalized);
+        }
+      }
+      
+      return normalizedTokens;
+    } catch (error: any) {
+      console.error('[TokenService] Error fetching tokens by category:', error);
+      // Fallback to DexScreener
+      return this.getTokensByCategoryFromDexScreener(category, limit);
+    }
+  }
+
+  /**
+   * Fallback: Get tokens by category from DexScreener
+   */
+  private async getTokensByCategoryFromDexScreener(
+    category: 'hot' | 'new' | 'gainers' | 'losers',
+    limit: number = 30
+  ): Promise<NormalizedToken[]> {
+    try {
+      const dexscreenerProvider = new DexScreenerProvider();
+      
+      // Get major supported chains
+      const majorChainIds = [
+        56,    // BNB Chain
+        1,     // Ethereum
+        137,   // Polygon
+        42161, // Arbitrum
+        10,    // Optimism
+        8453,  // Base
+        43114, // Avalanche
+      ];
+
+      // Fetch pairs from DexScreener for all chains
+      const allPairs: Array<{
+        pair: any;
+        chainId: number;
+      }> = [];
+
+      for (const chainId of majorChainIds) {
+        try {
+          const chain = getCanonicalChain(chainId);
+          if (!chain) continue;
+          
+          const dexChainId = dexscreenerProvider.getChainId(chain);
+          if (!dexChainId) continue;
+
+          // Fetch pairs for this chain
+          const url = `https://api.dexscreener.com/latest/dex/search?q=${encodeURIComponent(String(dexChainId))}`;
+          const response = await fetch(url);
+          
+          if (!response.ok) continue;
+          
+          const data = await response.json();
+          if (data.pairs && Array.isArray(data.pairs)) {
+            const chainPairs = data.pairs
+              .filter((p: any) => p.chainId === String(dexChainId))
+              .map((pair: any) => ({ pair, chainId }));
+            allPairs.push(...chainPairs);
+          }
+        } catch (error) {
+          console.warn(`[TokenService] Error fetching pairs for chain ${chainId}:`, error);
+          continue;
+        }
+      }
+
+      // Sort pairs based on category
+      let sortedPairs = [...allPairs];
+      
+      switch (category) {
+        case 'hot':
+          // Sort by 24h volume (highest first)
+          sortedPairs.sort((a, b) => {
+            const volA = a.pair.volume?.h24 || 0;
+            const volB = b.pair.volume?.h24 || 0;
+            return volB - volA;
+          });
+          break;
+        case 'gainers':
+          // Sort by 24h price change (highest positive first)
+          sortedPairs.sort((a, b) => {
+            const changeA = a.pair.priceChange?.h24 || 0;
+            const changeB = b.pair.priceChange?.h24 || 0;
+            return changeB - changeA; // Descending (highest first)
+          });
+          // Filter to only positive changes
+          sortedPairs = sortedPairs.filter(p => (p.pair.priceChange?.h24 || 0) > 0);
+          break;
+        case 'losers':
+          // Sort by 24h price change (lowest/negative first)
+          sortedPairs.sort((a, b) => {
+            const changeA = a.pair.priceChange?.h24 || 0;
+            const changeB = b.pair.priceChange?.h24 || 0;
+            return changeA - changeB; // Ascending (lowest first)
+          });
+          // Filter to only negative changes
+          sortedPairs = sortedPairs.filter(p => (p.pair.priceChange?.h24 || 0) < 0);
+          break;
+        case 'new':
+          // Sort by pair creation time (most recent first)
+          sortedPairs.sort((a, b) => {
+            const timeA = a.pair.pairCreatedAt || 0;
+            const timeB = b.pair.pairCreatedAt || 0;
+            return timeB - timeA; // Descending (newest first)
+          });
+          break;
+      }
+
+      // Extract tokens from pairs and normalize
+      const tokens: NormalizedToken[] = [];
+      const seenTokens = new Set<string>();
+
+      for (const { pair, chainId } of sortedPairs.slice(0, limit * 2)) {
+        // Use txns.h24 (buys + sells) as number of traders
+        const traders = pair.txns?.h24 ? (pair.txns.h24.buys + pair.txns.h24.sells) : undefined;
+        
+        // Extract base token - CRITICAL: Prioritize DexScreener image URL from info.imageUrl
+        // DexScreener returns image URLs in pair.info.imageUrl - this is the most reliable source
+        const dexImageUrl = pair.info?.imageUrl;
+        console.log("🚀 ~ TokenService ~ getTokensByCategoryFromDexScreener ~ dexImageUrl:", {[pair.baseToken.symbol]: {dexImageUrl, }})
+        const baseToken = {
+          chainId,
+          address: pair.baseToken.address,
+          symbol: pair.baseToken.symbol,
+          name: pair.baseToken.name,
+          decimals: undefined,
+          // CRITICAL: Always use DexScreener image URL if available - it's the most reliable source
+          logoURI: dexImageUrl || '',
+          priceUSD: pair.priceUsd || '0',
+          liquidity: pair.liquidity?.usd,
+          volume24h: pair.volume?.h24,
+          priceChange24h: pair.priceChange?.h24,
+          marketCap: pair.fdv,
+          holders: traders,
+        };
+
+        const key = `${chainId}:${baseToken.address.toLowerCase()}`;
+        if (!seenTokens.has(key) && baseToken.symbol && baseToken.address) {
+          seenTokens.add(key);
+          
+          const chain = getCanonicalChain(chainId);
+          if (chain) {
+            const normalized = dexscreenerProvider.normalizeToken(baseToken as any, chain);
+            // Add additional fields - CRITICAL: Preserve DexScreener image URL
+            normalized.volume24h = baseToken.volume24h;
+            normalized.priceChange24h = baseToken.priceChange24h;
+            normalized.holders = baseToken.holders;
+            // CRITICAL: Ensure DexScreener image URL is preserved - it's already in baseToken.logoURI
+            // This ensures the image URL from pair.info.imageUrl is used
+            normalized.logoURI = baseToken.logoURI || normalized.logoURI || '';
+            tokens.push(normalized);
+          }
+        }
+
+        if (tokens.length >= limit) break;
+      }
+
+      return tokens.slice(0, limit);
+    } catch (error: any) {
+      console.error('[TokenService] Error fetching tokens by category from DexScreener:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Enrich 1inch tokens with DexScreener data (price, liquidity, volume, holders/traders)
+   */
+  private async enrichTokensWithDexScreener(
+    tokens: ProviderToken[]
+  ): Promise<ProviderToken[]> {
+    const dexscreenerProvider = new DexScreenerProvider();
+    const enrichedTokens: ProviderToken[] = [];
+
+    // Enrich tokens in parallel (with rate limiting)
+    const enrichPromises = tokens.map(async (token) => {
+      try {
+        const chain = typeof token.chainId === 'number' ? getCanonicalChain(token.chainId) : null;
+        if (!chain) return token;
+
+        const dexChainId = dexscreenerProvider.getChainId(chain);
+        if (!dexChainId) return token;
+
+        // Fetch token pairs from DexScreener token-pairs endpoint using mapped chain id
+        // Example: https://api.dexscreener.com/token-pairs/v1/ethereum/0x...
+        const url = `https://api.dexscreener.com/token-pairs/v1/${dexChainId}/${token.address}`;
+        const response = await fetch(url);
+        
+        if (!response.ok) return token;
+        
+        const data = await response.json();
+        if (!Array.isArray(data) || data.length === 0) {
+          return token;
+        }
+
+        // Take the first pair result as the primary source for enrichment
+        const topPair = data[0];
+
+        // Enrich token with DexScreener data
+        const enriched: ProviderToken = {
+          ...token,
+          priceUSD: topPair.priceUsd || token.priceUSD || '0',
+          volume24h: topPair.volume?.h24 || token.volume24h,
+          liquidity: topPair.liquidity?.usd || token.liquidity,
+          priceChange24h: topPair.priceChange?.h24 || token.priceChange24h,
+          // Use txns.h24 (buys + sells) as number of traders
+          holders: topPair.txns?.h24 ? (topPair.txns.h24.buys + topPair.txns.h24.sells) : token.holders,
+          // Use DexScreener image URL only as a fallback – primary logo comes from 1inch
+          logoURI: token.logoURI || topPair.info?.imageUrl || token.logoURI || '',
+          marketCap: topPair.marketCap || topPair.fdv || token.marketCap,
+        };
+
+        return enriched;
+      } catch (error) {
+        console.warn(`[TokenService] Error enriching token ${token.symbol}:`, error);
+        return token;
+      }
+    });
+
+    const results = await Promise.all(enrichPromises);
+    enrichedTokens.push(...results);
+
+    return enrichedTokens;
   }
 
   /**

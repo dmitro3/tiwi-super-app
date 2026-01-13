@@ -157,7 +157,7 @@ export class PancakeSwapExecutor extends EVMDEXExecutor implements SwapRouterExe
     recipient: string,
     deadline: number,
     isFeeOnTransfer?: boolean  // Whether to use fee-on-transfer supporting functions
-  ): { to: string; data: string; value: BigInt } {
+  ): { to: string; data: string; value: string } {
     const routerAddress = this.getRouterAddress(route.fromToken.chainId, route);
     
     // ✅ EXACTLY match tiwi-test: Use route.raw.path first (exact path from router)
@@ -238,7 +238,7 @@ export class PancakeSwapExecutor extends EVMDEXExecutor implements SwapRouterExe
     return {
       to: routerAddress,
       data,
-      value: BigInt(value),
+      value: value, // Already a string (matches tiwi-test which returns BigInt but we convert to string for consistency)
     };
   }
 

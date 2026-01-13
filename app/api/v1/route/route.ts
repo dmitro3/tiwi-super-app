@@ -10,7 +10,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getRouteService } from '@/lib/backend/services/route-service';
 import type { RouteRequest, RouteResponse } from '@/lib/backend/routers/types';
-
 // ============================================================================
 // Request Types
 // ============================================================================

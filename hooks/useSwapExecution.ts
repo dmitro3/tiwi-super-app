@@ -43,6 +43,7 @@ export function useSwapExecution(): UseSwapExecutionReturn {
   const [error, setError] = useState<Error | null>(null);
 
   const execute = useCallback(async (params: ExecuteSwapParams): Promise<SwapExecutionResult> => {
+    console.log("🚀 ~ useSwapExecution ~ params:", params)
     setIsExecuting(true);
     setStatus(null);
     setResult(null);

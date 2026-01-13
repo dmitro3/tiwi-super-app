@@ -172,7 +172,8 @@ export abstract class EVMDEXExecutor {
     amountIn: string,
     amountOutMin: string,
     recipient: string,
-    deadline: number
+    deadline: number,
+    isFeeOnTransfer?: boolean // Whether to use fee-on-transfer supporting functions
   ): { to: string; data: string; value: string };
 
   /**
@@ -331,6 +332,60 @@ export abstract class EVMDEXExecutor {
           actualAmountOut = BigInt(amountInSmallestUnit) / BigInt(1000);
           console.warn('[EVM DEX] Using conservative estimate (1/1000 of input):', actualAmountOut.toString());
         }
+        
+        // ✅ EXACTLY match tiwi-test: If getAmountsOut fails, try to get a fresh quote as fallback
+        // Lines 2266-2284 in tiwi-test
+        if (!actualAmountOut || actualAmountOut === BigInt(0)) {
+          try {
+            onStatusUpdate?.({
+              stage: 'preparing',
+              message: 'Getting fresh quote...',
+            });
+            
+            // Get fresh quote using the router adapter
+            const { PancakeSwapAdapter } = await import('@/lib/backend/routers/adapters/pancakeswap-adapter');
+            const adapter = new PancakeSwapAdapter();
+            
+            const freshRoute = await adapter.getRoute({
+              fromToken: fromToken.address,
+              toToken: toToken.address,
+              fromAmount: amountInSmallestUnit,
+              fromChainId: chainId,
+              toChainId: chainId,
+              fromDecimals: fromToken.decimals!,
+              toDecimals: toToken.decimals!,
+            });
+            
+            if (freshRoute && freshRoute.raw?.amountOut && freshRoute.raw.amountOut !== '0') {
+              actualAmountOut = BigInt(freshRoute.raw.amountOut);
+              // Update route with fresh quote data
+              route.raw = { ...route.raw, ...freshRoute.raw };
+              console.log('[EVM DEX] Using fresh quote as fallback:', actualAmountOut.toString());
+            } else {
+              throw new Error('Unable to get valid quote. The swap path may be invalid.');
+            }
+          } catch (freshError: any) {
+            const freshErrorMsg = freshError?.message || freshError?.toString() || '';
+            console.warn('[EVM DEX] Fresh quote fallback failed:', freshErrorMsg);
+            // Continue with existing fallback (route.raw.amountOut or conservative estimate)
+            if (!actualAmountOut || actualAmountOut === BigInt(0)) {
+              throw new SwapExecutionError(
+                'Unable to verify swap path. One or more pairs in the path may not exist or have insufficient reserves.',
+                SwapErrorCode.INVALID_ROUTE
+              );
+            }
+          }
+        }
+      }
+
+      // ✅ EXACTLY match tiwi-test: Check if pairs need to be created (lines 2070-2074)
+      // Simple swap - no automatic pair creation or liquidity addition
+      // If pairs don't exist, just fail with a clear error
+      if (route.raw?.needsPairCreation && route.raw?.missingPairs && route.raw.missingPairs.length > 0) {
+        throw new SwapExecutionError(
+          'Trading pair does not exist on PancakeSwap. Please create the pair and add liquidity first, or use a different token pair.',
+          SwapErrorCode.INVALID_ROUTE
+        );
       }
 
       // Ensure we have a valid amountOut
@@ -342,17 +397,62 @@ export abstract class EVMDEXExecutor {
         }
         console.warn('[EVM DEX] Using fallback estimate for amountOut:', actualAmountOut.toString());
       }
+      
+      // ✅ EXACTLY match tiwi-test: Validate swap path exists (only if getAmountsOut failed)
+      // Lines 2286-2300 in tiwi-test: Only validate manually if getAmountsOut failed
+      // If getAmountsOut succeeded above, the path is already validated by the router
+      if (!actualAmountOut || actualAmountOut === BigInt(0) || actualAmountOut === BigInt(amountInSmallestUnit) / BigInt(1000)) {
+        // Only validate if we're using a fallback (conservative estimate)
+        // This means getAmountsOut failed, so we need to manually validate
+        try {
+          onStatusUpdate?.({
+            stage: 'preparing',
+            message: 'Validating swap path...',
+          });
+          
+          const { verifySwapPath } = await import('@/lib/backend/utils/pancakeswap-pairs');
+          const pathValidation = await verifySwapPath(
+            path.map((addr: string) => getAddress(addr) as Address),
+            chainId
+          );
+          
+          if (!pathValidation.valid) {
+            const missingPairsStr = pathValidation.missingPairs
+              .map(p => `${p.tokenA.slice(0, 6)}...${p.tokenA.slice(-4)} → ${p.tokenB.slice(0, 6)}...${p.tokenB.slice(-4)}`)
+              .join(', ');
+            throw new SwapExecutionError(
+              `Swap path is invalid. Missing pairs: ${missingPairsStr}. Please use a different token pair.`,
+              SwapErrorCode.INVALID_ROUTE
+            );
+          }
+        } catch (pathError: any) {
+          // If path validation fails, log but don't block if we have a valid amountOut from router
+          if (actualAmountOut && actualAmountOut > BigInt(0) && actualAmountOut !== BigInt(amountInSmallestUnit) / BigInt(1000)) {
+            console.warn('[EVM DEX] Path validation failed but router validated path - proceeding:', pathError);
+          } else {
+            throw pathError;
+          }
+        }
+      } else {
+        // Router's getAmountsOut succeeded, so path is valid - skip manual validation
+        console.log('[EVM DEX] Router validated path successfully, skipping manual validation');
+      }
 
       // ✅ EXACTLY match tiwi-test: Calculate dynamic slippage based on price impact, multi-hop, fee-on-transfer
       const isMultiHop = path.length > 2;
       const priceImpact = parseFloat(route.priceImpact || '0');
       const isLowLiquidity = priceImpact > 5 || isMultiHop;
       const isFeeOnTransfer = route.raw?.isFeeOnTransfer || false;
-
       let slippagePercent = parseFloat(route.slippage || '0.5');
 
-      // Calculate dynamic slippage (matching tiwi-test logic)
-      if (!route.slippage || route.slippage === '0.5') {
+      // ✅ EXACTLY match tiwi-test: Use recommended slippage from quote if available
+      // Line 2358 in tiwi-test: if (pancakeSwapQuote.slippage) { slippagePercent = pancakeSwapQuote.slippage; }
+      if (route.slippage && route.slippage !== '0.5') {
+        // Use recommended slippage from quote
+        slippagePercent = parseFloat(route.slippage);
+        console.log('[EVM DEX] Using quote recommended slippage:', slippagePercent);
+      } else {
+        // Calculate dynamic slippage (matching tiwi-test logic)
         // For low-cap/low-liquidity pairs, start with minimum 3% slippage
         if (isLowLiquidity) {
           slippagePercent = 3; // Minimum 3% for low-cap pairs
@@ -372,7 +472,7 @@ export abstract class EVMDEXExecutor {
         }
 
         // Add for fee-on-transfer tokens
-        if (isFeeOnTransfer) {
+        if (route.raw?.isFeeOnTransfer) {
           slippagePercent += 15;
         }
 
@@ -393,7 +493,7 @@ export abstract class EVMDEXExecutor {
         priceImpact,
         isLowLiquidity,
         isMultiHop,
-        isFeeOnTransfer
+        isFeeOnTransfer: route.raw?.isFeeOnTransfer || false
       });
 
       const slippageMultiplier = BigInt(Math.floor((100 - slippagePercent) * 100));
@@ -432,30 +532,17 @@ export abstract class EVMDEXExecutor {
         }
       }
 
-      // ✅ EXACTLY match tiwi-test: Apply final rounding to ensure we don't have precision issues
-      // Round down significantly to avoid any rounding errors
+      // Apply final rounding to ensure we don't have precision issues
       if (amountOutMin > BigInt(1000)) {
         amountOutMin = (amountOutMin / BigInt(1000)) * BigInt(1000);
       } else if (amountOutMin > BigInt(100)) {
         amountOutMin = (amountOutMin / BigInt(100)) * BigInt(100);
       }
-      
-      // ✅ ADDITIONAL SAFETY: Apply one more round of rounding for price movement buffer
-      // This accounts for price movement between getAmountsOut and transaction execution
-      // Round down by an additional 0.5% to be extra safe (prevents INSUFFICIENT_OUTPUT_AMOUNT)
-      const priceMovementBuffer = BigInt(995); // 99.5% = 0.5% buffer
-      amountOutMin = (amountOutMin * priceMovementBuffer) / BigInt(1000);
-      
-      // Ensure minimum is at least 1 wei (router requirement)
-      if (amountOutMin === BigInt(0)) {
-        amountOutMin = BigInt(1);
-      }
 
-      console.log('[EVM DEX] Final slippage calculation (with price movement buffer):', {
+      console.log('[EVM DEX] Final slippage calculation:', {
         actualAmountOut: actualAmountOut.toString(),
         amountOutMin: amountOutMin.toString(),
         slippage: `${slippagePercent}%`,
-        priceMovementBuffer: '0.5%',
         isMultiHop,
         pathLength: path.length,
         path: path.map((addr: string) => `${addr.slice(0, 6)}...${addr.slice(-4)}`).join(' -> ')
@@ -463,12 +550,16 @@ export abstract class EVMDEXExecutor {
 
       // Build swap transaction
       const deadline = Math.floor(Date.now() / 1000) + 60 * 20; // 20 minutes
+      // ✅ EXACTLY match tiwi-test: Always use fee-on-transfer supporting functions for safety
+      // This matches PancakeSwap UI behavior - always use supporting functions unless explicitly disabled
+      // Line 2597 in tiwi-test: const swapData = getPancakeSwapV2SwapData(..., true)
       const swapData = this.buildSwapData(
         route,
         amountInSmallestUnit,
         amountOutMin.toString(),
         recipient,
-        deadline
+        deadline,
+        true // ✅ Always use fee-on-transfer supporting functions (matches tiwi-test)
       );
 
       // Simulate swap on-chain before execution (prevents wallet warnings)

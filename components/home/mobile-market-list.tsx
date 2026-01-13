@@ -1,5 +1,12 @@
+"use client";
+
+import { useState, useEffect } from "react";
 import Image from "next/image";
 import { TABLE_TOKENS } from "@/lib/home/mock-data";
+import { TokenImage } from "@/components/home/token-image";
+import { formatTokenForHomepage, type HomepageToken } from "@/lib/home/token-formatter";
+import { fetchTokens } from "@/lib/frontend/api/tokens";
+import type { Token } from "@/lib/frontend/types/tokens";
 
 type TabKey = "Favourite" | "Top" | "Spotlight" | "New" | "Gainers" | "Losers";
 
@@ -17,8 +24,76 @@ interface MobileMarketListProps {
  * - Each row shows: token icon, pair name, leverage, volume, price, change
  */
 export function MobileMarketList({ activeTab, onTabChange }: MobileMarketListProps) {
+  const [tokens, setTokens] = useState<HomepageToken[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Fetch tokens based on active tab
+  useEffect(() => {
+    const loadTokens = async () => {
+      setIsLoading(true);
+      try {
+        let fetchedTokens: Token[] = [];
+        
+        // Map tab to category (Top = Hot, Spotlight = Hot for now)
+        const categoryMap: Record<TabKey, string | undefined> = {
+          'Top': 'hot',
+          'Hot': 'hot',
+          'New': 'new',
+          'Gainers': 'gainers',
+          'Losers': 'losers',
+          'Favourite': undefined,
+          'Spotlight': 'hot', // Spotlight uses hot tokens for now
+        };
+
+        const category = categoryMap[activeTab];
+        
+        if (category) {
+          // Fetch by category
+          const url = new URL('/api/v1/tokens', window.location.origin);
+          url.searchParams.set('category', category);
+          url.searchParams.set('limit', '5'); // Only 5 for mobile
+          
+          const response = await fetch(url.toString());
+          if (response.ok) {
+            const data = await response.json();
+            fetchedTokens = data.tokens || [];
+          }
+        } else if (activeTab === 'Favourite') {
+          // For favourites, fetch all tokens
+          fetchedTokens = await fetchTokens({ limit: 5 });
+        } else {
+          // Default: fetch hot tokens
+          const url = new URL('/api/v1/tokens', window.location.origin);
+          url.searchParams.set('category', 'hot');
+          url.searchParams.set('limit', '5');
+          
+          const response = await fetch(url.toString());
+          if (response.ok) {
+            const data = await response.json();
+            fetchedTokens = data.tokens || [];
+          }
+        }
+
+        // Format tokens for homepage
+        const formattedTokens = fetchedTokens.map(formatTokenForHomepage);
+        setTokens(formattedTokens);
+      } catch (error) {
+        console.error('[MobileMarketList] Error fetching tokens:', error);
+        // Fallback to mock data on error
+        setTokens(TABLE_TOKENS.slice(0, 5).map(t => ({
+          ...t,
+          token: {} as Token,
+        })));
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadTokens();
+  }, [activeTab]);
+
   // Show first 5 tokens for mobile
-  const displayTokens = TABLE_TOKENS.slice(0, 5);
+  const displayTokens = tokens.slice(0, 5);
 
   return (
     <div className="w-full flex flex-col gap-2">
@@ -51,17 +126,27 @@ export function MobileMarketList({ activeTab, onTabChange }: MobileMarketListPro
 
       {/* Market Rows */}
       <div className="flex flex-col items-start w-full">
-        {displayTokens.map((token) => (
+        {isLoading ? (
+          <div className="w-full py-8 text-center text-[#b5b5b5] text-sm">
+            Loading tokens...
+          </div>
+        ) : displayTokens.length === 0 ? (
+          <div className="w-full py-8 text-center text-[#b5b5b5] text-sm">
+            No tokens found
+          </div>
+        ) : (
+          displayTokens.map((token) => (
           <div
             key={token.symbol}
             className="flex items-center overflow-hidden w-full hover:bg-[#121712] transition-colors p-2 cursor-pointer rounded-2xl"
           >
             <div className="flex flex-[1_0_0] gap-2.5 items-center min-w-0 min-h-0">
-              <Image
+              <TokenImage
                 src={token.icon}
                 alt={token.symbol}
                 width={32}
                 height={32}
+                symbol={token.symbol}
                 className="w-8 h-8 shrink-0"
               />
               <div className="flex flex-[1_0_0] flex-col items-start justify-center min-w-0 min-h-0">
@@ -90,7 +175,8 @@ export function MobileMarketList({ activeTab, onTabChange }: MobileMarketListPro
               </div>
             </div>
           </div>
-        ))}
+          ))
+        )}
       </div>
 
       {/* View All Button */}
