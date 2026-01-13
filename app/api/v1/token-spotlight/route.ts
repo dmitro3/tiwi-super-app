@@ -17,6 +17,7 @@ export interface SpotlightToken {
   symbol: string;
   name?: string;
   address?: string;
+  logo?: string;
   rank: number;
   startDate: string;
   endDate: string;
@@ -33,6 +34,7 @@ export interface CreateSpotlightTokenRequest {
   symbol: string;
   name?: string;
   address?: string;
+  logo?: string;
   rank: number;
   startDate: string;
   endDate: string;
@@ -43,6 +45,7 @@ export interface UpdateSpotlightTokenRequest {
   symbol?: string;
   name?: string;
   address?: string;
+  logo?: string;
   rank?: number;
   startDate?: string;
   endDate?: string;
@@ -90,6 +93,7 @@ export async function GET(req: NextRequest) {
       symbol: row.symbol,
       name: row.name || undefined,
       address: row.address || undefined,
+      logo: row.logo || undefined,
       rank: row.rank,
       startDate: row.start_date,
       endDate: row.end_date,
@@ -117,6 +121,78 @@ export async function GET(req: NextRequest) {
 }
 
 // ============================================================================
+// Helper: Get next available rank for a date range
+// ============================================================================
+
+async function getNextAvailableRank(
+  startDate: string,
+  endDate: string,
+  excludeId?: string
+): Promise<number> {
+  // Find all tokens with overlapping date ranges
+  // Overlap condition: start_date <= endDate AND end_date >= startDate
+  const { data: overlappingTokens } = await supabase
+    .from('token_spotlight')
+    .select('id, rank')
+    .lte('start_date', endDate)
+    .gte('end_date', startDate)
+    .order('rank', { ascending: true });
+  
+  if (!overlappingTokens || overlappingTokens.length === 0) {
+    return 1; // No conflicts, start at rank 1
+  }
+  
+  // Exclude current token if updating
+  const ranks = overlappingTokens
+    .filter((t) => !excludeId || t.id !== excludeId)
+    .map((t) => t.rank)
+    .sort((a, b) => a - b);
+  
+  // Find the first available rank
+  let nextRank = 1;
+  for (const rank of ranks) {
+    if (rank === nextRank) {
+      nextRank++;
+    } else {
+      break;
+    }
+  }
+  
+  return nextRank;
+}
+
+// ============================================================================
+// Helper: Check if rank is taken in date range
+// ============================================================================
+
+async function isRankTaken(
+  rank: number,
+  startDate: string,
+  endDate: string,
+  excludeId?: string
+): Promise<boolean> {
+  // Find tokens with same rank and overlapping date ranges
+  const { data } = await supabase
+    .from('token_spotlight')
+    .select('id')
+    .eq('rank', rank)
+    .lte('start_date', endDate)
+    .gte('end_date', startDate)
+    .limit(1);
+  
+  if (!data || data.length === 0) {
+    return false;
+  }
+  
+  // If updating, exclude current token
+  if (excludeId) {
+    return data.some((t) => t.id !== excludeId);
+  }
+  
+  return true;
+}
+
+// ============================================================================
 // POST Handler - Create spotlight token
 // ============================================================================
 
@@ -124,9 +200,9 @@ export async function POST(req: NextRequest) {
   try {
     const body: CreateSpotlightTokenRequest = await req.json();
     
-    if (!body.symbol || !body.rank || !body.startDate || !body.endDate) {
+    if (!body.symbol || !body.startDate || !body.endDate) {
       return NextResponse.json(
-        { error: 'Symbol, rank, startDate, and endDate are required' },
+        { error: 'Symbol, startDate, and endDate are required' },
         { status: 400 }
       );
     }
@@ -142,11 +218,17 @@ export async function POST(req: NextRequest) {
       );
     }
     
-    if (body.rank < 1) {
-      return NextResponse.json(
-        { error: 'Rank must be at least 1' },
-        { status: 400 }
-      );
+    // Auto-assign rank if not provided or invalid
+    let finalRank = body.rank;
+    if (!finalRank || finalRank < 1) {
+      finalRank = await getNextAvailableRank(body.startDate, body.endDate);
+    } else {
+      // Check if rank is already taken in this date range
+      const rankTaken = await isRankTaken(finalRank, body.startDate, body.endDate);
+      if (rankTaken) {
+        // Auto-assign next available rank
+        finalRank = await getNextAvailableRank(body.startDate, body.endDate);
+      }
     }
     
     // Insert into database
@@ -156,7 +238,8 @@ export async function POST(req: NextRequest) {
         symbol: body.symbol,
         name: body.name || null,
         address: body.address || null,
-        rank: body.rank,
+        logo: body.logo || null,
+        rank: finalRank,
         start_date: body.startDate,
         end_date: body.endDate,
       })
@@ -183,6 +266,7 @@ export async function POST(req: NextRequest) {
       symbol: data.symbol,
       name: data.name || undefined,
       address: data.address || undefined,
+      logo: data.logo || undefined,
       rank: data.rank,
       startDate: data.start_date,
       endDate: data.end_date,
@@ -245,23 +329,34 @@ export async function PATCH(req: NextRequest) {
       }
     }
     
-    // Validate rank if provided
-    if (body.rank !== undefined && body.rank < 1) {
-      return NextResponse.json(
-        { error: 'Rank must be at least 1' },
-        { status: 400 }
-      );
+    // Determine date range for rank checking
+    const startDate = body.startDate || existing.start_date;
+    const endDate = body.endDate || existing.end_date;
+    
+    // Auto-assign rank if not provided, invalid, or taken
+    let finalRank = body.rank !== undefined ? body.rank : existing.rank;
+    if (!finalRank || finalRank < 1) {
+      // Rank not set or invalid - auto-assign
+      finalRank = await getNextAvailableRank(startDate, endDate, body.id);
+    } else if (body.rank !== undefined && body.rank !== existing.rank) {
+      // Rank changed - check if new rank is taken
+      const rankTaken = await isRankTaken(finalRank, startDate, endDate, body.id);
+      if (rankTaken) {
+        // Auto-assign next available rank
+        finalRank = await getNextAvailableRank(startDate, endDate, body.id);
+      }
     }
     
     // Build update object
     const updateData: any = {
       updated_at: new Date().toISOString(),
+      rank: finalRank, // Always update rank (may be auto-assigned)
     };
     
     if (body.symbol) updateData.symbol = body.symbol;
     if (body.name !== undefined) updateData.name = body.name || null;
     if (body.address !== undefined) updateData.address = body.address || null;
-    if (body.rank !== undefined) updateData.rank = body.rank;
+    if (body.logo !== undefined) updateData.logo = body.logo || null;
     if (body.startDate) updateData.start_date = body.startDate;
     if (body.endDate) updateData.end_date = body.endDate;
     
@@ -293,6 +388,7 @@ export async function PATCH(req: NextRequest) {
       symbol: data.symbol,
       name: data.name || undefined,
       address: data.address || undefined,
+      logo: data.logo || undefined,
       rank: data.rank,
       startDate: data.start_date,
       endDate: data.end_date,
