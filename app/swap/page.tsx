@@ -25,6 +25,8 @@ import { useTokenBalance } from "@/hooks/useTokenBalance";
 import { useSettingsStore } from "@/lib/frontend/store/settings-store";
 import { useSwapExecution } from "@/hooks/useSwapExecution";
 import TransactionToast from "@/components/earn/transaction-toast";
+import SwapStatusToast from "@/components/swap/swap-status-toast";
+import type { SwapStage } from "@/lib/frontend/services/swap-executor/types";
 
 // Default tokens (ensure chainId/address/logo for routing + display)
 export const DEFAULT_FROM_TOKEN: Token = {
@@ -227,7 +229,14 @@ export default function SwapPage() {
   // Default to primary wallet address if available
   const [recipientAddress, setRecipientAddress] = useState<string | null>(connectedAddress);
   const [isExecutingTransfer, setIsExecutingTransfer] = useState(false);
-  const [transferStatus, setTransferStatus] = useState<string>("");
+  // Toast state for swap status
+  const [toastState, setToastState] = useState<{
+    open: boolean;
+    stage: SwapStage;
+    message: string;
+    txHash?: string;
+    chainId?: number;
+  } | null>(null);
 
     // Swap execution hook
     const {
@@ -237,20 +246,36 @@ export default function SwapPage() {
       error: swapError,
       reset: resetSwapExecution,
     } = useSwapExecution();
-  
 
-  // Sync swap execution status with transfer status for UI
+  // Sync swap execution status with toast system
   useEffect(() => {
     if (swapStatus) {
-      setTransferStatus(swapStatus.message);
+      setToastState({
+        open: true,
+        stage: swapStatus.stage,
+        message: swapStatus.message,
+        txHash: swapStatus.txHash,
+        chainId: fromToken?.chainId,
+      });
+
+      // On success, clear amounts and show success toast with explorer link
+      if (swapStatus.stage === 'completed') {
+        // Clear amounts
+        setFromAmount('');
+        setToAmount('');
+      }
     }
-  }, [swapStatus]);
+  }, [swapStatus, fromToken?.chainId, setFromAmount, setToAmount]);
 
   // Handle swap execution errors
   useEffect(() => {
     if (swapError) {
       const errorMessage = swapError.message || "Swap failed. Please try again.";
-      setTransferStatus(`Error: ${errorMessage}`);
+      setToastState({
+        open: true,
+        stage: 'failed',
+        message: errorMessage,
+      });
     }
   }, [swapError]);
   const prevConnectedAddressRef = useRef<string | null>(connectedAddress);
@@ -319,19 +344,31 @@ export default function SwapPage() {
   const executeSwapTransaction = async () => {
     // Validate prerequisites
     if (!fromToken || !toToken || !fromAmount || !connectedAddress) {
-      setTransferStatus("Please select tokens and enter an amount");
+      setToastState({
+        open: true,
+        stage: 'failed',
+        message: "Please select tokens and enter an amount",
+      });
       return;
     }
 
     if (!route) {
-      setTransferStatus("Please wait for quote to load");
+      setToastState({
+        open: true,
+        stage: 'failed',
+        message: "Please wait for quote to load",
+      });
       return;
     }
 
     // Validate route hasn't expired
     const now = Math.floor(Date.now() / 1000);
     if (route.expiresAt && now >= route.expiresAt) {
-      setTransferStatus("Quote has expired. Please get a new quote.");
+      setToastState({
+        open: true,
+        stage: 'failed',
+        message: "Quote has expired. Please get a new quote.",
+      });
       // Optionally trigger a new quote fetch here
       return;
     }
@@ -339,13 +376,16 @@ export default function SwapPage() {
     // Validate fromAmount is greater than 0
     const fromAmountNum = parseNumber(fromAmount);
     if (fromAmountNum <= 0) {
-      setTransferStatus("Please enter a valid amount");
+      setToastState({
+        open: true,
+        stage: 'failed',
+        message: "Please enter a valid amount",
+      });
       return;
     }
 
     try {
       setIsExecutingTransfer(true);
-      setTransferStatus("Preparing swap...");
 
       // Execute swap using the swap executor
       const result = await executeSwap({
@@ -358,16 +398,8 @@ export default function SwapPage() {
         isFeeOnTransfer: true,
       });
 
-      // Success - update status with transaction hash
-      const txHash = result.txHash;
-      const shortHash = `${txHash.slice(0, 6)}...${txHash.slice(-4)}`;
-      setTransferStatus(`Swap successful! Transaction: ${shortHash}`);
-
-      // Show success message for a few seconds, then clear
-      setTimeout(() => {
-        setTransferStatus("");
-      }, 5000);
-
+      // Success - toast will be shown via swapStatus effect
+      // Amounts will be cleared via swapStatus effect
       // Note: Balances will automatically refresh via useTokenBalance hook
       // The hook watches for changes and will refetch when needed
     } catch (error: any) {
@@ -381,12 +413,11 @@ export default function SwapPage() {
         errorMessage = error;
       }
 
-      setTransferStatus(`Error: ${errorMessage}`);
-      
-      // Clear error message after 10 seconds
-      setTimeout(() => {
-        setTransferStatus("");
-      }, 10000);
+      setToastState({
+        open: true,
+        stage: 'failed',
+        message: errorMessage,
+      });
     } finally {
       setIsExecutingTransfer(false);
     }
@@ -398,7 +429,11 @@ export default function SwapPage() {
     }
 
     setIsExecutingTransfer(true);
-    setTransferStatus("Preparing transfer...");
+    setToastState({
+      open: true,
+      stage: 'preparing',
+      message: "Preparing transfer...",
+    });
 
     try {
       const chainId = fromToken.chainId;
@@ -413,7 +448,11 @@ export default function SwapPage() {
       }
     } catch (error: any) {
       console.error("Error executing transfer:", error);
-      setTransferStatus(`Error: ${error.message || "Transfer failed"}`);
+      setToastState({
+        open: true,
+        stage: 'failed',
+        message: error.message || "Transfer failed",
+      });
     } finally {
       setIsExecutingTransfer(false);
     }
@@ -426,7 +465,11 @@ export default function SwapPage() {
       throw new Error("Token decimals not available");
     }
 
-    setTransferStatus("Preparing Solana transfer...");
+    setToastState({
+      open: true,
+      stage: 'preparing',
+      message: "Preparing Solana transfer...",
+    });
 
     const { getSolanaWallet } = await import("@/lib/wallet/utils/solana");
     const { transferSOL, transferSPLToken, toSmallestUnit, NATIVE_SOL_MINT } = await import("@/lib/wallet/utils/transfer");
@@ -441,13 +484,61 @@ export default function SwapPage() {
                        fromToken.address.toLowerCase() === NATIVE_SOL_MINT.toLowerCase();
 
     if (isNativeSOL) {
-      setTransferStatus("Sending SOL...");
+      setToastState({
+        open: true,
+        stage: 'signing',
+        message: "Sending SOL...",
+      });
       const signature = await transferSOL(solanaWallet, recipientAddress, amountForTransfer);
-      setTransferStatus(`Transfer successful! Signature: ${signature}`);
+      
+      setToastState({
+        open: true,
+        stage: 'confirming',
+        message: "Waiting for confirmation...",
+      });
+      
+      // Wait a bit for confirmation
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      setToastState({
+        open: true,
+        stage: 'completed',
+        message: `Transfer successful! Signature: ${signature.slice(0, 8)}...${signature.slice(-8)}`,
+        txHash: signature,
+        chainId: fromToken.chainId,
+      });
+      
+      // Clear amounts on success
+      setFromAmount('');
+      setToAmount('');
     } else {
-      setTransferStatus("Sending SPL token...");
+      setToastState({
+        open: true,
+        stage: 'signing',
+        message: "Sending SPL token...",
+      });
       const signature = await transferSPLToken(solanaWallet, fromToken.address, recipientAddress, amountForTransfer);
-      setTransferStatus(`Transfer successful! Signature: ${signature}`);
+      
+      setToastState({
+        open: true,
+        stage: 'confirming',
+        message: "Waiting for confirmation...",
+      });
+      
+      // Wait a bit for confirmation
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      setToastState({
+        open: true,
+        stage: 'completed',
+        message: `Transfer successful! Signature: ${signature.slice(0, 8)}...${signature.slice(-8)}`,
+        txHash: signature,
+        chainId: fromToken.chainId,
+      });
+      
+      // Clear amounts on success
+      setFromAmount('');
+      setToAmount('');
     }
   };
 
@@ -462,7 +553,11 @@ export default function SwapPage() {
       throw new Error("Token decimals not available");
     }
 
-    setTransferStatus("Preparing EVM transfer...");
+    setToastState({
+      open: true,
+      stage: 'preparing',
+      message: "Preparing EVM transfer...",
+    });
 
     // Get wallet client - this will need to be implemented based on your wsallet connection setup
     // For now, we'll use a placeholder that needs to be connected to your actual wallet system
@@ -500,10 +595,18 @@ export default function SwapPage() {
     const amountForTransfer = BigInt(toSmallestUnit(fromAmount, fromToken.decimals));
 
     if (isNativeToken(fromToken.address)) {
-      setTransferStatus("Sending native token...");
+      setToastState({
+        open: true,
+        stage: 'signing',
+        message: "Sending native token...",
+      });
       const hash = await transferNativeToken(walletClient, recipientAddress, amountForTransfer);
       
-      setTransferStatus("Waiting for confirmation...");
+      setToastState({
+        open: true,
+        stage: 'confirming',
+        message: "Waiting for confirmation...",
+      });
       const publicClient = getPublicClient(fromToken.chainId);
       const receipt = await publicClient.waitForTransactionReceipt({ 
         hash: hash as `0x${string}`,
@@ -514,12 +617,30 @@ export default function SwapPage() {
         throw new Error("Transfer reverted");
       }
       
-      setTransferStatus(`Transfer successful! Hash: ${hash}`);
+      setToastState({
+        open: true,
+        stage: 'completed',
+        message: `Transfer successful! Transaction: ${hash.slice(0, 6)}...${hash.slice(-4)}`,
+        txHash: hash,
+        chainId: fromToken.chainId,
+      });
+      
+      // Clear amounts on success
+      setFromAmount('');
+      setToAmount('');
     } else {
-      setTransferStatus("Preparing ERC20 transfer...");
+      setToastState({
+        open: true,
+        stage: 'preparing',
+        message: "Preparing ERC20 transfer...",
+      });
       const hash = await transferERC20Token(walletClient, fromToken.address, recipientAddress, amountForTransfer);
       
-      setTransferStatus("Waiting for confirmation...");
+      setToastState({
+        open: true,
+        stage: 'confirming',
+        message: "Waiting for confirmation...",
+      });
       const publicClient = getPublicClient(fromToken.chainId);
       const receipt = await publicClient.waitForTransactionReceipt({ 
         hash: hash as `0x${string}`,
@@ -530,7 +651,17 @@ export default function SwapPage() {
         throw new Error("Transfer reverted");
       }
       
-      setTransferStatus(`Transfer successful! Hash: ${hash}`);
+      setToastState({
+        open: true,
+        stage: 'completed',
+        message: `Transfer successful! Transaction: ${hash.slice(0, 6)}...${hash.slice(-4)}`,
+        txHash: hash,
+        chainId: fromToken.chainId,
+      });
+      
+      // Clear amounts on success
+      setFromAmount('');
+      setToAmount('');
     }
   };
 
@@ -697,7 +828,6 @@ export default function SwapPage() {
               onConnectClick={handleConnectClick}
               isConnected={!!connectedAddress}
               isExecutingTransfer={isExecutingTransfer || isExecutingSwap}
-              transferStatus={transferStatus || swapStatus?.message || ""}
             />
           </div>
         </div>
@@ -741,6 +871,24 @@ export default function SwapPage() {
           open={isErrorToastOpen}
           onOpenChange={setIsErrorToastOpen}
           duration={10000} // 10 seconds for routing errors
+        />
+      )}
+
+      {/* Swap Status Toast */}
+      {toastState && (
+        <SwapStatusToast
+          open={toastState.open}
+          onOpenChange={(open) => {
+            if (!open) {
+              setToastState(null);
+            } else {
+              setToastState({ ...toastState, open });
+            }
+          }}
+          stage={toastState.stage}
+          message={toastState.message}
+          txHash={toastState.txHash}
+          chainId={toastState.chainId}
         />
       )}
     </div>

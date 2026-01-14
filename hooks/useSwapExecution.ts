@@ -43,6 +43,7 @@ export function useSwapExecution(): UseSwapExecutionReturn {
   const [error, setError] = useState<Error | null>(null);
 
   const execute = useCallback(async (params: ExecuteSwapParams): Promise<SwapExecutionResult> => {
+    console.log("🚀 ~ useSwapExecution ~ params:", params)
     setIsExecuting(true);
     setStatus(null);
     setResult(null);
@@ -58,7 +59,7 @@ export function useSwapExecution(): UseSwapExecutionReturn {
         recipientAddress: params.recipientAddress,
         slippage: params.slippage,
         isFeeOnTransfer: params.isFeeOnTransfer,
-        onStatusUpdate: (newStatus) => {
+        onStatusUpdate: (newStatus: any) => {
           setStatus(newStatus);
         },
       };

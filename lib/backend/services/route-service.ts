@@ -44,6 +44,7 @@ export class RouteService {
    * If slippageMode is 'fixed', uses user's specified slippage.
    */
   async getRoute(request: RouteRequest): Promise<RouteResponse> {
+    console.log("🚀 ~ RouteService ~ getRoute ~ request:THIS IS THE REQUEST TO FIND OUT WHAT'S THE SLIPPAGE MODE", request)
     // 1. Validate request
     this.validateRequest(request);
 

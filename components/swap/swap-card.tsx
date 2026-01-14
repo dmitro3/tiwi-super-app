@@ -51,7 +51,6 @@ interface SwapCardProps {
   onConnectClick?: () => void;
   isConnected?: boolean;
   isExecutingTransfer?: boolean;
-  transferStatus?: string;
 }
 
 export default function SwapCard({
@@ -84,7 +83,6 @@ export default function SwapCard({
   onConnectClick,
   isConnected = false,
   isExecutingTransfer = false,
-  transferStatus = "",
 }: SwapCardProps) {
   const isLimit = activeTab === "limit";
 
@@ -230,13 +228,6 @@ export default function SwapCard({
               }`}
             />
           </button>
-
-          {/* Transfer Status */}
-          {transferStatus && (
-            <div className="p-4 bg-[#0b0f0a] border border-[#1f261e] rounded-lg mt-3">
-              <p className="text-sm text-[#b5b5b5]">{transferStatus}</p>
-            </div>
-          )}
 
           {/* Primary CTA Button */}
           <SwapActionButton

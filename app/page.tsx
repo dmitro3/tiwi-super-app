@@ -22,6 +22,8 @@ export default function HomePage() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>("Hot");
   const [activeMobileTab, setActiveMobileTab] = useState<MobileTabKey>("Top");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [sortBy, setSortBy] = useState<'volume' | 'liquidity' | 'performance' | 'none'>('none');
 
   return (
     <div className="bg-[#010501] text-white flex flex-col" style={{ height: '110vh', overflow: 'hidden' }}>
@@ -34,11 +36,11 @@ export default function HomePage() {
 
           <div className="flex items-center justify-between shrink-0 gap-3 lg:gap-4 xl:gap-4">
             <TabBar active={activeTab} onChange={setActiveTab} />
-            <SearchBar />
+            <SearchBar value={searchQuery} onChange={setSearchQuery} />
           </div>
 
           <div className="flex-1 border border-[#1f261e] rounded-xl overflow-hidden flex flex-col min-h-0">
-            <MarketTable activeTab={activeTab} />
+            <MarketTable activeTab={activeTab} searchQuery={searchQuery} sortBy={sortBy} onSortChange={setSortBy} />
           </div>
         </main>
 
