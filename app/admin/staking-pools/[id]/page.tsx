@@ -6,30 +6,148 @@ import AdminLayout from "@/components/admin/admin-layout";
 import EditPoolModal from "@/components/admin/edit-pool-modal";
 import DeactivatePoolModal from "@/components/admin/deactivate-pool-modal";
 
+interface StakingPool {
+  id: string;
+  chainId: number;
+  chainName: string;
+  tokenAddress: string;
+  tokenSymbol?: string;
+  tokenName?: string;
+  tokenLogo?: string;
+  minStakingPeriod?: string;
+  minStakeAmount: number;
+  maxStakeAmount?: number;
+  stakeModificationFee: boolean;
+  timeBoost: boolean;
+  country?: string;
+  stakePoolCreationFee: number;
+  rewardPoolCreationFee?: string;
+  apy?: number;
+  status: 'active' | 'inactive' | 'archived';
+  createdAt: string;
+  updatedAt: string;
+}
+
 export default function PoolDetailsPage() {
   const router = useRouter();
   const params = useParams();
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isDeactivateModalOpen, setIsDeactivateModalOpen] = useState(false);
+  const [poolData, setPoolData] = useState<StakingPool | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
   
   const poolId = params?.id as string || "";
 
-  // Mock pool data - in real app, fetch from API
-  const poolData = {
-    id: poolId || "1",
-    chain: "Ethereum",
-    chainId: 1,
-    tokenAddress: "0x1234567890123456789012345678901234567890",
-    tokenSymbol: "ETH",
-    minStakingPeriod: "30 days",
-    minStakeAmount: "0.1",
-    maxStakeAmount: "1000.0",
-    stakeModificationFee: true,
-    timeBoost: false,
-    country: "United States",
-    stakePoolCreationFee: "0.15",
-    rewardPoolCreationFee: "5%",
+  // Fetch pool data from API
+  useEffect(() => {
+    const fetchPoolData = async () => {
+      if (!poolId) return;
+      
+      setIsLoading(true);
+      try {
+        const response = await fetch("/api/v1/staking-pools");
+        if (response.ok) {
+          const data = await response.json();
+          const pool = data.pools.find((p: StakingPool) => p.id === poolId);
+          if (pool) {
+            setPoolData(pool);
+          } else {
+            console.error("Pool not found");
+            router.push("/admin/staking-pools");
+          }
+        } else {
+          console.error("Error fetching pool data:", response.statusText);
+          router.push("/admin/staking-pools");
+        }
+      } catch (error) {
+        console.error("Error fetching pool data:", error);
+        router.push("/admin/staking-pools");
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchPoolData();
+  }, [poolId, router]);
+
+  // Listen for pool updates
+  useEffect(() => {
+    const handlePoolUpdate = async () => {
+      if (!poolId) return;
+      
+      try {
+        const response = await fetch("/api/v1/staking-pools");
+        if (response.ok) {
+          const data = await response.json();
+          const pool = data.pools.find((p: StakingPool) => p.id === poolId);
+          if (pool) {
+            setPoolData(pool);
+          }
+        }
+      } catch (error) {
+        console.error("Error refreshing pool data:", error);
+      }
+    };
+
+    window.addEventListener("stakingPoolUpdated", handlePoolUpdate);
+    return () => {
+      window.removeEventListener("stakingPoolUpdated", handlePoolUpdate);
+    };
+  }, [poolId]);
+
+  const handleDeactivate = async () => {
+    if (!poolData) return;
+
+    try {
+      const response = await fetch("/api/v1/staking-pools", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          id: poolData.id,
+          status: "inactive",
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || "Failed to deactivate pool");
+      }
+
+      // Refresh pool data
+      window.dispatchEvent(new Event("stakingPoolUpdated"));
+      setIsDeactivateModalOpen(false);
+      router.push("/admin/staking-pools");
+    } catch (error: any) {
+      console.error("Error deactivating pool:", error);
+      alert(error.message || "Failed to deactivate pool. Please try again.");
+    }
   };
+
+  if (isLoading) {
+    return (
+      <AdminLayout activeNavItem="staking-pools">
+        <main className="flex-1 overflow-y-auto p-4 lg:p-6">
+          <div className="text-center py-12">
+            <p className="text-[#b5b5b5]">Loading pool details...</p>
+          </div>
+        </main>
+      </AdminLayout>
+    );
+  }
+
+  if (!poolData) {
+    return (
+      <AdminLayout activeNavItem="staking-pools">
+        <main className="flex-1 overflow-y-auto p-4 lg:p-6">
+          <div className="text-center py-12">
+            <p className="text-[#b5b5b5]">Pool not found</p>
+          </div>
+        </main>
+      </AdminLayout>
+    );
+  }
 
   return (
     <AdminLayout activeNavItem="staking-pools">
@@ -60,7 +178,7 @@ export default function PoolDetailsPage() {
                     Chain Selection
                   </label>
                   <div className="bg-[#0b0f0a] border border-[#1f261e] rounded-lg px-4 py-2.5 text-white">
-                    {poolData.chain}
+                    {poolData.chainName}
                   </div>
                 </div>
 
@@ -83,7 +201,7 @@ export default function PoolDetailsPage() {
                     Minimum staking period
                   </label>
                   <div className="bg-[#0b0f0a] border border-[#1f261e] rounded-lg px-4 py-2.5 text-white">
-                    {poolData.minStakingPeriod}
+                    {poolData.minStakingPeriod || "Not set"}
                   </div>
                 </div>
 
@@ -103,7 +221,7 @@ export default function PoolDetailsPage() {
                     Max Stake Amount
                   </label>
                   <div className="bg-[#0b0f0a] border border-[#1f261e] rounded-lg px-4 py-2.5 text-white">
-                    {poolData.maxStakeAmount}
+                    {poolData.maxStakeAmount || "No limit"}
                   </div>
                 </div>
               </div>
@@ -153,15 +271,23 @@ export default function PoolDetailsPage() {
                 <div className="flex justify-between items-center">
                   <span className="text-[#b5b5b5] text-sm">Stake Pool Creation Fee</span>
                   <span className="text-white text-sm font-medium">
-                    {poolData.stakePoolCreationFee} {poolData.chain === "Ethereum" ? "ETH" : poolData.chain}
+                    {poolData.stakePoolCreationFee} {poolData.chainName === "Ethereum" ? "ETH" : poolData.chainName}
                   </span>
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="text-[#b5b5b5] text-sm">Reward Pool Creation Fee</span>
                   <span className="text-white text-sm font-medium">
-                    {poolData.rewardPoolCreationFee}
+                    {poolData.rewardPoolCreationFee || "Not set"}
                   </span>
                 </div>
+                {poolData.apy && (
+                  <div className="flex justify-between items-center">
+                    <span className="text-[#b5b5b5] text-sm">APY</span>
+                    <span className="text-[#b1f128] text-sm font-medium">
+                      {poolData.apy.toFixed(2)}%
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -186,12 +312,19 @@ export default function PoolDetailsPage() {
         {/* Modals */}
         <EditPoolModal
           open={isEditModalOpen}
-          onOpenChange={setIsEditModalOpen}
+          onOpenChange={(open) => {
+            setIsEditModalOpen(open);
+            if (!open) {
+              // Refresh pool data when modal closes
+              window.dispatchEvent(new Event("stakingPoolUpdated"));
+            }
+          }}
           poolData={poolData}
         />
         <DeactivatePoolModal
           open={isDeactivateModalOpen}
           onOpenChange={setIsDeactivateModalOpen}
+          onConfirm={handleDeactivate}
         />
       </main>
     </AdminLayout>

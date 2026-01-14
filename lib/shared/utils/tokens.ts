@@ -49,3 +49,85 @@ export function mergeTokens(apiTokens: Token[], cachedTokens: Token[]): Token[] 
   return result;
 }
 
+/**
+ * Filter and sort tokens based on tab type
+ * 
+ * @param tokens - Array of tokens to filter/sort
+ * @param tab - Active tab type
+ * @param favoriteIds - Array of favorite token IDs
+ * @returns Filtered and sorted tokens
+ */
+export function filterAndSortTokensByTab(
+  tokens: Token[],
+  tab: 'Favourite' | 'Hot' | 'New' | 'Gainers' | 'Losers',
+  favoriteIds: string[] = []
+): Token[] {
+  let filtered = [...tokens];
+
+  // Filter by tab type
+  switch (tab) {
+    case 'Favourite':
+      filtered = filtered.filter(token => favoriteIds.includes(token.id));
+      // If no favorites, return empty array
+      if (filtered.length === 0) return [];
+      // Sort favorites by volume (highest first) as secondary sort
+      filtered.sort((a, b) => {
+        const aVol = a.volume24h || 0;
+        const bVol = b.volume24h || 0;
+        return bVol - aVol;
+      });
+      break;
+
+    case 'Hot':
+      // Sort by volume (highest first)
+      filtered.sort((a, b) => {
+        const aVol = a.volume24h || 0;
+        const bVol = b.volume24h || 0;
+        return bVol - aVol;
+      });
+      break;
+
+    case 'New':
+      // For "New", we don't have creation date, so show all tokens
+      // Sort by volume as secondary (most active new tokens first)
+      filtered.sort((a, b) => {
+        const aVol = a.volume24h || 0;
+        const bVol = b.volume24h || 0;
+        return bVol - aVol;
+      });
+      break;
+
+    case 'Gainers':
+      // Sort by price change (highest positive first)
+      filtered.sort((a, b) => {
+        const aChange = a.priceChange24h ?? -Infinity;
+        const bChange = b.priceChange24h ?? -Infinity;
+        // Only show positive changes
+        if (aChange <= 0 && bChange <= 0) return 0;
+        if (aChange <= 0) return 1;
+        if (bChange <= 0) return -1;
+        return bChange - aChange;
+      });
+      // Filter out non-positive changes
+      filtered = filtered.filter(token => (token.priceChange24h ?? 0) > 0);
+      break;
+
+    case 'Losers':
+      // Sort by price change (lowest negative first)
+      filtered.sort((a, b) => {
+        const aChange = a.priceChange24h ?? Infinity;
+        const bChange = b.priceChange24h ?? Infinity;
+        // Only show negative changes
+        if (aChange >= 0 && bChange >= 0) return 0;
+        if (aChange >= 0) return 1;
+        if (bChange >= 0) return -1;
+        return aChange - bChange;
+      });
+      // Filter out non-negative changes
+      filtered = filtered.filter(token => (token.priceChange24h ?? 0) < 0);
+      break;
+  }
+
+  return filtered;
+}
+

@@ -73,8 +73,59 @@ export default function EditPoolModal({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
   const handleTimeBoostToggle = () => {
     setTimeBoost(!timeBoost);
+  };
+
+  const handleSave = async () => {
+    if (!poolData?.id || !selectedChain || !tokenAddress || !minStakeAmount) {
+      alert("Please fill in all required fields");
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const response = await fetch("/api/v1/staking-pools", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          id: poolData.id,
+          chainId: selectedChain.id,
+          chainName: selectedChain.name,
+          tokenAddress: tokenAddress.trim(),
+          tokenSymbol: undefined,
+          tokenName: undefined,
+          tokenLogo: undefined,
+          minStakingPeriod: minStakingPeriod || undefined,
+          minStakeAmount: parseFloat(minStakeAmount) || 0,
+          maxStakeAmount: maxStakeAmount ? parseFloat(maxStakeAmount) : undefined,
+          stakeModificationFee: stakeModificationFee,
+          timeBoost: timeBoost,
+          timeBoostConfig: timeBoost ? {} : undefined,
+          country: country || undefined,
+          stakePoolCreationFee: parseFloat(stakePoolCreationFee) || 0.15,
+          rewardPoolCreationFee: rewardPoolCreationFee || undefined,
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || "Failed to update staking pool");
+      }
+
+      // Close modal and refresh
+      onOpenChange(false);
+      window.dispatchEvent(new Event("stakingPoolUpdated"));
+    } catch (error: any) {
+      console.error("Error updating staking pool:", error);
+      alert(error.message || "Failed to update staking pool. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -265,10 +316,11 @@ export default function EditPoolModal({
               Cancel
             </button>
             <button
-              onClick={() => onOpenChange(false)}
-              className="px-6 py-2.5 bg-[#b1f128] text-[#010501] rounded-lg hover:bg-[#9dd81f] transition-colors font-medium"
+              onClick={handleSave}
+              disabled={isSubmitting}
+              className="px-6 py-2.5 bg-[#b1f128] text-[#010501] rounded-lg hover:bg-[#9dd81f] transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Save Changes
+              {isSubmitting ? "Saving..." : "Save Changes"}
             </button>
           </div>
         </div>

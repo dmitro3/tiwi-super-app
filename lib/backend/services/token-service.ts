@@ -26,10 +26,12 @@ import '@/lib/backend/providers/init';
 
 export class TokenService {
   private lifiProvider: LiFiProvider;
+  private dexScreenerProvider: DexScreenerProvider;
   private aggregationService = getTokenAggregationService();
 
   constructor() {
     this.lifiProvider = new LiFiProvider();
+    this.dexScreenerProvider = new DexScreenerProvider();
   }
 
   /**
@@ -780,8 +782,58 @@ export class TokenService {
         }
       })
       .catch((error) => {
-        // Silently fail - will retry on next request
+          // Silently fail - will retry on next request
     });
+  }
+
+  /**
+   * Get market data tokens from DexScreener
+   * Prioritizes tokens with high trading volume and liquidity for market display
+   * 
+   * @param chainIds - Optional chain IDs to filter by
+   * @param limit - Maximum number of tokens to return
+   * @returns Array of normalized tokens with market data from DexScreener
+   */
+  async getMarketDataTokens(
+    chainIds?: number[],
+    limit: number = 100
+  ): Promise<NormalizedToken[]> {
+    try {
+      // Fetch trending tokens from DexScreener (sorted by volume)
+      const providerTokens = await this.dexScreenerProvider.fetchTrendingTokens(chainIds, limit);
+      
+      if (providerTokens.length === 0) {
+        console.warn('[TokenService] No market data tokens from DexScreener, falling back to getAllTokens');
+        // Fallback to regular token fetching
+        return this.getAllTokens(limit);
+      }
+
+      // Normalize provider tokens to NormalizedToken format
+      const normalizedTokens: NormalizedToken[] = [];
+      const seenTokens = new Set<string>();
+
+      for (const providerToken of providerTokens) {
+        const chain = getCanonicalChain(providerToken.chainId);
+        if (!chain) {
+          console.warn(`[TokenService] Chain ${providerToken.chainId} not found for token ${providerToken.symbol}`);
+          continue;
+        }
+
+        const key = `${providerToken.chainId}:${providerToken.address.toLowerCase()}`;
+        if (seenTokens.has(key)) continue;
+        seenTokens.add(key);
+
+        const normalized = this.dexScreenerProvider.normalizeToken(providerToken, chain);
+        normalizedTokens.push(normalized);
+      }
+
+      console.log(`[TokenService] getMarketDataTokens returned ${normalizedTokens.length} tokens from DexScreener`);
+      return normalizedTokens.slice(0, limit);
+    } catch (error: any) {
+      console.error('[TokenService] Error fetching market data tokens:', error);
+      // Fallback to regular token fetching
+      return this.getAllTokens(limit);
+    }
   }
 }
 

@@ -207,7 +207,19 @@ export class DexScreenerProvider extends BaseTokenProvider {
       const seenTokens = new Set<string>();
       
       if (data.pairs && Array.isArray(data.pairs)) {
-        for (const pair of data.pairs) {
+        // Sort pairs by volume (highest first) to prioritize tokens with more market activity
+        const sortedPairs = [...data.pairs].sort((a, b) => {
+          const volumeA = a.volume?.h24 || 0;
+          const volumeB = b.volume?.h24 || 0;
+          if (volumeA === volumeB) {
+            const liquidityA = a.liquidity?.usd || 0;
+            const liquidityB = b.liquidity?.usd || 0;
+            return liquidityB - liquidityA;
+          }
+          return volumeB - volumeA;
+        });
+        
+        for (const pair of sortedPairs) {
           // Extract logo from pair info
           const logoURI = pair.info?.imageUrl || '';
           
@@ -254,9 +266,66 @@ export class DexScreenerProvider extends BaseTokenProvider {
   }
 
   /**
-   * Fetch popular tokens for a chain
-   * Note: DexScreener doesn't have a direct "popular tokens" endpoint
-   * We'll use search with empty query to get some pairs
+   * Fetch trending market data tokens sorted by volume
+   * This method prioritizes tokens with high trading volume and liquidity
+   */
+  async fetchTrendingTokens(
+    chainIds?: number[],
+    limit: number = 100
+  ): Promise<ProviderToken[]> {
+    try {
+      const tokens: ProviderToken[] = [];
+      const seenTokens = new Set<string>();
+      
+      // If specific chains provided, fetch for those chains
+      if (chainIds && chainIds.length > 0) {
+        for (const chainId of chainIds) {
+          const chainTokens = await this.fetchPopularTokens(chainId, limit);
+          for (const token of chainTokens) {
+            const key = `${token.chainId}:${token.address.toLowerCase()}`;
+            if (!seenTokens.has(key)) {
+              seenTokens.add(key);
+              tokens.push(token);
+            }
+          }
+        }
+      } else {
+        // Fetch from all major chains
+        const majorChains = [1, 56, 137, 8453, 42161, 10, 43114, 7565164]; // Ethereum, BSC, Polygon, Base, Arbitrum, Optimism, Avalanche, Solana
+        for (const chainId of majorChains) {
+          const chainTokens = await this.fetchPopularTokens(chainId, Math.ceil(limit / majorChains.length));
+          for (const token of chainTokens) {
+            const key = `${token.chainId}:${token.address.toLowerCase()}`;
+            if (!seenTokens.has(key)) {
+              seenTokens.add(key);
+              tokens.push(token);
+            }
+          }
+        }
+      }
+      
+      // Sort all tokens by volume (highest first) for market data display
+      tokens.sort((a, b) => {
+        const volumeA = a.volume24h || 0;
+        const volumeB = b.volume24h || 0;
+        if (volumeA === volumeB) {
+          const liquidityA = a.liquidity || 0;
+          const liquidityB = b.liquidity || 0;
+          return liquidityB - liquidityA;
+        }
+        return volumeB - volumeA;
+      });
+      
+      return tokens.slice(0, limit);
+    } catch (error) {
+      console.error('[DexScreenerProvider] Error fetching trending tokens:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Fetch popular tokens for a chain using DexScreener's search endpoint
+   * Searches for popular tokens by querying common token symbols and sorting by volume
    */
   private async fetchPopularTokens(
     chainId: number,
@@ -269,7 +338,8 @@ export class DexScreenerProvider extends BaseTokenProvider {
       const dexChainId = this.getChainId(canonicalChain);
       if (!dexChainId) return [];
       
-      // Use search with chain name to get popular pairs
+      // Use search endpoint with chain-specific query to get popular pairs
+      // DexScreener search returns pairs sorted by relevance/volume
       const url = `https://api.dexscreener.com/latest/dex/search?q=${encodeURIComponent(String(dexChainId))}`;
       const response = await fetch(url);
       
@@ -282,23 +352,46 @@ export class DexScreenerProvider extends BaseTokenProvider {
       const seenTokens = new Set<string>();
       
       if (data.pairs && Array.isArray(data.pairs)) {
-        // Filter pairs by chain
-        const chainPairs = data.pairs.filter(pair => pair.chainId === String(dexChainId));
-        
-        // Sort by liquidity (highest first)
-        chainPairs.sort((a, b) => {
-          const liquidityA = a.liquidity?.usd || 0;
-          const liquidityB = b.liquidity?.usd || 0;
-          return liquidityB - liquidityA;
+        // Sort pairs by volume (highest first) for better market data
+        const sortedPairs = [...data.pairs].sort((a, b) => {
+          const volumeA = a.volume?.h24 || 0;
+          const volumeB = b.volume?.h24 || 0;
+          // Secondary sort by liquidity if volumes are equal
+          if (volumeA === volumeB) {
+            const liquidityA = a.liquidity?.usd || 0;
+            const liquidityB = b.liquidity?.usd || 0;
+            return liquidityB - liquidityA;
+          }
+          return volumeB - volumeA;
         });
         
-        for (const pair of chainPairs.slice(0, limit * 2)) { // Get more pairs to extract more tokens
+        for (const pair of sortedPairs.slice(0, limit * 2)) { // Get more pairs to extract more tokens
+          const logoURI = pair.info?.imageUrl || '';
+          
+          // Extract tokens from pair (baseToken and quoteToken)
+          // For base token, use pair price; for quote token, calculate inverse or use pair price
           const tokensToAdd = [
-            { token: pair.baseToken, price: pair.priceUsd, liquidity: pair.liquidity, volume: pair.volume, priceChange: pair.priceChange, fdv: pair.fdv },
-            { token: pair.quoteToken, price: pair.priceUsd, liquidity: pair.liquidity, volume: pair.volume, priceChange: pair.priceChange, fdv: pair.fdv },
+            { 
+              token: pair.baseToken, 
+              price: pair.priceUsd, 
+              liquidity: pair.liquidity, 
+              volume: pair.volume, 
+              priceChange: pair.priceChange, 
+              fdv: pair.fdv,
+              logo: logoURI,
+            },
+            { 
+              token: pair.quoteToken, 
+              price: pair.priceUsd, // Quote token price is typically 1 for stablecoins or calculated
+              liquidity: pair.liquidity, 
+              volume: pair.volume, 
+              priceChange: pair.priceChange, 
+              fdv: pair.fdv,
+              logo: logoURI,
+            },
           ];
           
-          for (const { token, price, liquidity, volume, priceChange, fdv } of tokensToAdd) {
+          for (const { token, price, liquidity, volume, priceChange, fdv, logo } of tokensToAdd) {
             const key = `${chainId}:${token.address.toLowerCase()}`;
             if (seenTokens.has(key)) continue;
             seenTokens.add(key);
@@ -309,7 +402,7 @@ export class DexScreenerProvider extends BaseTokenProvider {
               symbol: token.symbol,
               name: token.name,
               decimals: undefined, // DexScreener doesn't provide decimals, will be enriched from blockchain
-              logoURI: '',
+              logoURI: logo,
               priceUSD: price || '0',
               liquidity: liquidity?.usd,
               volume24h: volume?.h24,
