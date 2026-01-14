@@ -20,6 +20,7 @@ export interface Token {
   volume24h?: number;        // 24h trading volume
   liquidity?: number;        // Liquidity in USD
   marketCap?: number;        // Market capitalization
+  holders?: number;          // Number of token holders
 }
 
 export interface Chain {

@@ -8,12 +8,22 @@ import {
 interface DeactivatePoolModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onConfirm?: () => void;
 }
 
 export default function DeactivatePoolModal({
   open,
   onOpenChange,
+  onConfirm,
 }: DeactivatePoolModalProps) {
+  const handleConfirm = () => {
+    if (onConfirm) {
+      onConfirm();
+    } else {
+      onOpenChange(false);
+    }
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
@@ -32,8 +42,8 @@ export default function DeactivatePoolModal({
               Cancel
             </button>
             <button
-              onClick={() => onOpenChange(false)}
-              className="flex-1 px-6 py-2.5 bg-[#b1f128] text-[#010501] rounded-lg hover:bg-[#9dd81f] transition-colors font-medium"
+              onClick={handleConfirm}
+              className="flex-1 px-6 py-2.5 bg-[#ff5c5c] text-white rounded-lg hover:bg-[#e04a4a] transition-colors font-medium"
             >
               Deactivate
             </button>

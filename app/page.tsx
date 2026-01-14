@@ -38,7 +38,7 @@ export default function HomePage() {
           </div>
 
           <div className="flex-1 border border-[#1f261e] rounded-xl overflow-hidden flex flex-col min-h-0">
-            <MarketTable />
+            <MarketTable activeTab={activeTab} />
           </div>
         </main>
 

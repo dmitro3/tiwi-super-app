@@ -20,6 +20,7 @@ export interface FetchTokensParams {
   query?: string;
   limit?: number;
   address?: string;  // Token contract address for specific token lookup
+  source?: 'market' | 'default';  // Data source: 'market' for DexScreener market data, 'default' for regular fetching
 }
 
 /**
@@ -32,7 +33,7 @@ export interface FetchTokensParams {
  * @returns Promise resolving to transformed tokens
  */
 export async function fetchTokens(params: FetchTokensParams = {}): Promise<Token[]> {
-  const { chains, query, limit, address } = params;
+  const { chains, query, limit, address, source } = params;
   
   // Build API URL
   const url = new URL('/api/v1/tokens', window.location.origin);
@@ -49,6 +50,9 @@ export async function fetchTokens(params: FetchTokensParams = {}): Promise<Token
   }
   if (limit) {
     url.searchParams.set('limit', limit.toString());
+  }
+  if (source) {
+    url.searchParams.set('source', source);
   }
   
   try {
@@ -117,6 +121,7 @@ function transformToken(backendToken: NormalizedToken): Token {
     volume24h: backendToken.volume24h,
     liquidity: backendToken.liquidity,
     marketCap: backendToken.marketCap,
+    holders: backendToken.holders,
     // balance and usdValue are not from API (wallet data, set separately)
   };
 }

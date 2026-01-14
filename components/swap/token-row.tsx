@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import { formatAddressMobile } from "@/lib/shared/utils/formatting";
+import TokenIcon from "@/components/ui/token-icon";
 import type { Token } from "@/lib/frontend/types/tokens";
 
 interface TokenRowProps {
@@ -28,19 +29,14 @@ export default function TokenRow({
       <div className="flex gap-2 sm:gap-[8px] items-center relative shrink-0 min-w-0 flex-1">
         {/* Token Logo */}
         <div className="relative shrink-0 size-8 sm:size-10 lg:size-[40px]">
-          {token.logo ? (
-            <Image
-              src={token.logo}
-              alt={token.name}
-              width={40}
-              height={40}
-              className="rounded-full w-full h-full object-contain"
-            />
-          ) : (
-            <div className="rounded-full w-full h-full bg-[#121712] flex items-center justify-center text-xs sm:text-sm text-[#b5b5b5]">
-              {token.symbol?.[0] ?? "?"}
-            </div>
-          )}
+          <TokenIcon
+            logo={token.logo}
+            symbol={token.symbol}
+            address={token.address}
+            chainId={token.chainId}
+            size="xl"
+            className="w-full h-full"
+          />
           {token.chainLogo ? (
             <div className="absolute -bottom-0.5 -right-0.5 size-4 sm:size-5">
               <Image

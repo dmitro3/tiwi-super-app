@@ -100,8 +100,17 @@ export async function GET(req: NextRequest) {
     // Parse limit
     const limit = limitParam ? parseInt(limitParam, 10) : undefined;
     
+    // Parse source parameter (for market data from DexScreener)
+    const source = searchParams.get('source') as 'market' | 'default' | null;
+    
     // Handle request
-    return await handleTokenRequest({ chainIds, query, limit, address: addressParam || undefined });
+    return await handleTokenRequest({ 
+      chainIds, 
+      query, 
+      limit, 
+      address: addressParam || undefined,
+      source: source || 'default'
+    });
   } catch (error: any) {
     console.error('[API] /api/v1/tokens GET error:', error);
     
@@ -136,11 +145,15 @@ export async function POST(req: NextRequest) {
     // Note: address can be passed in body as well (for POST requests)
     const address = (body as any).address;
     
+    // Parse source parameter (for market data from DexScreener)
+    const source = (body as any).source as 'market' | 'default' | undefined;
+    
     return await handleTokenRequest({
       chainIds: body.chainIds,
       query,
       limit: body.limit,
       address,
+      source: source || 'default',
     });
   } catch (error: any) {
     console.error('[API] /api/v1/tokens POST error:', error);
@@ -170,17 +183,22 @@ async function handleTokenRequest(params: {
   query?: string;
   limit?: number;
   address?: string;
+  source?: 'market' | 'default'; // New parameter to specify data source
 }): Promise<NextResponse<TokensAPIResponse>> {
-  const { chainIds, query = '', limit, address } = params;
+  const { chainIds, query = '', limit, address, source = 'default' } = params;
   const tokenService = getTokenService();
   
-  // Default limit: 30 if not specified
-  const effectiveLimit = limit ?? 30;
+  // Default limit: 30 if not specified, but 100 for market data
+  const effectiveLimit = limit ?? (source === 'market' ? 100 : 30);
   
   let tokens: Awaited<ReturnType<typeof tokenService.getAllTokens>>;
   
+  // If source is 'market', use DexScreener market data
+  if (source === 'market') {
+    tokens = await tokenService.getMarketDataTokens(chainIds, effectiveLimit);
+  }
   // Priority 1: If address is provided, search by address (most specific)
-  if (address && address.trim()) {
+  else if (address && address.trim()) {
     // Search by address - use address as query, filter by chainIds if provided
     if (chainIds && chainIds.length > 0) {
       tokens = await tokenService.searchTokens(address.trim(), undefined, chainIds, effectiveLimit);
