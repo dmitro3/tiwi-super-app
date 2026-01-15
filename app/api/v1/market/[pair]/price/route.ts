@@ -48,8 +48,8 @@ export async function GET(
     
     // Fetch tokens by symbol
     const tokenService = getTokenService();
-    const baseTokens = await tokenService.searchTokens(undefined, baseSymbol, [chainId], 5);
-    const quoteTokens = await tokenService.searchTokens(undefined, quoteSymbol, [chainId], 5);
+    const baseTokens = await tokenService.searchTokens(baseSymbol, undefined, [chainId], 5);
+    const quoteTokens = await tokenService.searchTokens(quoteSymbol, undefined, [chainId], 5);
     
     // Find exact symbol match
     const baseToken = baseTokens.find(t => t.symbol.toUpperCase() === baseSymbol.toUpperCase());
