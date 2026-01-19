@@ -4,34 +4,21 @@ import { useState } from "react";
 import { IoArrowBack, IoChevronDown, IoChevronForward } from "react-icons/io5";
 import { SettingsView } from "./types";
 import AccountDetails from "./account-details";
-import Security from "./security";
 import ConnectedDevices from "./connected-devices";
 import LanguageRegion from "./language-region";
 import Notifications from "./notifications";
-import AppUpdatesCache from "./app-updates-cache";
 import Support from "./support";
 import AddNewWallet from "./add-new-wallet";
 import ImportWallet from "./import-wallet";
 import {
   FiUser,
-  FiShield,
   FiLink,
   FiGlobe,
   FiBell,
-  FiRefreshCw,
   FiHelpCircle,
   FiPlus,
   FiUpload,
 } from "react-icons/fi";
-
-interface Device {
-  id: number;
-  device: string;
-  ip: string;
-  location: string;
-  status: string;
-  isActive: boolean;
-}
 
 interface MobileSettingsViewProps {
   currentView: SettingsView;
@@ -40,7 +27,9 @@ interface MobileSettingsViewProps {
   walletName: string;
   walletAddress: string;
   chainIcons: string[];
-  connectedDevices?: Device[];
+  hasWallet: boolean;
+  isLocalWallet: boolean;
+  walletSourceLabel?: string;
   transactionsEnabled?: boolean;
   rewardsEnabled?: boolean;
   governanceEnabled?: boolean;
@@ -51,13 +40,10 @@ interface MobileSettingsViewProps {
   onToggleGovernance?: (enabled: boolean) => void;
   onToggleNews?: (enabled: boolean) => void;
   onToggleSystemAlerts?: (enabled: boolean) => void;
-  onTerminateDevice?: (device: Device) => void;
-  onTerminateAll?: () => void;
 }
 
 const menuItems = [
   { label: "Account Details", view: "main" as SettingsView, icon: FiUser },
-  { label: "Security", view: "security" as SettingsView, icon: FiShield },
   {
     label: "Connected Devices",
     view: "connected-devices" as SettingsView,
@@ -72,11 +58,6 @@ const menuItems = [
     label: "Notifications",
     view: "notifications" as SettingsView,
     icon: FiBell,
-  },
-  {
-    label: "App Updates & Cache",
-    view: "app-updates-cache" as SettingsView,
-    icon: FiRefreshCw,
   },
   { label: "Support", view: "support" as SettingsView, icon: FiHelpCircle },
   {
@@ -98,7 +79,9 @@ export default function MobileSettingsView({
   walletName,
   walletAddress,
   chainIcons,
-  connectedDevices = [],
+  hasWallet,
+  isLocalWallet,
+  walletSourceLabel,
   transactionsEnabled = true,
   rewardsEnabled = true,
   governanceEnabled = true,
@@ -109,28 +92,18 @@ export default function MobileSettingsView({
   onToggleGovernance = () => {},
   onToggleNews = () => {},
   onToggleSystemAlerts = () => {},
-  onTerminateDevice = () => {},
-  onTerminateAll = () => {},
 }: MobileSettingsViewProps) {
   const [expandedItems, setExpandedItems] = useState<string[]>([]);
 
   const getActiveItem = () => {
     if (currentView === "main") return "Account Details";
-    if (currentView === "security") return "Security";
     if (currentView === "connected-devices") return "Connected Devices";
     if (currentView === "language-region") return "Language & Region";
     if (currentView === "notifications") return "Notifications";
-    if (currentView === "app-updates-cache") return "App Updates & Cache";
     if (currentView === "support") return "Support";
     if (currentView === "add-new-wallet") return "Add New Wallet";
     if (currentView === "import-wallet") return "Import Wallet";
     // Check if it's a sub-view
-    if (
-      currentView === "change-pin" ||
-      currentView === "fraud-alerts" ||
-      currentView === "whitelist-addresses"
-    )
-      return "Security";
     if (
       currentView === "transactions-notifications" ||
       currentView === "rewards-earnings" ||
@@ -239,24 +212,20 @@ export default function MobileSettingsView({
                             walletName={walletName}
                             walletAddress={walletAddress}
                             chainIcons={chainIcons}
+                            hasWallet={hasWallet}
+                            isLocalWallet={isLocalWallet}
+                            walletSourceLabel={walletSourceLabel}
                             onViewChange={onViewChange}
                           />
                         </div>
                       </>
                     )}
 
-                    {item.label === "Security" && currentView === "security" && (
-                      <Security onViewChange={onViewChange} onGoBack={onGoBack} />
-                    )}
-
                     {item.label === "Connected Devices" &&
                       currentView === "connected-devices" && (
                         <ConnectedDevices
-                          devices={connectedDevices}
                           onViewChange={onViewChange}
                           onGoBack={onGoBack}
-                          onTerminateDevice={onTerminateDevice}
-                          onTerminateAll={onTerminateAll}
                         />
                       )}
 
@@ -281,11 +250,6 @@ export default function MobileSettingsView({
                           onToggleNews={onToggleNews}
                           onToggleSystemAlerts={onToggleSystemAlerts}
                         />
-                      )}
-
-                    {item.label === "App Updates & Cache" &&
-                      currentView === "app-updates-cache" && (
-                        <AppUpdatesCache onGoBack={onGoBack} />
                       )}
 
                     {item.label === "Support" && currentView === "support" && (

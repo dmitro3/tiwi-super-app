@@ -336,10 +336,8 @@ function WalletPageDesktop() {
 
   // Active wallet (local or external)
   const activeAddress = useActiveWalletAddress();
-  const { activeWalletId, wallets: managedWallets } = useWalletManagerStore((s) => ({
-    activeWalletId: s.activeWalletId,
-    wallets: s.wallets,
-  }));
+  const activeWalletId = useWalletManagerStore((s) => s.activeWalletId);
+  const managedWallets = useWalletManagerStore((s) => s.wallets);
   const activeManagedWallet = useMemo(
     () => managedWallets.find((w) => w.id === activeWalletId) || null,
     [managedWallets, activeWalletId]

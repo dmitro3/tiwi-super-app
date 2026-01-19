@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import ConditionalLayout from "@/components/layout/conditional-layout";
 import GlobalBackground from "@/components/layout/global-background";
+import SetHtmlLang from "@/components/layout/set-html-lang";
 import { PrefetchProvider } from "@/components/prefetch/prefetch-provider";
 import { WalletProviders } from "@/lib/frontend/providers/wallet-providers";
 
@@ -37,6 +38,7 @@ export default function RootLayout({
       >
         <WalletProviders>
           <PrefetchProvider>
+            <SetHtmlLang />
             <div className="min-h-screen bg-[#010501] relative">
               {/* Global Background System - Applied to all pages */}
               <GlobalBackground />

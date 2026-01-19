@@ -7,10 +7,21 @@ import { TokenImage } from "@/components/home/token-image";
 import { formatTokenForHomepage, type HomepageToken } from "@/lib/home/token-formatter";
 import { fetchTokens } from "@/lib/frontend/api/tokens";
 import type { Token } from "@/lib/frontend/types/tokens";
+import { useTranslation } from "@/lib/i18n/useTranslation";
 
 type TabKey = "Favourite" | "Top" | "Spotlight" | "New" | "Gainers" | "Losers";
 
 const tabs: TabKey[] = ["Favourite", "Top", "Spotlight", "New", "Gainers", "Losers"];
+
+// Map TabKey to translation key
+const tabTranslationMap: Record<TabKey, "home.favourite" | "home.top" | "home.spotlight" | "home.new" | "home.gainers" | "home.losers"> = {
+  "Favourite": "home.favourite",
+  "Top": "home.top",
+  "Spotlight": "home.spotlight",
+  "New": "home.new",
+  "Gainers": "home.gainers",
+  "Losers": "home.losers",
+};
 
 interface MobileMarketListProps {
   activeTab: TabKey;
@@ -24,6 +35,7 @@ interface MobileMarketListProps {
  * - Each row shows: token icon, pair name, leverage, volume, price, change
  */
 export function MobileMarketList({ activeTab, onTabChange }: MobileMarketListProps) {
+  const { t } = useTranslation();
   const [tokens, setTokens] = useState<HomepageToken[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -37,7 +49,6 @@ export function MobileMarketList({ activeTab, onTabChange }: MobileMarketListPro
         // Map tab to category (Top = Hot, Spotlight = Hot for now)
         const categoryMap: Record<TabKey, string | undefined> = {
           'Top': 'hot',
-          'Hot': 'hot',
           'New': 'new',
           'Gainers': 'gainers',
           'Losers': 'losers',
@@ -99,13 +110,14 @@ export function MobileMarketList({ activeTab, onTabChange }: MobileMarketListPro
     <div className="w-full flex flex-col gap-2">
       {/* Title */}
       <div className="">
-        <p className="text-white text-base font-semibold">Market</p>
+        <p className="text-white text-base font-semibold">{t("home.market")}</p>
       </div>
 
       {/* Tabs */}
       <div className="border-b border-[#1f261e] flex gap-4 items-start pb-0">
         {tabs.map((tab) => {
           const isActive = tab === activeTab;
+          const translationKey = tabTranslationMap[tab];
           return (
             <div key={tab} className="flex flex-col gap-2.5 h-[26px] items-center shrink-0">
               <button
@@ -114,7 +126,7 @@ export function MobileMarketList({ activeTab, onTabChange }: MobileMarketListPro
                   isActive ? "text-[#b1f128]" : "text-[#b5b5b5]"
                 }`}
               >
-                {tab}
+                {t(translationKey)}
               </button>
               {isActive && (
                 <div className="h-0 w-full border-t border-[#b1f128] mt-auto" />

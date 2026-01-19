@@ -3,6 +3,7 @@ import Image from "next/image";
 import { SIDEBAR_ICONS, SOCIAL_ICONS } from "@/lib/home/mock-data";
 import { useMemo } from "react";
 import { useRouter } from "next/navigation";
+import { useTranslation } from "@/lib/i18n/useTranslation";
 
 
 type SidebarItem = {
@@ -18,23 +19,24 @@ interface SidebarProps {
 }
 
 export function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
+    const { t } = useTranslation();
     const router = useRouter()
     const quickActions = useMemo<SidebarItem[]>(
         () => [
-            { label: "Swap", icon: SIDEBAR_ICONS.swap, link: '/swap' },
-            { label: "Stake", icon: SIDEBAR_ICONS.stake, link: '/earn' },
-            { label: "History", icon: SIDEBAR_ICONS.history, link: '/portfolio' },
-            { label: "Lend", icon: SIDEBAR_ICONS.lend, badge: "Coming soon", link: '/lend' },
+            { label: t("sidebar.swap"), icon: SIDEBAR_ICONS.swap, link: '/swap' },
+            { label: t("sidebar.stake"), icon: SIDEBAR_ICONS.stake, link: '/earn' },
+            { label: t("sidebar.history"), icon: SIDEBAR_ICONS.history, link: '/portfolio' },
+            { label: t("sidebar.lend"), icon: SIDEBAR_ICONS.lend, badge: t("sidebar.coming_soon"), link: '/lend' },
         ],
-        []
+        [t]
     );
 
     const footerLinks = useMemo<SidebarItem[]>(
         () => [
-            { label: "Download App", icon: SIDEBAR_ICONS.download, link: "#" },
-            { label: "Support Hub", icon: SIDEBAR_ICONS.support, link: "#" },
+            { label: t("sidebar.download_app"), icon: SIDEBAR_ICONS.download, link: "#" },
+            { label: t("sidebar.support_hub"), icon: SIDEBAR_ICONS.support, link: "#" },
         ],
-        []
+        [t]
     );
 
     return (
@@ -48,13 +50,13 @@ export function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
                     className="flex items-center gap-3 px-2 py-3 hover:bg-[#0b0f0a] rounded-lg transition-colors"
                 >
                     <span className="relative inline-flex items-center justify-center">
-                        <Image src={SIDEBAR_ICONS.collapse} alt="Collapse" width={24} height={24} />
+                        <Image src={SIDEBAR_ICONS.collapse} alt={t("sidebar.collapse")} width={24} height={24} />
                     </span>
-                    {!collapsed && <span className="text-[#b5b5b5] text-base font-medium">Collapse</span>}
+                    {!collapsed && <span className="text-[#b5b5b5] text-base font-medium">{t("sidebar.collapse")}</span>}
                 </button>
 
                 {!collapsed && (
-                    <div className="px-2 pt-2 pb-1 text-[#7c7c7c] text-sm font-semibold">Quick Actions</div>
+                    <div className="px-2 pt-2 pb-1 text-[#7c7c7c] text-sm font-semibold">{t("sidebar.quick_actions")}</div>
                 )}
 
                 <div className="flex flex-col">

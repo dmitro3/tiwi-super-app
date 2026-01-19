@@ -3,6 +3,7 @@
 import { usePathname } from "next/navigation";
 import Navbar from "@/components/layout/navbar";
 import StatusBar from "@/components/layout/status-bar";
+import { useWalletStoreSync } from "@/lib/wallet/hooks/useWalletStoreSync";
 
 export default function ConditionalLayout({
   children,
@@ -11,6 +12,9 @@ export default function ConditionalLayout({
 }) {
   const pathname = usePathname();
   const isAdminRoute = pathname?.startsWith("/admin");
+  
+  // Sync wallet store with keystore on mount
+  useWalletStoreSync();
 
   return (
     <>

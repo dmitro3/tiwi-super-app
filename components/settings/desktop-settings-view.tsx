@@ -10,6 +10,9 @@ interface DesktopSettingsViewProps {
   walletName: string;
   walletAddress: string;
   chainIcons: string[];
+  hasWallet: boolean;
+  isLocalWallet: boolean;
+  walletSourceLabel?: string;
   children?: React.ReactNode;
 }
 
@@ -19,11 +22,13 @@ export default function DesktopSettingsView({
   walletName,
   walletAddress,
   chainIcons,
+  hasWallet,
+  isLocalWallet,
+  walletSourceLabel,
   children,
 }: DesktopSettingsViewProps) {
   const showSidebar =
     currentView === "main" ||
-    currentView === "security" ||
     currentView === "connected-devices" ||
     currentView === "language-region" ||
     currentView === "notifications" ||
@@ -32,7 +37,6 @@ export default function DesktopSettingsView({
     currentView === "governance" ||
     currentView === "news-announcements" ||
     currentView === "system-alerts" ||
-    currentView === "app-updates-cache" ||
     currentView === "support" ||
     currentView === "live-status" ||
     currentView === "faqs" ||
@@ -60,11 +64,14 @@ export default function DesktopSettingsView({
       {/* Main Content Area */}
       <div className="flex-1 h-[837px] xl:h-[837px] lg:h-[750px]">
         {currentView === "main" && (
-          <div className="bg-[#0B0F0A] h-full rounded-2xl rounded-l-none border border-[#1f261e] overflow-hidden p-6 md:p-8">
+          <div className="bg-[#0B0F0A] h-full rounded-2xl rounded-l-none border border-[#1f261e] overflow-y-auto p-6 md:p-8">
             <AccountDetails
               walletName={walletName}
               walletAddress={walletAddress}
               chainIcons={chainIcons}
+              hasWallet={hasWallet}
+              isLocalWallet={isLocalWallet}
+              walletSourceLabel={walletSourceLabel}
               onViewChange={onViewChange}
             />
           </div>

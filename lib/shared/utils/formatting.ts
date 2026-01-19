@@ -1,8 +1,24 @@
 /**
  * Formatting utilities for addresses, balances, and currency
  * 
- * Platform-agnostic utilities that can be used in both web and mobile.
+ * Uses locale store (language, region, currency, date format) when available;
+ * falls back to en-US / USD on server or if store is unavailable.
  */
+
+import { useLocaleStore } from "@/lib/locale/locale-store";
+
+function getLocaleConfig(): { locale: string; currency: string; dateFormat: string } {
+  try {
+    const s = useLocaleStore.getState();
+    return {
+      locale: s.getLocale(),
+      currency: s.currency,
+      dateFormat: s.dateFormat,
+    };
+  } catch {
+    return { locale: "en-US", currency: "USD", dateFormat: "MM/DD/YY" };
+  }
+}
 
 /**
  * Format Ethereum address: 0x{first3}...{last4}
@@ -30,7 +46,7 @@ export function formatAddressMobile(addr: string): string {
 
 /**
  * Format balance: show balance if > 0, otherwise "0.00"
- * Format with commas for large numbers (e.g., 2,000,000,000,000.56)
+ * Uses locale for number formatting (decimal/grouping separators).
  * @param balance - Balance string or undefined
  * @returns Formatted balance string
  */
@@ -38,91 +54,87 @@ export function formatBalance(balance?: string): string {
   if (!balance) return "0.00";
   const num = parseFloat(balance);
   if (isNaN(num) || num <= 0) return "0.00";
-  return num.toLocaleString("en-US", {
+  const { locale } = getLocaleConfig();
+  return num.toLocaleString(locale, {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
 }
 
 /**
- * Format currency value (USD)
+ * Format currency value using locale and currency from settings.
  * @param value - Numeric value
  * @param decimals - Number of decimal places (default: 2)
- * @returns Formatted currency string (e.g., "$1,500.56")
+ * @returns Formatted currency string (e.g., "$1,500.56", "€1.500,56")
  */
 export function formatCurrency(value: number, decimals: number = 2): string {
-  return `$${value.toLocaleString("en-US", {
+  const { locale, currency } = getLocaleConfig();
+  return new Intl.NumberFormat(locale, {
+    style: "currency",
+    currency,
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals,
-  })}`;
+  }).format(value);
 }
 
 /**
- * Format token price (USD) with smart decimal precision
- * Handles small prices (< $1) with more decimals, large prices with fewer decimals
+ * Format token price with smart decimal precision; uses locale and currency from settings.
+ * Handles small prices (< $1) with more decimals, large prices with fewer decimals.
  * @param price - Price string or undefined
- * @returns Formatted price string (e.g., "$0.0232", "$1,234.56", "$2,856.12") or "-" if missing
+ * @returns Formatted price string (e.g., "$0.0232", "€1.234,56") or "-" if missing
  */
 export function formatPrice(price?: string): string {
   if (!price) return "-";
-  
+
   const num = parseFloat(price);
   if (isNaN(num) || num <= 0) return "-";
-  
-  // Very small prices (< $0.000001): show up to 12 decimals to avoid rounding to 0.00
-  // This handles micro-cap tokens with very low prices (e.g., 0.0000000004160)
+
+  const { locale, currency } = getLocaleConfig();
+  let minFrac = 2;
+  let maxFrac = 2;
+
   if (num < 0.000001) {
-    // Use toFixed to preserve precision (up to 12 decimal places)
-    const fixed = num.toFixed(12);
-    // Remove trailing zeros but keep the decimal point and at least one digit after it
-    // Example: "0.000000000416" stays as is, "0.000000000000" becomes "0.00"
-    let trimmed = fixed.replace(/0+$/, ''); // Remove trailing zeros
-    // If we removed all digits after decimal, ensure we have at least .00
-    if (!trimmed.includes('.')) {
-      trimmed = `${trimmed}.00`;
-    } else if (trimmed.endsWith('.')) {
-      trimmed = `${trimmed}00`;
-    }
-    return `$${trimmed}`;
+    minFrac = 2;
+    maxFrac = 12;
+  } else if (num < 0.01) {
+    minFrac = 2;
+    maxFrac = 6;
+  } else if (num < 0.1) {
+    minFrac = 2;
+    maxFrac = 4;
+  } else if (num < 1000) {
+    minFrac = 2;
+    maxFrac = 4;
   }
-  
-  // Small prices (< $0.01): show up to 6 decimals for precision
-  if (num < 0.01) {
-    return `$${num.toLocaleString("en-US", {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 6,
-    })}`;
-  }
-  
-  // Very small prices ($0.01 - $0.1): show 4 decimals
-  if (num < 0.1) {
-    return `$${num.toLocaleString("en-US", {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 4,
-    })}`;
-  }
-  
-  // Small prices ($0.1 - $1): show 2-4 decimals
-  if (num < 1) {
-    return `$${num.toLocaleString("en-US", {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 4,
-    })}`;
-  }
-  
-  // Medium prices ($1 - $1000): show 2-4 decimals
-  if (num < 1000) {
-    return `$${num.toLocaleString("en-US", {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 4,
-    })}`;
-  }
-  
-  // Large prices (>= $1000): show 2 decimals with commas
-  return `$${num.toLocaleString("en-US", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
+  // else num >= 1000: minFrac=2, maxFrac=2
+
+  return new Intl.NumberFormat(locale, {
+    style: "currency",
+    currency,
+    minimumFractionDigits: minFrac,
+    maximumFractionDigits: maxFrac,
+  }).format(num);
+}
+
+/**
+ * Format date using regional format from settings (MM/DD/YY, DD/MM/YY, or YYYY-MM-DD).
+ * @param date - Date to format
+ * @param formatOverride - Optional override; if not provided, uses store's dateFormat
+ * @returns Formatted date string
+ */
+export function formatDate(
+  date: Date,
+  formatOverride?: "MM/DD/YY" | "DD/MM/YY" | "YYYY-MM-DD"
+): string {
+  const { dateFormat } = getLocaleConfig();
+  const fmt = formatOverride ?? dateFormat;
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  const y = date.getFullYear();
+  const yy = String(y).slice(-2);
+  if (fmt === "MM/DD/YY") return `${m}/${d}/${yy}`;
+  if (fmt === "DD/MM/YY") return `${d}/${m}/${yy}`;
+  return `${y}-${m}-${d}`; // YYYY-MM-DD
 }
 
 /**

@@ -12,10 +12,15 @@ import { SettingsView } from "@/components/settings/types";
 import MobileSettingsView from "@/components/settings/mobile-settings-view";
 import DesktopSettingsView from "@/components/settings/desktop-settings-view";
 import AddNewWallet from "@/components/settings/add-new-wallet";
+import ImportWallet from "@/components/settings/import-wallet";
+import ConnectedDevices from "@/components/settings/connected-devices";
+import LanguageRegion from "@/components/settings/language-region";
 import { useWallet } from "@/lib/wallet/hooks/useWallet";
 import { useActiveWalletAddress } from "@/lib/wallet/hooks/useActiveWalletAddress";
 import { useSearchParams, useRouter } from "next/navigation";
 import type { BugReport } from "@/lib/shared/types/bug-reports";
+import { useWalletManagerStore } from "@/lib/wallet/state/wallet-manager-store";
+import { useTranslation } from "@/lib/i18n/useTranslation";
 
 const chainIcons = [
   "/assets/chains/chain-1.svg",
@@ -44,67 +49,11 @@ const recoveryPhrase = [
   "accident",
 ];
 
-const languages = [
-  "English",
-  "French",
-  "Spanish",
-  "Chinese",
-  "Arabic",
-  "Portuguese",
-];
-
-const currencies = ["USD", "EUR", "NGN", "GBP", "CNY", "JPY"];
-
-const regionalFormats = ["MM/DD/YY", "DD/MM/YY", "YYYY-MM-DD"];
-
-const connectedDevices = [
-  {
-    id: 1,
-    device: "iPhone 14 Pro",
-    ip: "102.89.14.221",
-    location: "New York",
-    status: "Active",
-    isActive: true,
-  },
-  {
-    id: 2,
-    device: "iPhone 14 Pro",
-    ip: "102.89.14.221",
-    location: "New York",
-    status: "2 Min Ago",
-    isActive: false,
-  },
-  {
-    id: 3,
-    device: "iPhone 14 Pro",
-    ip: "102.89.14.221",
-    location: "New York",
-    status: "2 Min Ago",
-    isActive: false,
-  },
-  {
-    id: 4,
-    device: "iPhone 14 Pro",
-    ip: "102.89.14.221",
-    location: "New York",
-    status: "2 Min Ago",
-    isActive: false,
-  },
-  {
-    id: 5,
-    device: "iPhone 14 Pro",
-    ip: "102.89.14.221",
-    location: "New York",
-    status: "2 Min Ago",
-    isActive: false,
-  },
-];
 
 export default function SettingsPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const [currentView, setCurrentView] = useState<SettingsView>("main");
-  const [walletName, setWalletName] = useState("Wallet 1");
   const [newWalletName, setNewWalletName] = useState("");
   const [privateKeyRevealed, setPrivateKeyRevealed] = useState(false);
   const [recoveryPhraseRevealed, setRecoveryPhraseRevealed] = useState(false);
@@ -116,18 +65,6 @@ export default function SettingsPage() {
   const [suspiciousAlerts, setSuspiciousAlerts] = useState(true);
   const [transactionRisk, setTransactionRisk] = useState(true);
   const [flaggedAddress, setFlaggedAddress] = useState(true);
-  const [deviceToTerminate, setDeviceToTerminate] = useState<{
-    device: string;
-    ip: string;
-    location: string;
-    status: string;
-  } | null>(null);
-  const [selectedLanguage, setSelectedLanguage] = useState("English");
-  const [selectedCurrency, setSelectedCurrency] = useState("USD");
-  const [selectedFormat, setSelectedFormat] = useState("MM/DD/YY");
-  const [openDropdown, setOpenDropdown] = useState<
-    "language" | "currency" | "format" | null
-  >(null);
   const [transactionsEnabled, setTransactionsEnabled] = useState(true);
   const [rewardsEnabled, setRewardsEnabled] = useState(true);
   const [governanceEnabled, setGovernanceEnabled] = useState(true);
@@ -312,32 +249,51 @@ export default function SettingsPage() {
 
   const wallet = useWallet();
   const activeAddress = useActiveWalletAddress();
-  const walletAddress = activeAddress || wallet.address || "0xDB...T432";
-  const fullWalletAddress = activeAddress || wallet.address || "0xdeadbeef1234567890abcdef1234567890ab";
-  const privateKey = "0xdeadbeef1234567890abcdef1234567890abcdef1234567890abcdef1234567890ab";
-  const dropdownRef = useRef<HTMLDivElement>(null);
+  const getActiveManagedWallet = useWalletManagerStore((s) => s.getActiveWallet);
+  const addOrUpdateManagedWallet = useWalletManagerStore(
+    (s) => s.addOrUpdateWallet
+  );
+  const removeManagedWallet = useWalletManagerStore((s) => s.removeWallet);
+
+  const activeManagedWallet = getActiveManagedWallet();
+
+  const sourceLabelMap: Record<string, string> = {
+    local: "Local",
+    metamask: "MetaMask",
+    walletconnect: "WalletConnect",
+    coinbase: "Coinbase",
+    rabby: "Rabby",
+    phantom: "Phantom",
+    other: "Wallet",
+  };
+
+  const isLocalActiveWallet = !!activeManagedWallet?.isLocal;
+  const walletSourceLabel = activeManagedWallet
+    ? sourceLabelMap[activeManagedWallet.source] || "Wallet"
+    : undefined;
+
+  const walletAddress =
+    activeManagedWallet?.address ||
+    activeAddress ||
+    wallet.address ||
+    "";
+  const fullWalletAddress =
+    activeManagedWallet?.address ||
+    activeAddress ||
+    wallet.address ||
+    "";
+
+  // TODO: Wire this to the real decrypted key for the active local wallet (never for external).
+  const privateKey =
+    "0xdeadbeef1234567890abcdef1234567890abcdef1234567890abcdef1234567890ab";
+
+  const hasWalletConnected = !!(
+    activeManagedWallet ||
+    activeAddress ||
+    wallet.address
+  );
   const screenshotInputRef = useRef<HTMLInputElement>(null);
   const logFileInputRef = useRef<HTMLInputElement>(null);
-
-  // Close dropdown when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (
-        dropdownRef.current &&
-        !dropdownRef.current.contains(event.target as Node)
-      ) {
-        setOpenDropdown(null);
-      }
-    };
-
-    if (openDropdown) {
-      document.addEventListener("mousedown", handleClickOutside);
-    }
-
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-    };
-  }, [openDropdown]);
 
   // Fetch user bug reports
   useEffect(() => {
@@ -492,26 +448,31 @@ export default function SettingsPage() {
   };
 
   const handleSaveWalletName = () => {
-    if (newWalletName.trim()) {
-      setWalletName(newWalletName.trim());
+    const name = newWalletName.trim();
+    if (!name) return;
+
+    const active = getActiveManagedWallet();
+    if (!active) return;
+
+    if (!active.isLocal) {
+      alert("You can only rename local TIWI wallets.");
+      return;
+    }
+
+    addOrUpdateManagedWallet({
+      id: active.id,
+      address: active.address,
+      source: active.source,
+      isLocal: active.isLocal,
+      label: name,
+    });
+
       setNewWalletName("");
       setCurrentView("main");
-    }
   };
 
   const handleGoBack = () => {
-    if (currentView === "security") {
-      setCurrentView("main");
-    } else if (
-      currentView === "change-pin" ||
-      currentView === "fraud-alerts" ||
-      currentView === "whitelist-addresses"
-    ) {
-      setCurrentView("security");
-    } else if (currentView === "terminate-device") {
-      setCurrentView("connected-devices");
-      setDeviceToTerminate(null);
-    } else if (
+    if (
       currentView === "transactions-notifications" ||
       currentView === "rewards-earnings" ||
       currentView === "governance" ||
@@ -543,28 +504,18 @@ export default function SettingsPage() {
     setCurrentPin("");
     setNewPin("");
     setConfirmPin("");
-    setOpenDropdown(null);
   };
 
+  const { t } = useTranslation();
+  
   const settingsMenuItems = [
-    { label: "Account Details", view: "main" as SettingsView },
-    { label: "Security", view: "security" as SettingsView },
-    { label: "Connected Devices", view: "connected-devices" as SettingsView },
-    { label: "Language & Region", view: "language-region" as SettingsView },
-    { label: "Notifications", view: "notifications" as SettingsView },
-    { label: "App Updates & Cache", view: "app-updates-cache" as SettingsView },
-    { label: "Support", view: "support" as SettingsView },
-    { label: "Add New Wallet", view: "add-new-wallet" as SettingsView },
-    { label: "Import Wallet", view: "import-wallet" as SettingsView },
-  ];
-
-  const securityMenuItems = [
-    { label: "Change PIN", view: "change-pin" as SettingsView },
-    {
-      label: "Fraud Alerts & Suspicious Activity",
-      view: "fraud-alerts" as SettingsView,
-    },
-    { label: "Whitelist Addresses", view: "whitelist-addresses" as SettingsView },
+    { label: t("settings.account_details"), view: "main" as SettingsView },
+    { label: t("settings.connected_devices"), view: "connected-devices" as SettingsView },
+    { label: t("settings.language_region"), view: "language-region" as SettingsView },
+    { label: t("settings.notifications"), view: "notifications" as SettingsView },
+    { label: t("settings.support"), view: "support" as SettingsView },
+    { label: t("settings.add_new_wallet"), view: "add-new-wallet" as SettingsView },
+    { label: t("settings.import_wallet"), view: "import-wallet" as SettingsView },
   ];
 
   const chainIconsList = chainIcons;
@@ -578,16 +529,29 @@ export default function SettingsPage() {
           onViewChange={(view) => {
             setCurrentView(view);
             try {
-              const params = new URLSearchParams(searchParams?.toString() || "");
+              const params = new URLSearchParams(
+                searchParams?.toString() || ""
+              );
               params.set("view", view);
               router.replace(`/settings?${params.toString()}`);
             } catch {}
           }}
           onGoBack={handleGoBack}
-          walletName={walletName}
+          walletName={
+            hasWalletConnected
+              ? activeManagedWallet?.label ||
+                (activeManagedWallet
+                  ? activeManagedWallet.isLocal
+                    ? "Local Wallet"
+                    : walletSourceLabel || "Wallet"
+                  : "Wallet")
+              : "No wallet connected"
+          }
           walletAddress={walletAddress}
           chainIcons={chainIconsList}
-          connectedDevices={connectedDevices}
+          hasWallet={hasWalletConnected}
+          isLocalWallet={isLocalActiveWallet}
+          walletSourceLabel={walletSourceLabel}
           transactionsEnabled={transactionsEnabled}
           rewardsEnabled={rewardsEnabled}
           governanceEnabled={governanceEnabled}
@@ -598,18 +562,6 @@ export default function SettingsPage() {
           onToggleGovernance={setGovernanceEnabled}
           onToggleNews={setNewsEnabled}
           onToggleSystemAlerts={setSystemAlertsEnabled}
-          onTerminateDevice={(device) => {
-            setDeviceToTerminate({
-              device: device.device,
-              ip: device.ip,
-              location: device.location,
-              status: device.status,
-            });
-            setCurrentView("terminate-device");
-          }}
-          onTerminateAll={() => {
-            // Handle terminate all
-          }}
         />
       </div>
 
@@ -621,20 +573,10 @@ export default function SettingsPage() {
             <h1 className="text-2xl font-bold text-white">
             {currentView === "main"
               ? "Settings/Account Details"
-              : currentView === "security"
-              ? "Settings/Security"
               : currentView === "edit-wallet-name"
               ? "Edit Wallet Name"
-              : currentView === "change-pin"
-              ? "Change Pin"
-              : currentView === "fraud-alerts"
-              ? "Fraud Alert"
-              : currentView === "whitelist-addresses"
-              ? "Whitelist Addres..."
               : currentView === "connected-devices"
               ? "Settings/Connected Devices"
-              : currentView === "terminate-device"
-              ? "Terminate"
               : currentView === "language-region"
               ? "Settings/Language"
               : currentView === "notifications"
@@ -649,8 +591,6 @@ export default function SettingsPage() {
               ? "News & Announcements"
               : currentView === "system-alerts"
               ? "System Alerts"
-              : currentView === "app-updates-cache"
-              ? "Settings/App Update"
               : currentView === "support"
               ? "Settings/Support"
               : currentView === "live-status"
@@ -685,14 +625,28 @@ export default function SettingsPage() {
             onViewChange={(view) => {
               setCurrentView(view);
               try {
-                const params = new URLSearchParams(searchParams?.toString() || "");
+                const params = new URLSearchParams(
+                  searchParams?.toString() || ""
+                );
                 params.set("view", view);
                 router.replace(`/settings?${params.toString()}`);
               } catch {}
             }}
-            walletName={walletName}
+            walletName={
+              hasWalletConnected
+                ? activeManagedWallet?.label ||
+                  (activeManagedWallet
+                    ? activeManagedWallet.isLocal
+                      ? "Local Wallet"
+                      : walletSourceLabel || "Wallet"
+                    : "Wallet")
+                : "No wallet connected"
+            }
             walletAddress={walletAddress}
             chainIcons={chainIconsList}
+            hasWallet={hasWalletConnected}
+            isLocalWallet={isLocalActiveWallet}
+            walletSourceLabel={walletSourceLabel}
           >
 
             {/* Edit Wallet Name View */}
@@ -704,33 +658,56 @@ export default function SettingsPage() {
                     className="flex items-center gap-2 text-[#B1F128] border border-[#B1F128] px-4 py-2 rounded-lg text-sm font-medium hover:bg-[#081F02] transition-colors"
                   >
                     <IoArrowBack size={16} />
-                    Go Back
+                    {t("settings.go_back")}
                   </button>
                 </div>
 
                 <h2 className="text-2xl font-semibold text-white mb-6">
-                  Edit Wallet Name
+                  {t("wallet.edit_name")}
                 </h2>
 
                 <div className="space-y-6">
+                  {/* Old Wallet Name - Non-editable */}
                   <div>
                     <label className="text-sm text-[#B5B5B5] mb-2 block">
-                      Enter New Wallet Name
+                      {t("wallet.current_name")}
+                    </label>
+                    <input
+                      type="text"
+                      value={
+                        activeManagedWallet?.label ||
+                        (activeManagedWallet
+                          ? activeManagedWallet.isLocal
+                            ? "Local Wallet"
+                            : walletSourceLabel || "Wallet"
+                          : "Wallet")
+                      }
+                      readOnly
+                      disabled
+                      className="w-full bg-[#010501] border border-[#1f261e] rounded-xl px-4 py-4 text-[#6E7873] cursor-not-allowed opacity-60"
+                    />
+                  </div>
+
+                  {/* New Wallet Name - Editable */}
+                  <div>
+                    <label className="text-sm text-[#B5B5B5] mb-2 block">
+                      {t("wallet.new_name")}
                     </label>
                     <input
                       type="text"
                       value={newWalletName}
                       onChange={(e) => setNewWalletName(e.target.value)}
-                      placeholder="New Wallet Name"
+                      placeholder={t("wallet.enter_new_name")}
                       className="w-full bg-[#010501] border border-[#1f261e] rounded-xl px-4 py-4 text-white placeholder-[#6E7873] outline-none focus:ring-2 focus:ring-[#B1F128] focus:border-[#B1F128]"
                     />
                   </div>
 
                   <button
                     onClick={handleSaveWalletName}
-                    className="w-full bg-[#B1F128] text-[#010501] font-semibold py-4 px-6 rounded-full hover:opacity-90 transition-opacity"
+                    disabled={!newWalletName.trim()}
+                    className="w-full bg-[#B1F128] text-[#010501] font-semibold py-4 px-6 rounded-full hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    Save
+                    {t("wallet.save")}
                   </button>
                 </div>
               </div>
@@ -1009,585 +986,19 @@ export default function SettingsPage() {
               </div>
             )}
 
-            {/* Security Sub-menu */}
-            {currentView === "security" && (
-              <div className="bg-[#0B0F0A] rounded-2xl rounded-l-none border border-[#1f261e] p-6 md:p-8 h-full">
-                <div className="flex justify-end mb-6">
-                  <button
-                    onClick={handleGoBack}
-                    className="flex items-center gap-2 text-[#B1F128] border border-[#B1F128] px-4 py-2 rounded-lg text-sm font-medium hover:bg-[#081F02] transition-colors"
-                  >
-                    <IoArrowBack size={16} />
-                    Go Back
-                  </button>
-                </div>
-
-                <h2 className="text-xl font-semibold text-white mb-6">
-                  Security
-                </h2>
-
-                <nav className="space-y-1">
-                  {securityMenuItems.map((item, index) => (
-                    <button
-                      key={index}
-                      onClick={() => setCurrentView(item.view)}
-                      className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium text-[#B5B5B5] hover:bg-[#121712] transition-colors"
-                    >
-                      <span>{item.label}</span>
-                      <IoChevronForward size={16} className="opacity-60" />
-                    </button>
-                  ))}
-                </nav>
-              </div>
-            )}
-
-            {/* Change PIN */}
-            {currentView === "change-pin" && (
-              <div className="bg-[#0B0F0A] rounded-2xl rounded-l-none border border-[#1f261e] p-6 md:p-8 max-w-2xl mx-auto h-full">
-                <div className="flex justify-end mb-6">
-                  <button
-                    onClick={handleGoBack}
-                    className="flex items-center gap-2 text-[#B1F128] border border-[#B1F128] px-4 py-2 rounded-lg text-sm font-medium hover:bg-[#081F02] transition-colors"
-                  >
-                    <IoArrowBack size={16} />
-                    Go Back
-                  </button>
-                </div>
-
-                <h2 className="text-2xl font-semibold text-white mb-6">
-                  Change Password
-                </h2>
-
-                <div className="space-y-6">
-                  <div>
-                    <label className="text-sm text-[#B5B5B5] mb-2 block">
-                      Enter current PIN
-                    </label>
-                    <input
-                      type="password"
-                      value={currentPin}
-                      onChange={(e) => setCurrentPin(e.target.value)}
-                      placeholder="Enter current PIN"
-                      className="w-full bg-[#010501] border border-[#1f261e] rounded-xl px-4 py-4 text-white placeholder-[#6E7873] outline-none focus:ring-2 focus:ring-[#B1F128] focus:border-[#B1F128]"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="text-sm text-[#B5B5B5] mb-2 block">
-                      Set new PIN
-                    </label>
-                    <input
-                      type="password"
-                      value={newPin}
-                      onChange={(e) => setNewPin(e.target.value)}
-                      placeholder="Set new PIN"
-                      className="w-full bg-[#010501] border border-[#1f261e] rounded-xl px-4 py-4 text-white placeholder-[#6E7873] outline-none focus:ring-2 focus:ring-[#B1F128] focus:border-[#B1F128]"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="text-sm text-[#B5B5B5] mb-2 block">
-                      Confirm new PIN
-                    </label>
-                    <input
-                      type="password"
-                      value={confirmPin}
-                      onChange={(e) => setConfirmPin(e.target.value)}
-                      placeholder="Confirm new PIN"
-                      className="w-full bg-[#010501] border border-[#1f261e] rounded-xl px-4 py-4 text-white placeholder-[#6E7873] outline-none focus:ring-2 focus:ring-[#B1F128] focus:border-[#B1F128]"
-                    />
-                  </div>
-
-                  <button
-                    onClick={() => {
-                      if (newPin && confirmPin && newPin === confirmPin) {
-                        // Handle PIN change
-                        handleGoBack();
-                      }
-                    }}
-                    className="w-full bg-[#B1F128] text-[#010501] font-semibold py-4 px-6 rounded-full hover:opacity-90 transition-opacity"
-                  >
-                    Confirm
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* Fraud Alerts */}
-            {currentView === "fraud-alerts" && (
-              <div className="bg-[#0B0F0A] rounded-2xl rounded-l-none border border-[#1f261e] p-6 md:p-8 max-w-2xl mx-auto h-full">
-                <div className="flex justify-end mb-6">
-                  <button
-                    onClick={handleGoBack}
-                    className="flex items-center gap-2 text-[#B1F128] border border-[#B1F128] px-4 py-2 rounded-lg text-sm font-medium hover:bg-[#081F02] transition-colors"
-                  >
-                    <IoArrowBack size={16} />
-                    Go Back
-                  </button>
-                </div>
-
-                <h2 className="text-2xl font-semibold text-white mb-6">
-                  Fraud Alerts
-                </h2>
-
-                <div className="space-y-6">
-                  {/* Suspicious Activity Alerts */}
-                  <div className="flex items-center justify-between py-4">
-                    <span className="text-base text-[#B5B5B5]">
-                      Suspicious Activity Alerts
-                    </span>
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={suspiciousAlerts}
-                        onChange={(e) => setSuspiciousAlerts(e.target.checked)}
-                        className="sr-only peer"
-                      />
-                      <div className="w-11 h-6 bg-[#1f261e] peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-[#B1F128] rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#B1F128]"></div>
-                    </label>
-                  </div>
-
-                  {/* Transaction Risk Scores */}
-                  <div className="flex items-center justify-between py-4">
-                    <span className="text-base text-[#B5B5B5]">
-                      Transaction Risk Scores
-                    </span>
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={transactionRisk}
-                        onChange={(e) => setTransactionRisk(e.target.checked)}
-                        className="sr-only peer"
-                      />
-                      <div className="w-11 h-6 bg-[#1f261e] peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-[#B1F128] rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#B1F128]"></div>
-                    </label>
-                  </div>
-
-                  {/* Flagged Address Warnings */}
-                  <div className="flex items-center justify-between py-4">
-                    <span className="text-base text-[#B5B5B5]">
-                      Flagged Address Warnings
-                    </span>
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={flaggedAddress}
-                        onChange={(e) => setFlaggedAddress(e.target.checked)}
-                        className="sr-only peer"
-                      />
-                      <div className="w-11 h-6 bg-[#1f261e] peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-[#B1F128] rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#B1F128]"></div>
-                    </label>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Whitelist Addresses */}
-            {currentView === "whitelist-addresses" && (
-              <div className="bg-[#0B0F0A] rounded-2xl rounded-l-none border border-[#1f261e] p-6 md:p-8 max-w-2xl mx-auto h-full">
-                <div className="flex justify-end mb-6">
-                  <button
-                    onClick={handleGoBack}
-                    className="flex items-center gap-2 text-[#B1F128] border border-[#B1F128] px-4 py-2 rounded-lg text-sm font-medium hover:bg-[#081F02] transition-colors"
-                  >
-                    <IoArrowBack size={16} />
-                    Go Back
-                  </button>
-                </div>
-
-                <h2 className="text-2xl font-semibold text-white mb-6">
-                  Whitelist Address
-                </h2>
-
-                <div className="flex flex-col items-center justify-center py-16 space-y-6">
-                  {/* Book Icon */}
-                  <div className="w-24 h-24 flex items-center justify-center">
-                    <svg
-                      width="96"
-                      height="96"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      className="text-[#B5B5B5]"
-                    >
-                      <path
-                        d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                      <path
-                        d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                      <path
-                        d="M8 7h8M8 11h8"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
-                  </div>
-
-                  <p className="text-base text-[#B5B5B5]">
-                    No Address Added Yet
-                  </p>
-
-                  <button
-                    onClick={() => {
-                      // Handle add address
-                    }}
-                    className="bg-[#B1F128] text-[#010501] font-semibold py-3 px-8 rounded-full hover:opacity-90 transition-opacity"
-                  >
-                    Add Address
-                  </button>
-                </div>
-              </div>
-            )}
-
             {/* Connected Devices */}
             {currentView === "connected-devices" && (
-              <div className="bg-[#0B0F0A] rounded-2xl rounded-l-none border border-[#1f261e] p-6 md:p-8 h-full">
-                <div className="flex justify-end mb-6">
-                  <button
-                    onClick={handleGoBack}
-                    className="flex items-center gap-2 text-[#B1F128] border border-[#B1F128] px-4 py-2 rounded-lg text-sm font-medium hover:bg-[#081F02] transition-colors"
-                  >
-                    <IoArrowBack size={16} />
-                    Go Back
-                  </button>
-                </div>
-
-                <h2 className="text-2xl font-semibold text-white mb-4">
-                  Connected Devices
-                </h2>
-
-                <p className="text-sm text-[#B5B5B5] mb-6">
-                  These are the devices currently logged into your TIWI Protocol
-                  Wallet. If you notice any unfamiliar activity, terminate the
-                  session immediately.
-                </p>
-
-                <div className="space-y-3 mb-8">
-                  {connectedDevices.map((device) => (
-                    <div
-                      key={device.id}
-                      className="flex items-center justify-between py-4 px-4 bg-[#010501] rounded-xl border border-[#1f261e]"
-                    >
-                      <div className="flex items-center gap-4 flex-1">
-                        <p className="text-base font-medium text-white min-w-[140px]">
-                          {device.device}
-                        </p>
-                        <p className="text-sm text-[#B5B5B5] min-w-[120px]">
-                          {device.ip}
-                        </p>
-                        <p className="text-sm text-[#B5B5B5] min-w-[100px]">
-                          {device.location}
-                        </p>
-                        <p
-                          className={`text-sm min-w-[100px] ${
-                            device.isActive
-                              ? "text-[#B1F128]"
-                              : "text-[#B5B5B5]"
-                          }`}
-                        >
-                          {device.status}
-                        </p>
-                      </div>
-                      <button
-                        onClick={() => {
-                          setDeviceToTerminate({
-                            device: device.device,
-                            ip: device.ip,
-                            location: device.location,
-                            status: device.status,
-                          });
-                          setCurrentView("terminate-device");
-                        }}
-                        className="text-[#B1F128] font-medium text-sm hover:opacity-80 transition-opacity ml-4 shrink-0"
-                      >
-                        Terminate
-                      </button>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="space-y-3">
-                  <button
-                    onClick={() => {
-                      // Handle terminate all sessions
-                    }}
-                    className="w-full bg-[#B1F128] text-[#010501] font-semibold py-4 px-6 rounded-full hover:opacity-90 transition-opacity"
-                  >
-                    Terminate All Sessions
-                  </button>
-                  <p className="text-xs text-center text-[#B5B5B5]">
-                    Signs out every device except the one you're using now.
-                  </p>
-                </div>
-              </div>
+              <ConnectedDevices
+                onViewChange={setCurrentView}
+                onGoBack={handleGoBack}
+              />
             )}
 
             {/* Terminate Device Confirmation */}
-            {currentView === "terminate-device" && deviceToTerminate && (
-              <div className="bg-[#0B0F0A] rounded-2xl rounded-l-none border border-[#1f261e] p-6 md:p-8 max-w-2xl mx-auto h-full">
-                <div className="flex justify-end mb-6">
-                  <button
-                    onClick={handleGoBack}
-                    className="flex items-center gap-2 text-[#B1F128] border border-[#B1F128] px-4 py-2 rounded-lg text-sm font-medium hover:bg-[#081F02] transition-colors"
-                  >
-                    <IoArrowBack size={16} />
-                    Go Back
-                  </button>
-                </div>
-
-                <h2 className="text-2xl font-semibold text-white mb-6">
-                  End This Session
-                </h2>
-
-                <p className="text-sm text-[#B5B5B5] mb-6">
-                  This device will be logged out immediately and will no longer
-                  have access to your wallet.
-                </p>
-
-                <div className="space-y-2 mb-6">
-                  <p className="text-base font-medium text-white">
-                    {deviceToTerminate.device}
-                  </p>
-                  <p className="text-sm text-[#B5B5B5]">
-                    {deviceToTerminate.ip}
-                  </p>
-                  <p className="text-sm text-[#B5B5B5]">
-                    {deviceToTerminate.location}
-                  </p>
-                  <p className="text-sm text-[#B5B5B5]">
-                    {deviceToTerminate.status}
-                  </p>
-                </div>
-
-                <div className="flex gap-4">
-                  <button
-                    onClick={() => {
-                      // Handle terminate
-                      handleGoBack();
-                    }}
-                    className="flex-1 bg-[#B1F128] text-[#010501] font-semibold py-4 px-6 rounded-full hover:opacity-90 transition-opacity"
-                  >
-                    Yes Terminate
-                  </button>
-                  <button
-                    onClick={handleGoBack}
-                    className="flex-1 bg-transparent border-2 border-[#B1F128] text-[#B1F128] font-semibold py-4 px-6 rounded-full hover:bg-[#081F02] transition-colors"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            )}
 
             {/* Language & Region */}
             {currentView === "language-region" && (
-              <div className="bg-[#0B0F0A] rounded-2xl rounded-l-none border border-[#1f261e] p-6 md:p-8 h-full">
-                <div className="flex justify-end mb-6">
-                  <button
-                    onClick={handleGoBack}
-                    className="flex items-center gap-2 text-[#B1F128] border border-[#B1F128] px-4 py-2 rounded-lg text-sm font-medium hover:bg-[#081F02] transition-colors"
-                  >
-                    <IoArrowBack size={16} />
-                    Go Back
-                  </button>
-                </div>
-
-                <h2 className="text-2xl font-semibold text-white mb-6">
-                  Language & Region
-                </h2>
-
-                <div className="space-y-6" ref={dropdownRef}>
-                  {/* Application Language Dropdown */}
-                  <div className="relative">
-                    <label className="text-sm text-[#B5B5B5] mb-2 block">
-                      Application Language
-                    </label>
-                    <div className="relative">
-                      <button
-                        onClick={() =>
-                          setOpenDropdown(
-                            openDropdown === "language" ? null : "language"
-                          )
-                        }
-                        className="w-full bg-[#010501] border border-[#1f261e] rounded-xl px-4 py-4 text-white flex items-center justify-between hover:border-[#B1F128] transition-colors"
-                      >
-                        <span>{selectedLanguage}</span>
-                        <IoChevronDown
-                          size={20}
-                          className={`text-[#B5B5B5] transition-transform ${
-                            openDropdown === "language" ? "rotate-180" : ""
-                          }`}
-                        />
-                      </button>
-                      {openDropdown === "language" && (
-                        <div className="absolute z-10 w-full mt-2 bg-[#0B0F0A] border border-[#1f261e] rounded-xl shadow-lg overflow-hidden">
-                          {languages.map((language) => (
-                            <button
-                              key={language}
-                              onClick={() => {
-                                setSelectedLanguage(language);
-                                setOpenDropdown(null);
-                              }}
-                              className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-[#121712] transition-colors"
-                            >
-                              <div
-                                className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
-                                  selectedLanguage === language
-                                    ? "border-[#B1F128] bg-[#B1F128]"
-                                    : "border-[#3E453E]"
-                                }`}
-                              >
-                                {selectedLanguage === language && (
-                                  <div className="w-2 h-2 rounded-full bg-[#010501]" />
-                                )}
-                              </div>
-                              <span
-                                className={`text-sm ${
-                                  selectedLanguage === language
-                                    ? "text-white"
-                                    : "text-[#B5B5B5]"
-                                }`}
-                              >
-                                {language}
-                              </span>
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Currency Display Dropdown */}
-                  <div className="relative">
-                    <label className="text-sm text-[#B5B5B5] mb-2 block">
-                      Currency Display
-                    </label>
-                    <div className="relative">
-                      <button
-                        onClick={() =>
-                          setOpenDropdown(
-                            openDropdown === "currency" ? null : "currency"
-                          )
-                        }
-                        className="w-full bg-[#010501] border border-[#1f261e] rounded-xl px-4 py-4 text-white flex items-center justify-between hover:border-[#B1F128] transition-colors"
-                      >
-                        <span>{selectedCurrency}</span>
-                        <IoChevronDown
-                          size={20}
-                          className={`text-[#B5B5B5] transition-transform ${
-                            openDropdown === "currency" ? "rotate-180" : ""
-                          }`}
-                        />
-                      </button>
-                      {openDropdown === "currency" && (
-                        <div className="absolute z-10 w-full mt-2 bg-[#0B0F0A] border border-[#1f261e] rounded-xl shadow-lg overflow-hidden">
-                          {currencies.map((currency) => (
-                            <button
-                              key={currency}
-                              onClick={() => {
-                                setSelectedCurrency(currency);
-                                setOpenDropdown(null);
-                              }}
-                              className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-[#121712] transition-colors"
-                            >
-                              <div
-                                className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
-                                  selectedCurrency === currency
-                                    ? "border-[#B1F128] bg-[#B1F128]"
-                                    : "border-[#3E453E]"
-                                }`}
-                              >
-                                {selectedCurrency === currency && (
-                                  <div className="w-2 h-2 rounded-full bg-[#010501]" />
-                                )}
-                              </div>
-                              <span
-                                className={`text-sm ${
-                                  selectedCurrency === currency
-                                    ? "text-white"
-                                    : "text-[#B5B5B5]"
-                                }`}
-                              >
-                                {currency}
-                              </span>
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Regional Format Dropdown */}
-                  <div className="relative">
-                    <label className="text-sm text-[#B5B5B5] mb-2 block">
-                      Regional Format
-                    </label>
-                    <div className="relative">
-                      <button
-                        onClick={() =>
-                          setOpenDropdown(
-                            openDropdown === "format" ? null : "format"
-                          )
-                        }
-                        className="w-full bg-[#010501] border border-[#1f261e] rounded-xl px-4 py-4 text-white flex items-center justify-between hover:border-[#B1F128] transition-colors"
-                      >
-                        <span>{selectedFormat}</span>
-                        <IoChevronDown
-                          size={20}
-                          className={`text-[#B5B5B5] transition-transform ${
-                            openDropdown === "format" ? "rotate-180" : ""
-                          }`}
-                        />
-                      </button>
-                      {openDropdown === "format" && (
-                        <div className="absolute z-10 w-full mt-2 bg-[#0B0F0A] border border-[#1f261e] rounded-xl shadow-lg overflow-hidden">
-                          {regionalFormats.map((format) => (
-                            <button
-                              key={format}
-                              onClick={() => {
-                                setSelectedFormat(format);
-                                setOpenDropdown(null);
-                              }}
-                              className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-[#121712] transition-colors"
-                            >
-                              <div
-                                className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
-                                  selectedFormat === format
-                                    ? "border-[#B1F128] bg-[#B1F128]"
-                                    : "border-[#3E453E]"
-                                }`}
-                              >
-                                {selectedFormat === format && (
-                                  <div className="w-2 h-2 rounded-full bg-[#010501]" />
-                                )}
-                              </div>
-                              <span
-                                className={`text-sm ${
-                                  selectedFormat === format
-                                    ? "text-white"
-                                    : "text-[#B5B5B5]"
-                                }`}
-                              >
-                                {format}
-                              </span>
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
+              <LanguageRegion onGoBack={handleGoBack} />
             )}
 
             {/* Notifications Main View */}
@@ -1936,81 +1347,6 @@ export default function SettingsPage() {
               </div>
             )}
 
-            {/* App Updates & Cache */}
-            {currentView === "app-updates-cache" && (
-              <div className="bg-[#0B0F0A] rounded-2xl rounded-l-none border border-[#1f261e] p-6 md:p-8 h-full">
-                <div className="flex justify-end mb-6">
-                  <button
-                    onClick={handleGoBack}
-                    className="flex items-center gap-2 text-[#B1F128] border border-[#B1F128] px-4 py-2 rounded-lg text-sm font-medium hover:bg-[#081F02] transition-colors"
-                  >
-                    <IoArrowBack size={16} />
-                    Go Back
-                  </button>
-                </div>
-
-                <h2 className="text-2xl font-semibold text-white mb-6">
-                  App Updates and Cache
-                </h2>
-
-                <div className="space-y-3">
-                  {/* Check for Updates */}
-                  <button className="w-full flex items-center justify-between py-4 px-4 bg-[#010501] rounded-xl border border-[#1f261e] hover:bg-[#121712] transition-colors text-left">
-                    <div className="flex items-center gap-3">
-                      <IoRefresh size={20} className="text-[#B5B5B5]" />
-                      <span className="text-base text-[#B5B5B5]">
-                        Check for Updates
-                      </span>
-                    </div>
-                    <IoChevronForward size={20} className="text-[#B5B5B5] opacity-60" />
-                  </button>
-
-                  {/* Clear Cache */}
-                  <button className="w-full flex items-center justify-between py-4 px-4 bg-[#010501] rounded-xl border border-[#1f261e] hover:bg-[#121712] transition-colors text-left">
-                    <div className="flex items-center gap-3">
-                      <FiTrash2 size={20} className="text-[#B5B5B5]" />
-                      <span className="text-base text-[#B5B5B5]">
-                        Clear Cache
-                      </span>
-                    </div>
-                    <IoChevronForward size={20} className="text-[#B5B5B5] opacity-60" />
-                  </button>
-
-                  {/* Reset Temporary Files */}
-                  <button className="w-full flex items-center justify-between py-4 px-4 bg-[#010501] rounded-xl border border-[#1f261e] hover:bg-[#121712] transition-colors text-left">
-                    <div className="flex items-center gap-3">
-                      <FiFile size={20} className="text-[#B5B5B5]" />
-                      <span className="text-base text-[#B5B5B5]">
-                        Reset Temporary Files
-                      </span>
-                    </div>
-                    <IoChevronForward size={20} className="text-[#B5B5B5] opacity-60" />
-                  </button>
-
-                  {/* Refresh NFT Metadata */}
-                  <button className="w-full flex items-center justify-between py-4 px-4 bg-[#010501] rounded-xl border border-[#1f261e] hover:bg-[#121712] transition-colors text-left">
-                    <div className="flex items-center gap-3">
-                      <IoRefresh size={20} className="text-[#B5B5B5]" />
-                      <span className="text-base text-[#B5B5B5]">
-                        Refresh NFT Metadata
-                      </span>
-                    </div>
-                    <IoChevronForward size={20} className="text-[#B5B5B5] opacity-60" />
-                  </button>
-
-                  {/* Developer Mode */}
-                  <div className="w-full flex items-center justify-between py-4 px-4 bg-[#010501] rounded-xl border border-[#1f261e]">
-                    <div className="flex items-center gap-3">
-                      <FiSettings size={20} className="text-[#B5B5B5]" />
-                      <span className="text-base text-[#B5B5B5]">
-                        Developer Mode
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
             {/* Support Main View */}
             {currentView === "support" && (
               <div className="bg-[#0B0F0A] rounded-2xl rounded-l-none border border-[#1f261e] p-6 md:p-8 h-full">
@@ -2020,21 +1356,21 @@ export default function SettingsPage() {
                     className="flex items-center gap-2 text-[#B1F128] border border-[#B1F128] px-4 py-2 rounded-lg text-sm font-medium hover:bg-[#081F02] transition-colors"
                   >
                     <IoArrowBack size={16} />
-                    Go Back
+                    {t("settings.go_back")}
                   </button>
                 </div>
 
                 <h2 className="text-2xl font-semibold text-white mb-6">
-                  Support
+                  {t("support.title")}
                 </h2>
 
                 <div className="space-y-3">
                   {[
-                    { label: "Live Status", view: "live-status" },
-                    { label: "FAQs", view: "faqs" },
-                    { label: "Tutorials", view: "tutorials" },
-                    { label: "Report a Bug", view: "report-bug" },
-                    { label: "Contact Support", view: "contact-support" },
+                    { label: t("support.live_status"), view: "live-status" },
+                    { label: t("support.faqs"), view: "faqs" },
+                    { label: t("support.tutorials"), view: "tutorials" },
+                    { label: t("support.report_bug"), view: "report-bug" },
+                    { label: t("support.contact_support"), view: "contact-support" },
                   ].map((item) => (
                     <button
                       key={item.view}
@@ -2058,12 +1394,12 @@ export default function SettingsPage() {
                     className="flex items-center gap-2 text-[#B1F128] border border-[#B1F128] px-4 py-2 rounded-lg text-sm font-medium hover:bg-[#081F02] transition-colors"
                   >
                     <IoArrowBack size={16} />
-                    Go Back
+                    {t("settings.go_back")}
                   </button>
                 </div>
 
                 <h2 className="text-2xl font-semibold text-white mb-6">
-                  Live Status
+                  {t("support.live_status")}
                 </h2>
 
                 {isLoadingLiveStatuses ? (
@@ -2103,12 +1439,12 @@ export default function SettingsPage() {
                     className="flex items-center gap-2 text-[#B1F128] border border-[#B1F128] px-4 py-2 rounded-lg text-sm font-medium hover:bg-[#081F02] transition-colors"
                   >
                     <IoArrowBack size={16} />
-                    Go Back
+                    {t("settings.go_back")}
                   </button>
                 </div>
 
                 <h2 className="text-2xl font-semibold text-white mb-6">
-                  FAQs
+                  {t("support.faqs")}
                 </h2>
 
                 <div className="space-y-4">
@@ -2198,12 +1534,12 @@ export default function SettingsPage() {
                     className="flex items-center gap-2 text-[#B1F128] border border-[#B1F128] px-4 py-2 rounded-lg text-sm font-medium hover:bg-[#081F02] transition-colors"
                   >
                     <IoArrowBack size={16} />
-                    Go Back
+                    {t("settings.go_back")}
                   </button>
                 </div>
 
                 <h2 className="text-2xl font-semibold text-white mb-6">
-                  Tutorials
+                  {t("support.tutorials")}
                 </h2>
 
                 <div className="space-y-4">
@@ -2298,12 +1634,12 @@ export default function SettingsPage() {
                     className="flex items-center gap-2 text-[#B1F128] border border-[#B1F128] px-4 py-2 rounded-lg text-sm font-medium hover:bg-[#081F02] transition-colors"
                   >
                     <IoArrowBack size={16} />
-                    Go Back
+                    {t("settings.go_back")}
                   </button>
                 </div>
 
                 <h2 className="text-2xl font-semibold text-white mb-6">
-                  Report a Bug
+                  {t("support.report_bug")}
                 </h2>
 
                 <div className="space-y-4">
@@ -2555,12 +1891,12 @@ export default function SettingsPage() {
                     className="flex items-center gap-2 text-[#B1F128] border border-[#B1F128] px-4 py-2 rounded-lg text-sm font-medium hover:bg-[#081F02] transition-colors"
                   >
                     <IoArrowBack size={16} />
-                    Go Back
+                    {t("settings.go_back")}
                   </button>
                 </div>
 
                 <h2 className="text-2xl font-semibold text-white mb-6">
-                  Contact Support
+                  {t("support.contact_support")}
                 </h2>
 
                 <div className="space-y-3">
@@ -2731,61 +2067,14 @@ export default function SettingsPage() {
 
             {/* Import Wallet */}
             {currentView === "import-wallet" && (
-              <div className="bg-[#0B0F0A] rounded-2xl rounded-l-none border border-[#1f261e] p-6 md:p-8 max-w-2xl mx-auto h-full">
-                <div className="flex justify-end mb-6">
-                  <button
-                    onClick={handleGoBack}
-                    className="flex items-center gap-2 text-[#B1F128] border border-[#B1F128] px-4 py-2 rounded-lg text-sm font-medium hover:bg-[#081F02] transition-colors"
-                  >
-                    <IoArrowBack size={16} />
-                    Go Back
-                  </button>
-                </div>
-
-                <h2 className="text-2xl font-semibold text-white mb-6">
-                  Import Wallet
-                </h2>
-
-                <div className="space-y-6">
-                  <p className="text-sm text-[#B5B5B5]">
-                    Import an existing wallet using your recovery phrase or
-                    private key. Make sure you're in a secure location.
-                  </p>
-
-                  <div className="space-y-4">
-                    <div>
-                      <label className="text-sm text-[#B5B5B5] mb-2 block">
-                        Recovery Phrase or Private Key
-                      </label>
-                      <textarea
-                        placeholder="Enter your recovery phrase or private key"
-                        rows={4}
-                        className="w-full bg-[#010501] border border-[#1f261e] rounded-xl px-4 py-3 text-white placeholder-[#6E7873] outline-none focus:ring-2 focus:ring-[#B1F128] focus:border-[#B1F128] resize-none"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="text-sm text-[#B5B5B5] mb-2 block">
-                        Wallet Name (Optional)
-                      </label>
-                      <input
-                        type="text"
-                        placeholder="Enter a name for this wallet"
-                        className="w-full bg-[#010501] border border-[#1f261e] rounded-xl px-4 py-4 text-white placeholder-[#6E7873] outline-none focus:ring-2 focus:ring-[#B1F128] focus:border-[#B1F128]"
-                      />
-                    </div>
-
-                    <button className="w-full bg-[#B1F128] text-[#010501] font-semibold py-4 px-6 rounded-full hover:opacity-90 transition-opacity flex items-center justify-center gap-3">
-                      <FiUpload size={20} />
-                      Import Wallet
-                    </button>
-
-                    <p className="text-xs text-center text-[#6E7873]">
-                      By importing a wallet, you agree to our Terms & Conditions
-                      and Privacy Policy.
-                    </p>
-                  </div>
-                </div>
+              <div className="rounded-2xl rounded-l-none h-full">
+                <ImportWallet
+                  onGoBack={handleGoBack}
+                  onWalletImported={(address) => {
+                    // Wallet imported successfully - could show notification or update UI
+                    console.log("Wallet imported:", address);
+                  }}
+                />
               </div>
             )}
 
@@ -2828,18 +2117,40 @@ export default function SettingsPage() {
                   </h2>
 
                   <p className="text-sm text-[#B5B5B5]">
-                    You'll need your seed phrase to access the wallet again.
+                    {isLocalActiveWallet
+                      ? "You'll need your recovery phrase or private key to access this wallet again."
+                      : "You can reconnect this external wallet at any time from the Connect Wallet button."}
                   </p>
 
                   <div className="flex gap-4 pt-4">
                     <button
-                      onClick={() => {
-                        // Handle PIN entry - for now just go back
+                      onClick={async () => {
+                        const active = getActiveManagedWallet();
+                        if (!active) {
+                          handleGoBack();
+                          return;
+                        }
+
+                        // Disconnect the wallet connection
+                        try {
+                          await wallet.disconnect();
+                        } catch (e) {
+                          console.warn(
+                            "[Settings] Failed to disconnect wallet:",
+                            e
+                          );
+                        }
+
+                        // Clear active wallet state to allow new connection
+                        // This works like external wallets - disconnect and allow reconnection
+                        const clearActiveWallet = useWalletManagerStore.getState().clearActiveWallet;
+                        clearActiveWallet();
+
                         handleGoBack();
                       }}
                       className="flex-1 bg-[#B1F128] text-[#010501] font-semibold py-4 px-6 rounded-full hover:opacity-90 transition-opacity"
                     >
-                      Enter Pin
+                      Confirm Disconnect
                     </button>
                     <button
                       onClick={handleGoBack}

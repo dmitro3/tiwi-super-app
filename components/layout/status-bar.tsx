@@ -3,6 +3,8 @@
 import Image from "next/image";
 import { useChains } from "@/hooks/useChains";
 import { useTWCPrice } from "@/hooks/useTWCPrice";
+import { useLocaleStore } from "@/lib/locale/locale-store";
+import { useTranslation } from "@/lib/i18n/useTranslation";
 import Skeleton from "@/components/ui/skeleton";
 
 interface StatusBarProps {
@@ -12,6 +14,8 @@ interface StatusBarProps {
 export default function StatusBar({
   smartMarketsCount = 20,
 }: StatusBarProps) {
+  const { t } = useTranslation();
+  useLocaleStore((s) => `${s.language}|${s.currency}`); // re-render when locale changes
   const { chains, isLoading: isLoadingChains } = useChains();
   const { data: twcData, isLoading: isLoadingTWC } = useTWCPrice();
   const activeChainsCount = chains.length;
@@ -37,7 +41,7 @@ export default function StatusBar({
             {activeChainsCount}+
           </span>
         )}
-        <span className="text-[#b5b5b5] font-medium text-sm">Active Chains</span>
+        <span className="text-[#b5b5b5] font-medium text-sm">{t("status.active_chains")}</span>
       </div>
       <div className="h-10 w-px bg-[#1f261e]"></div>
       <div className="flex items-center gap-2">
@@ -85,7 +89,7 @@ export default function StatusBar({
         <span className="text-white font-semibold text-base">
           {smartMarketsCount}+
         </span>
-        <span className="text-[#b5b5b5] font-medium text-sm">Smart Markets</span>
+        <span className="text-[#b5b5b5] font-medium text-sm">{t("status.smart_markets")}</span>
       </div>
       <div className="h-10 w-px bg-[#1f261e]"></div>
       <div className="flex items-center -space-x-1.5">

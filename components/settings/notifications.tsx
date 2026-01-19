@@ -2,6 +2,7 @@
 
 import { IoChevronForward, IoArrowBack } from "react-icons/io5";
 import { SettingsView } from "./types";
+import { useTranslation } from "@/lib/i18n/useTranslation";
 
 interface NotificationsProps {
   onViewChange: (view: SettingsView) => void;
@@ -32,6 +33,7 @@ export default function Notifications({
   onToggleNews,
   onToggleSystemAlerts,
 }: NotificationsProps) {
+  const { t } = useTranslation();
   return (
     <div className="bg-[#0B0F0A] rounded-2xl border border-[#1f261e] p-6 md:p-8">
       <div className="flex justify-end mb-6">
@@ -40,11 +42,11 @@ export default function Notifications({
           className="flex items-center gap-2 text-[#B1F128] border border-[#B1F128] px-4 py-2 rounded-lg text-sm font-medium hover:bg-[#081F02] transition-colors"
         >
           <IoArrowBack size={16} />
-          Go Back
+          {t("settings.go_back")}
         </button>
       </div>
 
-      <h2 className="text-2xl font-semibold text-white mb-6">Notifications</h2>
+      <h2 className="text-2xl font-semibold text-white mb-6">{t("settings.notifications_title")}</h2>
 
       <div className="space-y-4">
         {/* Transactions Notification */}
@@ -54,7 +56,7 @@ export default function Notifications({
             className="flex-1 text-left"
           >
             <span className="text-base text-[#B5B5B5]">
-              Transactions Notification
+              {t("settings.transactions_notification")}
             </span>
           </button>
           <label className="relative inline-flex items-center cursor-pointer">
@@ -74,7 +76,7 @@ export default function Notifications({
             onClick={() => onViewChange("rewards-earnings")}
             className="flex-1 text-left"
           >
-            <span className="text-base text-[#B5B5B5]">Rewards & Earnings</span>
+            <span className="text-base text-[#B5B5B5]">{t("settings.rewards_earnings")}</span>
           </button>
           <label className="relative inline-flex items-center cursor-pointer">
             <input
@@ -93,7 +95,7 @@ export default function Notifications({
             onClick={() => onViewChange("governance")}
             className="flex-1 text-left"
           >
-            <span className="text-base text-[#B5B5B5]">Governance</span>
+            <span className="text-base text-[#B5B5B5]">{t("settings.governance")}</span>
           </button>
           <label className="relative inline-flex items-center cursor-pointer">
             <input
@@ -113,7 +115,7 @@ export default function Notifications({
             className="flex-1 text-left"
           >
             <span className="text-base text-[#B5B5B5]">
-              News & Announcements
+              {t("settings.news_announcements")}
             </span>
           </button>
           <label className="relative inline-flex items-center cursor-pointer">
@@ -133,7 +135,7 @@ export default function Notifications({
             onClick={() => onViewChange("system-alerts")}
             className="flex-1 text-left"
           >
-            <span className="text-base text-[#B5B5B5]">System Alerts</span>
+            <span className="text-base text-[#B5B5B5]">{t("settings.system_alerts")}</span>
           </button>
           <label className="relative inline-flex items-center cursor-pointer">
             <input

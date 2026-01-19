@@ -16,6 +16,9 @@ import { getWalletIconUrl } from "@/lib/wallet/services/wallet-explorer-service"
 import AddNewWallet from "@/components/settings/add-new-wallet";
 import ImportWallet from "@/components/settings/import-wallet";
 import ErrorToast from "@/components/ui/error-toast";
+import InternalWalletItem from "./internal-wallet-item";
+import { useWalletManagerStore } from "@/lib/wallet/state/wallet-manager-store";
+import { useTranslation } from "@/lib/i18n/useTranslation";
 
 export type WalletType =
   | "metamask"
@@ -43,10 +46,15 @@ export default function ConnectWalletModal({
   onOpenExplorer,
   excludeProviders = [],
 }: ConnectWalletModalProps) {
+  const { t } = useTranslation();
   const { installedWallets, isDetecting } = useWalletDetection();
   const [flow, setFlow] = useState<"connect" | "create" | "import">("connect");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isErrorToastOpen, setIsErrorToastOpen] = useState(false);
+  
+  // Get internal wallets from store
+  const allWallets = useWalletManagerStore((s) => s.wallets);
+  const internalWallets = allWallets.filter((w) => w.isLocal && w.source === "local");
 
   // Get top 4 wallets to display, excluding already connected providers
   const getDisplayWallets = (): WalletProvider[] => {
@@ -126,10 +134,10 @@ export default function ConnectWalletModal({
         <div className="flex items-center justify-between px-6 py-4 shrink-0 w-full border-b border-[#1f261e]">
           <DialogTitle className="font-bold leading-normal relative shrink-0 text-2xl text-left text-white m-0">
             {flow === "connect"
-              ? "Connect Wallet"
+              ? t("wallet.connect_wallet")
               : flow === "create"
-              ? "Create New Wallet"
-              : "Import Wallet"}
+              ? t("wallet.create_new_wallet")
+              : t("wallet.import_wallet")}
           </DialogTitle>
           <button
             onClick={() => handleClose(false)}
@@ -150,18 +158,54 @@ export default function ConnectWalletModal({
         <div className="flex flex-col gap-10 items-start px-6 py-0 shrink-0 w-full pb-10 max-h-[70vh] overflow-y-auto wallet-modal-scrollbar">
           {showConnectFlow ? (
             <>
+              {/* Internal Wallets Section */}
+              {internalWallets.length > 0 && (
+                <div className="flex flex-col gap-4 items-start relative shrink-0 w-full">
+                  <div className="flex gap-4 items-center relative shrink-0 w-full">
+                    <div className="flex-1 h-px bg-[#1f261e]"></div>
+                    <p className="font-medium leading-normal relative shrink-0 text-base text-[#b5b5b5]">
+                      {t("wallet.my_wallets")}
+                    </p>
+                    <div className="flex-1 h-px bg-[#1f261e]"></div>
+                  </div>
+                  <div className="flex flex-col gap-2 w-full">
+                    {internalWallets.map((wallet) => (
+                      <InternalWalletItem
+                        key={wallet.id}
+                        wallet={wallet}
+                        onConnect={async (address) => {
+                          // Set as active and close modal
+                          useWalletManagerStore.getState().setActiveWallet(wallet.id);
+                          
+                          // Track device session for local wallet
+                          try {
+                            const { createDeviceSession } = await import("@/lib/wallet/utils/device-detection");
+                            await createDeviceSession(wallet.address);
+                          } catch (sessionError) {
+                            console.warn("[ConnectWalletModal] Failed to create device session:", sessionError);
+                            // Don't block connection if session tracking fails
+                          }
+                          
+                          handleClose(false);
+                        }}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Primary Wallet Options */}
               <div className="flex flex-col gap-2 items-start relative shrink-0 w-full">
                 <WalletOptionCard
                   icon="/assets/icons/wallet/wallet-04.svg"
-                  title="Create New Wallet"
-                  description="Set up a brand new wallet in minutes."
+                  title={t("wallet.create_new_wallet")}
+                  description={t("wallet.create_description")}
                   onClick={() => setFlow("create")}
                 />
                 <WalletOptionCard
                   icon="/assets/icons/wallet/cloud-download.svg"
-                  title="Import Wallet"
-                  description="Use your existing seed phrase or private key."
+                  title={t("wallet.import_wallet")}
+                  description={t("wallet.import_description")}
                   onClick={() => setFlow("import")}
                 />
               </div>
@@ -171,9 +215,9 @@ export default function ConnectWalletModal({
                 {/* Divider with text */}
                 <div className="flex gap-4 items-center relative shrink-0 w-full">
                   <div className="flex-1 h-px bg-[#1f261e]"></div>
-                  <p className="font-medium leading-normal relative shrink-0 text-base text-[#b5b5b5]">
-                    Connect External Wallets
-                  </p>
+                    <p className="font-medium leading-normal relative shrink-0 text-base text-[#b5b5b5]">
+                      {t("wallet.connect_external_wallets")}
+                    </p>
                   <div className="flex-1 h-px bg-[#1f261e]"></div>
                 </div>
 
@@ -233,13 +277,23 @@ export default function ConnectWalletModal({
             <AddNewWallet
               onGoBack={() => setFlow("connect")}
               onWalletCreated={() => {
-                // Optionally close modal after creation
+                // Wallet created - success modal will show
+              }}
+              onComplete={() => {
+                // Close parent modal after success modal closes
                 handleClose(false);
               }}
             />
           ) : (
             <ImportWallet
               onGoBack={() => setFlow("connect")}
+              onWalletImported={() => {
+                // Wallet imported - success modal will show
+              }}
+              onComplete={() => {
+                // Close parent modal after success modal closes
+                handleClose(false);
+              }}
             />
           )}
         </div>

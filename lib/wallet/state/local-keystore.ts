@@ -93,4 +93,11 @@ export function hasAnyLocalWalletsInKeystore(): boolean {
   return loadKeystore().entries.length > 0;
 }
 
+export function removeEncryptedPrivateKey(address: string): void {
+  const normalized = address.toLowerCase();
+  const data = loadKeystore();
+  data.entries = data.entries.filter((e) => e.address !== normalized);
+  saveKeystore(data);
+}
+
 

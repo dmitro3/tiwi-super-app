@@ -30,6 +30,13 @@ export interface StakingPool {
   stakePoolCreationFee: number;
   rewardPoolCreationFee?: string;
   apy?: number;
+  // Reward configuration fields
+  maxTvl?: number; // Maximum TVL or Total Staked Tokens
+  poolReward?: number; // Total reward tokens allocated to the pool
+  rewardDurationSeconds?: number; // Reward duration in seconds
+  rewardPerSecond?: number; // Calculated reward per second
+  // Contract address
+  contractAddress?: string; // Deployed smart contract address
   status: 'active' | 'inactive' | 'archived';
   createdAt: string;
   updatedAt: string;
@@ -57,6 +64,10 @@ export interface CreateStakingPoolRequest {
   stakePoolCreationFee?: number;
   rewardPoolCreationFee?: string;
   apy?: number;
+  // Reward configuration fields
+  maxTvl?: number; // Maximum TVL or Total Staked Tokens
+  poolReward?: number; // Total reward tokens allocated to the pool
+  rewardDurationSeconds?: number; // Reward duration in seconds
   status?: 'active' | 'inactive' | 'archived';
 }
 
@@ -78,6 +89,10 @@ export interface UpdateStakingPoolRequest {
   stakePoolCreationFee?: number;
   rewardPoolCreationFee?: string;
   apy?: number;
+  // Reward configuration fields
+  maxTvl?: number; // Maximum TVL or Total Staked Tokens
+  poolReward?: number; // Total reward tokens allocated to the pool
+  rewardDurationSeconds?: number; // Reward duration in seconds
   status?: 'active' | 'inactive' | 'archived';
 }
 
@@ -104,6 +119,12 @@ function mapRowToPool(row: any): StakingPool {
     stakePoolCreationFee: parseFloat(row.stake_pool_creation_fee || '0.15'),
     rewardPoolCreationFee: row.reward_pool_creation_fee || undefined,
     apy: row.apy ? parseFloat(row.apy) : undefined,
+    // Reward configuration fields
+    maxTvl: row.max_tvl ? parseFloat(row.max_tvl) : undefined,
+    poolReward: row.pool_reward ? parseFloat(row.pool_reward) : undefined,
+    rewardDurationSeconds: row.reward_duration_seconds ? parseInt(row.reward_duration_seconds, 10) : undefined,
+    rewardPerSecond: row.reward_per_second ? parseFloat(row.reward_per_second) : undefined,
+    contractAddress: row.contract_address || undefined,
     status: row.status || 'active',
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -190,6 +211,13 @@ export async function POST(req: NextRequest) {
       );
     }
     
+    // Calculate reward per second if reward configuration is provided
+    let rewardPerSecond = null;
+    if (body.poolReward && body.maxTvl && body.rewardDurationSeconds) {
+      // Reward per second = Pool Reward / Reward Duration
+      rewardPerSecond = body.poolReward / body.rewardDurationSeconds;
+    }
+    
     // Insert into database
     const { data, error } = await supabase
       .from('staking_pools')
@@ -210,6 +238,12 @@ export async function POST(req: NextRequest) {
         stake_pool_creation_fee: body.stakePoolCreationFee || 0.15,
         reward_pool_creation_fee: body.rewardPoolCreationFee || null,
         apy: body.apy || null,
+        // Reward configuration fields
+        max_tvl: body.maxTvl || null,
+        pool_reward: body.poolReward || null,
+        reward_duration_seconds: body.rewardDurationSeconds || null,
+        reward_per_second: rewardPerSecond,
+        contract_address: body.contractAddress || null,
         status: body.status || 'active',
       })
       .select()
@@ -286,6 +320,25 @@ export async function PATCH(req: NextRequest) {
     if (body.stakePoolCreationFee !== undefined) updateData.stake_pool_creation_fee = body.stakePoolCreationFee;
     if (body.rewardPoolCreationFee !== undefined) updateData.reward_pool_creation_fee = body.rewardPoolCreationFee || null;
     if (body.apy !== undefined) updateData.apy = body.apy || null;
+    
+    // Reward configuration fields
+    if (body.maxTvl !== undefined) updateData.max_tvl = body.maxTvl || null;
+    if (body.poolReward !== undefined) updateData.pool_reward = body.poolReward || null;
+    if (body.rewardDurationSeconds !== undefined) updateData.reward_duration_seconds = body.rewardDurationSeconds || null;
+    if (body.contractAddress !== undefined) updateData.contract_address = body.contractAddress || null;
+    
+    // Calculate reward per second if reward configuration is provided or updated
+    const poolReward = body.poolReward !== undefined ? body.poolReward : existing.pool_reward;
+    const rewardDurationSeconds = body.rewardDurationSeconds !== undefined ? body.rewardDurationSeconds : existing.reward_duration_seconds;
+    
+    if (poolReward && rewardDurationSeconds && rewardDurationSeconds > 0) {
+      // Reward per second = Pool Reward / Reward Duration
+      updateData.reward_per_second = poolReward / rewardDurationSeconds;
+    } else if (body.poolReward === null || body.rewardDurationSeconds === null) {
+      // If explicitly set to null, clear reward_per_second
+      updateData.reward_per_second = null;
+    }
+    
     if (body.status !== undefined) updateData.status = body.status;
     
     // Update in database
@@ -370,6 +423,7 @@ export async function DELETE(req: NextRequest) {
     );
   }
 }
+
 
 
 

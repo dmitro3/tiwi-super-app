@@ -5,19 +5,23 @@ import type React from "react";
 import { IoArrowBack } from "react-icons/io5";
 import { FiPlus, FiCopy, FiCheck, FiEye, FiEyeOff, FiLock } from "react-icons/fi";
 import { HiExclamationTriangle } from "react-icons/hi2";
+import { useTranslation } from "@/lib/i18n/useTranslation";
 import { generateNewWallet, derivePrivateKeyFromMnemonic } from "@/lib/wallet/utils/wallet-creation";
 import { useWalletManagerStore } from "@/lib/wallet/state/wallet-manager-store";
 import { encryptWalletData } from "@/lib/wallet/utils/wallet-encryption";
 import { saveEncryptedPrivateKey } from "@/lib/wallet/state/local-keystore";
+import WalletSuccessModal from "@/components/wallet/wallet-success-modal";
 
 interface AddNewWalletProps {
   onGoBack: () => void;
   onWalletCreated?: (address: string) => void;
+  onComplete?: () => void; // Called when success modal closes (after successful creation)
 }
 
-type Step = "create" | "reveal" | "confirm" | "success";
+type Step = "create" | "reveal" | "confirm";
 
-export default function AddNewWallet({ onGoBack, onWalletCreated }: AddNewWalletProps) {
+export default function AddNewWallet({ onGoBack, onWalletCreated, onComplete }: AddNewWalletProps) {
+  const { t } = useTranslation();
   const [step, setStep] = useState<Step>("create");
   const [mnemonic, setMnemonic] = useState<string>("");
   const [walletAddress, setWalletAddress] = useState<string>("");
@@ -29,6 +33,7 @@ export default function AddNewWallet({ onGoBack, onWalletCreated }: AddNewWallet
   const [hasConfirmed, setHasConfirmed] = useState(false);
   const [password, setPassword] = useState("");
   const [passwordConfirm, setPasswordConfirm] = useState("");
+  const [isSuccessModalOpen, setIsSuccessModalOpen] = useState(false);
   const addOrUpdateManagedWallet = useWalletManagerStore((s) => s.addOrUpdateWallet);
   const setActiveManagedWallet = useWalletManagerStore((s) => s.setActiveWallet);
 
@@ -176,8 +181,8 @@ export default function AddNewWallet({ onGoBack, onWalletCreated }: AddNewWallet
       // Mark as confirmed
       setHasConfirmed(true);
       
-      // Move to success step
-      setStep("success");
+      // Show success modal
+      setIsSuccessModalOpen(true);
       
       // Call callback with wallet address (public info only)
       onWalletCreated?.(walletAddress);
@@ -193,13 +198,21 @@ export default function AddNewWallet({ onGoBack, onWalletCreated }: AddNewWallet
     }
   }, [confirmedWords, mnemonic, walletAddress, onWalletCreated]);
 
-  const handleContinue = useCallback(() => {
+  const handleSuccessModalClose = useCallback((open: boolean) => {
+    if (!open) {
+      setIsSuccessModalOpen(false);
     // Clear all sensitive data before going back
     setMnemonic("");
     setConfirmedWords(Array(12).fill(""));
     setRevealedWords(new Set());
+      setPassword("");
+      setPasswordConfirm("");
+      setStep("create");
+      // Call onComplete if provided (e.g., to close parent modal)
+      onComplete?.();
     onGoBack();
-  }, [onGoBack]);
+    }
+  }, [onGoBack, onComplete]);
 
   const mnemonicWords = mnemonic.split(" ").filter(Boolean);
 
@@ -211,11 +224,11 @@ export default function AddNewWallet({ onGoBack, onWalletCreated }: AddNewWallet
           className="flex items-center gap-2 text-[#B1F128] border border-[#B1F128] px-4 py-2 rounded-lg text-sm font-medium hover:bg-[#081F02] transition-colors"
         >
           <IoArrowBack size={16} />
-          Go Back
+          {t("settings.go_back")}
         </button>
       </div>
 
-      <h2 className="text-2xl font-semibold text-white mb-6">Add New Wallet</h2>
+      <h2 className="text-2xl font-semibold text-white mb-6">{t("wallet.create_title")}</h2>
 
       {error && (
         <div className="mb-4 p-3 bg-red-500/10 border border-red-500/50 rounded-lg text-red-400 text-sm flex items-start gap-2">
@@ -254,12 +267,12 @@ export default function AddNewWallet({ onGoBack, onWalletCreated }: AddNewWallet
                 {isGenerating ? (
                   <>
                     <div className="w-5 h-5 border-2 border-[#010501] border-t-transparent rounded-full animate-spin" />
-                    Generating...
+                    {t("wallet.generating")}
                   </>
                 ) : (
                   <>
             <FiPlus size={20} />
-            Create New Wallet
+            {t("wallet.create_button")}
                   </>
                 )}
           </button>
@@ -319,14 +332,14 @@ export default function AddNewWallet({ onGoBack, onWalletCreated }: AddNewWallet
                 onClick={handleRevealAll}
                 className="flex-1 text-sm text-[#B1F128] border border-[#B1F128] px-4 py-2 rounded-lg hover:bg-[#081F02] transition-colors"
               >
-                Reveal All
+                {t("wallet.reveal_all")}
               </button>
               <button
                 onClick={handleCopyMnemonic}
                 className="flex-1 text-sm text-[#B1F128] border border-[#B1F128] px-4 py-2 rounded-lg hover:bg-[#081F02] transition-colors flex items-center justify-center gap-2"
               >
                 {copied ? <FiCheck size={16} /> : <FiCopy size={16} />}
-                {copied ? "Copied!" : "Copy"}
+                {copied ? t("common.applied") : t("common.save")}
               </button>
             </div>
 
@@ -334,7 +347,7 @@ export default function AddNewWallet({ onGoBack, onWalletCreated }: AddNewWallet
               onClick={() => setStep("confirm")}
               className="w-full bg-[#B1F128] text-[#010501] font-semibold py-4 px-6 rounded-full hover:opacity-90 transition-opacity"
             >
-              I've Saved My Recovery Phrase
+              {t("wallet.backup_phrase")}
             </button>
           </>
         )}
@@ -407,41 +420,22 @@ export default function AddNewWallet({ onGoBack, onWalletCreated }: AddNewWallet
               disabled={confirmedWords.some((w) => !w.trim())}
               className="w-full bg-[#B1F128] text-[#010501] font-semibold py-4 px-6 rounded-full hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Verify & Confirm
+              {t("wallet.complete")}
             </button>
           </>
         )}
 
-        {step === "success" && (
-          <>
-            <div className="bg-green-500/10 border border-green-500/50 rounded-lg p-4 mb-4">
-              <div className="flex items-start gap-3">
-                <FiCheck className="text-green-400 mt-0.5 shrink-0" size={20} />
-                <div className="flex-1">
-                  <p className="text-sm font-medium text-green-400 mb-2">Wallet Created Successfully!</p>
-                  <p className="text-xs text-green-300/90">
-                    Your wallet address: <span className="font-mono text-green-200">{walletAddress}</span>
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-yellow-500/10 border border-yellow-500/50 rounded-lg p-4 mb-4">
-              <p className="text-xs text-yellow-300/90">
-                <strong>Remember:</strong> Keep your recovery phrase safe and secure. 
-                We don't store it, so you are the only one who can recover your wallet.
-              </p>
-            </div>
-
-            <button
-              onClick={handleContinue}
-              className="w-full bg-[#B1F128] text-[#010501] font-semibold py-4 px-6 rounded-full hover:opacity-90 transition-opacity"
-            >
-              Continue
-            </button>
-          </>
-        )}
       </div>
+
+      {/* Success Modal */}
+      {walletAddress && (
+        <WalletSuccessModal
+          open={isSuccessModalOpen}
+          onOpenChange={handleSuccessModalClose}
+          type="create"
+          walletAddress={walletAddress}
+        />
+      )}
     </div>
   );
 }

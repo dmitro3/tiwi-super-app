@@ -2,13 +2,12 @@
 
 import { IoChevronForward, IoChevronDown } from "react-icons/io5";
 import { SettingsView } from "./types";
+import { useTranslation } from "@/lib/i18n/useTranslation";
 import {
   FiUser,
-  FiShield,
   FiLink,
   FiGlobe,
   FiBell,
-  FiRefreshCw,
   FiHelpCircle,
   FiPlus,
   FiUpload,
@@ -22,42 +21,6 @@ interface SettingsSidebarProps {
   onToggleExpand?: (item: string) => void;
 }
 
-const menuItems = [
-  { label: "Account Details", view: "main" as SettingsView, icon: FiUser },
-  { label: "Security", view: "security" as SettingsView, icon: FiShield },
-  {
-    label: "Connected Devices",
-    view: "connected-devices" as SettingsView,
-    icon: FiLink,
-  },
-  {
-    label: "Language & Region",
-    view: "language-region" as SettingsView,
-    icon: FiGlobe,
-  },
-  {
-    label: "Notifications",
-    view: "notifications" as SettingsView,
-    icon: FiBell,
-  },
-  {
-    label: "App Updates & Cache",
-    view: "app-updates-cache" as SettingsView,
-    icon: FiRefreshCw,
-  },
-  { label: "Support", view: "support" as SettingsView, icon: FiHelpCircle },
-  {
-    label: "Add New Wallet",
-    view: "add-new-wallet" as SettingsView,
-    icon: FiPlus,
-  },
-  {
-    label: "Import Wallet",
-    view: "import-wallet" as SettingsView,
-    icon: FiUpload,
-  },
-];
-
 export default function SettingsSidebar({
   currentView,
   onViewChange,
@@ -65,23 +28,47 @@ export default function SettingsSidebar({
   expandedItems = [],
   onToggleExpand,
 }: SettingsSidebarProps) {
+  const { t } = useTranslation();
+  
+  const menuItems = [
+    { label: t("settings.account_details"), view: "main" as SettingsView, icon: FiUser },
+    {
+      label: t("settings.connected_devices"),
+      view: "connected-devices" as SettingsView,
+      icon: FiLink,
+    },
+    {
+      label: t("settings.language_region"),
+      view: "language-region" as SettingsView,
+      icon: FiGlobe,
+    },
+    {
+      label: t("settings.notifications"),
+      view: "notifications" as SettingsView,
+      icon: FiBell,
+    },
+    { label: t("settings.support"), view: "support" as SettingsView, icon: FiHelpCircle },
+    {
+      label: t("settings.add_new_wallet"),
+      view: "add-new-wallet" as SettingsView,
+      icon: FiPlus,
+    },
+    {
+      label: t("settings.import_wallet"),
+      view: "import-wallet" as SettingsView,
+      icon: FiUpload,
+    },
+  ];
+
   const getActiveIndex = () => {
     if (currentView === "main") return 0;
-    if (currentView === "security") return 1;
-    if (currentView === "connected-devices") return 2;
-    if (currentView === "language-region") return 3;
-    if (currentView === "notifications") return 4;
-    if (currentView === "app-updates-cache") return 5;
-    if (currentView === "support") return 6;
-    if (currentView === "add-new-wallet") return 7;
-    if (currentView === "import-wallet") return 8;
+    if (currentView === "connected-devices") return 1;
+    if (currentView === "language-region") return 2;
+    if (currentView === "notifications") return 3;
+    if (currentView === "support") return 4;
+    if (currentView === "add-new-wallet") return 5;
+    if (currentView === "import-wallet") return 6;
     // Check sub-views
-    if (
-      currentView === "change-pin" ||
-      currentView === "fraud-alerts" ||
-      currentView === "whitelist-addresses"
-    )
-      return 1;
     if (
       currentView === "transactions-notifications" ||
       currentView === "rewards-earnings" ||
@@ -89,7 +76,7 @@ export default function SettingsSidebar({
       currentView === "news-announcements" ||
       currentView === "system-alerts"
     )
-      return 4;
+      return 3;
     if (
       currentView === "live-status" ||
       currentView === "faqs" ||
@@ -97,9 +84,9 @@ export default function SettingsSidebar({
       currentView === "report-bug" ||
       currentView === "contact-support"
     )
-      return 6;
+      return 4;
     if (currentView === "view-bug-reports" || currentView === "create-bug-report")
-      return 6;
+      return 4;
     return -1;
   };
 

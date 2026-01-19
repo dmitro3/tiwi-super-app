@@ -8,10 +8,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useTokenBalance } from "@/hooks/useTokenBalance";
 import { useWallet } from "@/lib/wallet/hooks/useWallet";
-import { useSignMessage } from "wagmi";
 import { useChainId } from "wagmi";
+import { formatUnits } from "viem";
+import { useStaking } from "@/hooks/useStaking";
 import TransactionToast from "./transaction-toast";
 import type { StakingPool } from "@/data/mock-staking-pools";
+import { Address } from "viem";
 
 interface StakingDetailViewProps {
   pool: StakingPool;
@@ -33,13 +35,48 @@ export default function StakingDetailView({ pool, onBack }: StakingDetailViewPro
   const { balance, isLoading: balanceLoading, refetch: refetchBalance } = useTokenBalance(pool.tokenSymbol);
   const { isConnected, address } = useWallet();
   const chainId = useChainId();
-  const { signMessageAsync } = useSignMessage();
+  
+  // Use staking hook if contract address is available
+  const staking = useStaking({
+    contractAddress: pool.contractAddress as Address | undefined,
+    stakingTokenAddress: pool.tokenAddress as Address | undefined,
+    decimals: pool.decimals || 18,
+    enabled: !!pool.contractAddress && !!pool.tokenAddress,
+  });
+  
+  // Determine if we need approval
+  const needsApproval = pool.contractAddress && pool.tokenAddress && amount 
+    ? staking.needsApproval(amount)
+    : false;
+  
+  // Use contract transaction hash if available, otherwise fall back to local state
+  const currentTxHash = staking.depositTxHash || staking.withdrawTxHash || staking.claimTxHash || txHash;
+  const isProcessingContract = staking.isPending || staking.isLoading;
 
   const handleMaxClick = () => {
-    if (balance && !balanceLoading) {
-      setAmount(balance);
+    if (activeTab === "boost") {
+      // For staking, use wallet balance
+      if (balance && !balanceLoading) {
+        setAmount(balance);
+      }
+    } else {
+      // For unstaking, use staked amount
+      if (staking.userInfo) {
+        const stakedAmount = formatUnits(staking.userInfo.amount, pool.decimals || 18);
+        setAmount(stakedAmount);
+      }
     }
   };
+
+  // Get staked amount for display
+  const stakedAmount = staking.userInfo 
+    ? formatUnits(staking.userInfo.amount, pool.decimals || 18)
+    : "0";
+
+  // Get pending rewards for display
+  const pendingRewards = staking.pendingReward
+    ? formatUnits(staking.pendingReward, pool.decimals || 18)
+    : "0";
 
   const handleStakeNow = async () => {
     if (!isConnected || !address) {
@@ -56,9 +93,17 @@ export default function StakingDetailView({ pool, onBack }: StakingDetailViewPro
       return;
     }
 
-    if (parseFloat(amount) > parseFloat(balance)) {
+    if (parseFloat(amount) > parseFloat(balance || "0")) {
       setToastSuccess(false);
       setToastMessage("Insufficient balance");
+      setToastOpen(true);
+      return;
+    }
+
+    // Check if contract is configured
+    if (!pool.contractAddress || !pool.tokenAddress) {
+      setToastSuccess(false);
+      setToastMessage("Staking pool not configured with contract address");
       setToastOpen(true);
       return;
     }
@@ -66,32 +111,78 @@ export default function StakingDetailView({ pool, onBack }: StakingDetailViewPro
     setIsProcessing(true);
 
     try {
-      // Create a message to sign
-      const message = `TIWI Protocol acknowledges your staking contract for ${amount} ${pool.tokenSymbol}. This is a staking agreement.`;
+      // Check if approval is needed
+      if (needsApproval) {
+        // Approve first
+        await staking.approve(amount);
+        setToastMessage(`Approving ${pool.tokenSymbol}...`);
+        setToastOpen(true);
+        
+        // Wait a bit for approval transaction
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
 
-      // Sign the message
-      const signature = await signMessageAsync({
-        message,
-      });
-
-      // Generate a mock transaction hash (in real implementation, this would come from the actual transaction)
-      const mockTxHash = `0x${Array.from({ length: 64 }, () => 
-        Math.floor(Math.random() * 16).toString(16)
-      ).join('')}`;
-
-      setTxHash(mockTxHash);
-      setTxChainId(chainId);
-      setToastSuccess(true);
-      setToastMessage(`Successfully staked ${amount} ${pool.tokenSymbol}`);
-      setToastOpen(true);
+      // Deposit tokens
+      if (activeTab === "boost") {
+        await staking.deposit(amount);
+        setTxChainId(chainId);
+        setToastSuccess(true);
+        setToastMessage(`Successfully staked ${amount} ${pool.tokenSymbol}`);
+        setToastOpen(true);
+      } else {
+        // Withdraw tokens
+        await staking.withdraw(amount);
+        setTxChainId(chainId);
+        setToastSuccess(true);
+        setToastMessage(`Successfully unstaked ${amount} ${pool.tokenSymbol}`);
+        setToastOpen(true);
+      }
       
-      // Reset form
+      // Reset form after successful transaction
       setAmount("");
       refetchBalance();
+      staking.refetch();
     } catch (error: any) {
       console.error("Transaction error:", error);
       setToastSuccess(false);
       setToastMessage(error.message || "Transaction failed. Please try again.");
+      setToastOpen(true);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  // Handle claim rewards
+  const handleClaim = async () => {
+    if (!isConnected || !address) {
+      setToastSuccess(false);
+      setToastMessage("Please connect your wallet first");
+      setToastOpen(true);
+      return;
+    }
+
+    if (!pool.contractAddress) {
+      setToastSuccess(false);
+      setToastMessage("Staking pool not configured");
+      setToastOpen(true);
+      return;
+    }
+
+    setIsProcessing(true);
+
+    try {
+      await staking.claim();
+      setTxChainId(chainId);
+      setToastSuccess(true);
+      setToastMessage("Successfully claimed rewards");
+      setToastOpen(true);
+      
+      refetchBalance();
+      staking.refetch();
+    } catch (error: any) {
+      console.error("Claim error:", error);
+      setToastSuccess(false);
+      setToastMessage(error.message || "Claim failed. Please try again.");
       setToastOpen(true);
     } finally {
       setIsProcessing(false);
@@ -157,7 +248,9 @@ export default function StakingDetailView({ pool, onBack }: StakingDetailViewPro
                   Total Staked
                 </p>
                 <p className="relative shrink-0 text-sm text-white tracking-[-0.56px] w-full">
-                  {pool.totalStaked || "N/A"}
+                  {staking.totalStaked 
+                    ? `${formatUnits(staking.totalStaked, pool.decimals || 18)} ${pool.tokenSymbol}`
+                    : pool.totalStaked || "N/A"}
                 </p>
               </div>
             </div>
@@ -287,11 +380,11 @@ export default function StakingDetailView({ pool, onBack }: StakingDetailViewPro
               </div>
               <Button
                 onClick={handleStakeNow}
-                disabled={isProcessing || !amount || parseFloat(amount) <= 0}
+                disabled={isProcessing || isProcessingContract || !amount || parseFloat(amount) <= 0}
                 className="bg-[#081f02] h-14 items-center justify-center px-6 py-4 relative rounded-full shrink-0 w-full max-w-[606px] hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <p className="font-['Manrope',sans-serif] font-semibold leading-normal relative shrink-0 text-[#b1f128] text-lg text-center tracking-[0.018px] whitespace-pre-wrap">
-                  {isProcessing ? "Processing..." : "Stake Now"}
+                  {needsApproval && isProcessingContract ? "Approving..." : isProcessing || isProcessingContract ? "Processing..." : needsApproval ? "Approve & Stake Now" : "Stake Now"}
                 </p>
               </Button>
             </div>
@@ -335,11 +428,11 @@ export default function StakingDetailView({ pool, onBack }: StakingDetailViewPro
               </div>
               <Button
                 onClick={handleStakeNow}
-                disabled={isProcessing || !amount || parseFloat(amount) <= 0}
+                disabled={isProcessing || isProcessingContract || !amount || parseFloat(amount) <= 0 || parseFloat(amount) > parseFloat(stakedAmount)}
                 className="bg-[#081f02] h-14 items-center justify-center px-6 py-4 relative rounded-full shrink-0 w-full max-w-[606px] hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <p className="font-['Manrope',sans-serif] font-semibold leading-normal relative shrink-0 text-[#b1f128] text-lg text-center tracking-[0.018px] whitespace-pre-wrap">
-                  {isProcessing ? "Processing..." : "Unstake"}
+                  {isProcessing || isProcessingContract ? "Processing..." : "Unstake"}
                 </p>
               </Button>
             </div>
@@ -347,14 +440,37 @@ export default function StakingDetailView({ pool, onBack }: StakingDetailViewPro
         )}
       </div>
 
+      {/* Pending Rewards Display - if user has staked */}
+      {staking.userInfo && staking.userInfo.amount > 0n && (
+        <div className="bg-[#0b0f0a] border-[#273024] border-[0.5px] border-solid flex flex-col items-start overflow-clip p-4 relative rounded-xl shrink-0 w-full">
+          <div className="flex justify-between items-center w-full mb-2">
+            <p className="text-[#7c7c7c] text-xs">Pending Rewards</p>
+            <p className="text-white text-sm font-medium">{pendingRewards} {pool.tokenSymbol}</p>
+          </div>
+          <div className="flex justify-between items-center w-full">
+            <p className="text-[#7c7c7c] text-xs">Staked Amount</p>
+            <p className="text-white text-sm font-medium">{stakedAmount} {pool.tokenSymbol}</p>
+          </div>
+          {parseFloat(pendingRewards) > 0 && (
+            <Button
+              onClick={handleClaim}
+              disabled={isProcessing || isProcessingContract}
+              className="mt-4 w-full bg-[#b1f128] text-[#010501] hover:bg-[#9dd81f] disabled:opacity-50"
+            >
+              Claim Rewards
+            </Button>
+          )}
+        </div>
+      )}
+
       {/* Transaction Toast */}
       <TransactionToast
         open={toastOpen}
         onOpenChange={setToastOpen}
         success={toastSuccess}
         message={toastMessage}
-        txHash={txHash}
-        chainId={txChainId}
+        txHash={currentTxHash}
+        chainId={txChainId || chainId}
       />
     </>
   );
