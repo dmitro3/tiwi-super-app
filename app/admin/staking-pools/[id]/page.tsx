@@ -23,6 +23,11 @@ interface StakingPool {
   stakePoolCreationFee: number;
   rewardPoolCreationFee?: string;
   apy?: number;
+  // Reward configuration fields
+  maxTvl?: number; // Maximum TVL or Total Staked Tokens
+  poolReward?: number; // Total reward tokens allocated to the pool
+  rewardDurationSeconds?: number; // Reward duration in seconds
+  rewardPerSecond?: number; // Calculated reward per second
   status: 'active' | 'inactive' | 'archived';
   createdAt: string;
   updatedAt: string;
@@ -265,6 +270,58 @@ export default function PoolDetailsPage() {
                   </div>
                 </div>
               </div>
+
+              {/* Reward Configuration */}
+              {(poolData.maxTvl || poolData.poolReward || poolData.rewardDurationSeconds) && (
+                <div className="pt-6 border-t border-[#1f261e]">
+                  <h3 className="text-lg font-semibold text-white mb-4">Reward Configuration (TIWI Protocol)</h3>
+                  <div className="bg-[#0b0f0a] border border-[#1f261e] rounded-lg p-4 space-y-3">
+                    {poolData.maxTvl && (
+                      <div className="flex justify-between items-center">
+                        <span className="text-[#b5b5b5] text-sm">Maximum TVL / Total Staked Tokens</span>
+                        <span className="text-white text-sm font-medium">
+                          {poolData.maxTvl.toLocaleString()} {poolData.tokenSymbol || 'tokens'}
+                        </span>
+                      </div>
+                    )}
+                    {poolData.poolReward && (
+                      <div className="flex justify-between items-center">
+                        <span className="text-[#b5b5b5] text-sm">Pool Reward (Total Reward Tokens)</span>
+                        <span className="text-white text-sm font-medium">
+                          {poolData.poolReward.toLocaleString()} {poolData.tokenSymbol || 'tokens'}
+                        </span>
+                      </div>
+                    )}
+                    {poolData.rewardDurationSeconds && (
+                      <div className="flex justify-between items-center">
+                        <span className="text-[#b5b5b5] text-sm">Reward Duration</span>
+                        <span className="text-white text-sm font-medium">
+                          {Math.floor(poolData.rewardDurationSeconds / (24 * 60 * 60))} days ({poolData.rewardDurationSeconds.toLocaleString()} seconds)
+                        </span>
+                      </div>
+                    )}
+                    {poolData.rewardPerSecond && (
+                      <div className="flex justify-between items-center">
+                        <span className="text-[#b5b5b5] text-sm">Reward Per Second</span>
+                        <span className="text-white text-sm font-medium">
+                          {poolData.rewardPerSecond.toFixed(6)} {poolData.tokenSymbol || 'tokens'}/sec
+                        </span>
+                      </div>
+                    )}
+                    {poolData.maxTvl && poolData.poolReward && poolData.rewardDurationSeconds && (
+                      <div className="mt-4 pt-4 border-t border-[#1f261e]">
+                        <div className="text-[#b1f128] text-xs font-medium mb-2">Calculated Reward Rate:</div>
+                        <div className="text-white text-sm">
+                          {(poolData.poolReward / (poolData.maxTvl * poolData.rewardDurationSeconds)).toExponential(6)} tokens per token per second
+                        </div>
+                        <p className="text-[#7c7c7c] text-xs mt-2">
+                          Formula: Reward Rate = Pool Reward / (Total Staked Tokens × Time)
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
 
               {/* Fee Information */}
               <div className="mt-6 bg-[#0b0f0a] border border-[#1f261e] rounded-lg p-4 space-y-3">

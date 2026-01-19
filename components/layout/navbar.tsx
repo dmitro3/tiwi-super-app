@@ -7,6 +7,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useWalletConnection } from "@/hooks/useWalletConnection";
 import { useWallet } from "@/lib/wallet/hooks/useWallet";
+import { useActiveWalletAddress } from "@/lib/wallet/hooks/useActiveWalletAddress";
 import ConnectWalletModal from "@/components/wallet/connect-wallet-modal";
 import WalletExplorerModal from "@/components/wallet/wallet-explorer-modal";
 import ChainSelectionModal from "@/components/wallet/chain-selection-modal";
@@ -20,24 +21,33 @@ import { getWalletIconUrl } from "@/lib/wallet/services/wallet-explorer-service"
 import WalletBalancePanel from "@/components/wallet/wallet-balance-panel";
 import NotificationsDropdown from "@/components/notifications/notifications-dropdown";
 import { IoNotificationsOutline } from "react-icons/io5";
+import { useWalletManagerStore } from "@/lib/wallet/state/wallet-manager-store";
+import { useTranslation } from "@/lib/i18n/useTranslation";
 
 interface NavItem {
-  label: string;
+  labelKey: "nav.home" | "nav.market" | "nav.swap" | "nav.pool" | "nav.earn" | "nav.portfolio";
   href: string;
 }
 
-const navItems: NavItem[] = [
-  { label: "Home", href: "/" },
-  { label: "Market", href: "/market" },
-  { label: "Swap", href: "/swap" },
-  { label: "Pool", href: "/pool" },
-  { label: "Earn", href: "/earn" },
-  { label: "Portfolio", href: "/portfolio" },
+const navItemsConfig: Omit<NavItem, "label">[] = [
+  { labelKey: "nav.home", href: "/" },
+  { labelKey: "nav.market", href: "/market" },
+  { labelKey: "nav.swap", href: "/swap" },
+  { labelKey: "nav.pool", href: "/pool" },
+  { labelKey: "nav.earn", href: "/earn" },
+  { labelKey: "nav.portfolio", href: "/portfolio" },
 ];
 
 export default function Navbar() {
+  const { t } = useTranslation();
   const pathname = usePathname();
   const router = useRouter();
+
+  // Generate nav items with translated labels
+  const navItems = navItemsConfig.map((item) => ({
+    ...item,
+    label: t(item.labelKey),
+  }));
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isWalletPanelOpen, setIsWalletPanelOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
@@ -48,7 +58,6 @@ export default function Navbar() {
     isExplorerOpen,
     isChainSelectionOpen,
     isToastOpen,
-    connectedAddress,
     pendingWallet,
     openModal,
     closeModal,
@@ -60,9 +69,12 @@ export default function Navbar() {
     handleChainModalBack,
   } = useWalletConnection();
   const wallet = useWallet();
+  const activeAddress = useActiveWalletAddress();
+  const getActiveManagedWallet = useWalletManagerStore((s) => s.getActiveWallet);
+  const activeManagedWallet = getActiveManagedWallet();
   
-  // Determine if wallet is fully connected (not just connecting)
-  const isFullyConnected = connectedAddress && !wallet.isConnecting;
+  // Determine if wallet is fully connected (local or external, not in connecting state)
+  const isFullyConnected = !!activeAddress && !wallet.isConnecting;
 
   // Fetch unread notifications count (only when wallet is connected)
   // Set mounted state after hydration to prevent hydration mismatches
@@ -71,14 +83,18 @@ export default function Navbar() {
   }, []);
 
   useEffect(() => {
-    if (!connectedAddress) {
+    if (!activeAddress) {
       setLiveNotificationsCount(0);
       return;
     }
 
     const fetchNotificationsCount = async () => {
       try {
-        const response = await fetch(`/api/v1/notifications?status=live&userWallet=${encodeURIComponent(connectedAddress)}&unreadOnly=true`);
+        const response = await fetch(
+          `/api/v1/notifications?status=live&userWallet=${encodeURIComponent(
+            activeAddress
+          )}&unreadOnly=true`
+        );
         if (response.ok) {
           const data = await response.json();
           setLiveNotificationsCount(data.unreadCount || 0);
@@ -92,7 +108,7 @@ export default function Navbar() {
     // Poll every 30 seconds for new notifications
     const interval = setInterval(fetchNotificationsCount, 30000);
     return () => clearInterval(interval);
-  }, [connectedAddress]);
+  }, [activeAddress]);
 
   const handleConnect = () => {
     openModal();
@@ -130,6 +146,12 @@ export default function Navbar() {
 
   // Get wallet icon for connected wallet
   const getWalletIcon = (): string => {
+    // Check if this is an internal/local wallet - use walleticon.svg
+    if (activeManagedWallet?.isLocal && activeManagedWallet?.source === 'local') {
+      return '/walleticon.svg';
+    }
+    
+    // For external wallets, use the existing logic
     if (!wallet.primaryWallet) return '/assets/icons/wallet/wallet-04.svg';
     
     const walletInfo = getWalletById(wallet.primaryWallet.provider);
@@ -152,7 +174,15 @@ export default function Navbar() {
   };
 
   const handleDisconnect = async () => {
+    // Disconnect the wallet connection (works for both local and external)
     await wallet.disconnect();
+    
+    // Clear active wallet state to allow new connection
+    // This works like external wallets - disconnect and allow reconnection
+    // The wallet remains in the list but is no longer active
+    const clearActiveWallet = useWalletManagerStore.getState().clearActiveWallet;
+    clearActiveWallet();
+    
     setIsWalletPanelOpen(false);
   };
 
@@ -199,7 +229,7 @@ export default function Navbar() {
 
           {/* Wallet UI - Desktop */}
           <div className="hidden md:flex items-center gap-2">
-            {connectedAddress && wallet.isConnecting ? (
+            {wallet.address && wallet.isConnecting ? (
               <>
                 {/* Loading state: Only show settings icon */}
                 <button
@@ -282,7 +312,7 @@ export default function Navbar() {
                     />
                   </div>
                   <p className="font-semibold text-lg text-white tracking-[0.018px]">
-                    {formatWalletAddress(connectedAddress)}
+                    {formatWalletAddress(activeAddress || "")}
                   </p>
                   <div className="relative size-6">
                     <Image
@@ -344,7 +374,7 @@ export default function Navbar() {
                   aria-label="Wallet menu"
                 >
                   <p className="font-medium text-sm text-[#b5b5b5]">
-                    {formatWalletAddress(connectedAddress)}
+                    {formatWalletAddress(activeAddress || "")}
                   </p>
                   <div className="relative size-4">
                     <Image
@@ -446,9 +476,9 @@ export default function Navbar() {
       )}
 
       {/* Wallet Connected Toast */}
-      {isFullyConnected && (
+      {isFullyConnected && activeAddress && (
         <WalletConnectedToast
-          address={connectedAddress}
+          address={activeAddress}
           open={isToastOpen}
           onOpenChange={closeToast}
           duration={5000}
@@ -462,36 +492,36 @@ export default function Navbar() {
       />
       
       {/* Wallet Balance Panel */}
-      {isFullyConnected && (
+      {isFullyConnected && activeAddress && (
         <WalletBalancePanel
           isOpen={isWalletPanelOpen}
           onClose={handleCloseWalletPanel}
-          walletAddress={connectedAddress}
+          walletAddress={activeAddress}
           walletIcon={getWalletIcon()}
           onDisconnect={handleDisconnect}
         />
       )}
 
       {/* Notifications Dropdown */}
-      {connectedAddress && (
+      {activeAddress && (
         <NotificationsDropdown
           isOpen={isNotificationsOpen}
           onClose={() => setIsNotificationsOpen(false)}
-          walletAddress={connectedAddress}
+          walletAddress={activeAddress}
           onNotificationsViewed={async () => {
             // Refresh unread count after viewing
-            if (connectedAddress) {
-              try {
-                const response = await fetch(
-                  `/api/v1/notifications?status=live&userWallet=${encodeURIComponent(connectedAddress)}&unreadOnly=true`
-                );
-                if (response.ok) {
-                  const data = await response.json();
-                  setLiveNotificationsCount(data.unreadCount || 0);
-                }
-              } catch (error) {
-                console.error("Error refreshing notification count:", error);
+            try {
+              const response = await fetch(
+                `/api/v1/notifications?status=live&userWallet=${encodeURIComponent(
+                  activeAddress
+                )}&unreadOnly=true`
+              );
+              if (response.ok) {
+                const data = await response.json();
+                setLiveNotificationsCount(data.unreadCount || 0);
               }
+            } catch (error) {
+              console.error("Error refreshing notification count:", error);
             }
           }}
         />

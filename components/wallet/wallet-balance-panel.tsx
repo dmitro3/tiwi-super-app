@@ -9,6 +9,8 @@ import TransactionHistory from "./transaction-history";
 import { useWalletBalances } from "@/hooks/useWalletBalances";
 import { useWalletTransactions } from "@/hooks/useWalletTransactions";
 import { useBalanceVisibilityStore } from "@/lib/frontend/store/balance-visibility-store";
+import { useLocaleStore } from "@/lib/locale/locale-store";
+import { formatCurrency } from "@/lib/shared/utils/formatting";
 import Skeleton from "@/components/ui/skeleton";
 import TransactionSkeleton from "@/components/ui/transaction-skeleton";
 
@@ -31,9 +33,9 @@ export default function WalletBalancePanel({
   walletIcon,
   onDisconnect,
 }: WalletBalancePanelProps) {
-  // Use global balance visibility state
   const { isBalanceVisible, toggleBalanceVisibility } = useBalanceVisibilityStore();
-  
+  useLocaleStore((s) => `${s.language}|${s.currency}`); // re-render when locale changes
+
   // Fetch wallet balances and transactions
   const { balances, totalUSD, isLoading: balancesLoading, error: balancesError } = useWalletBalances(walletAddress);
   const { 
@@ -76,18 +78,6 @@ export default function WalletBalancePanel({
   const handleCopyAddress = () => {
     navigator.clipboard.writeText(walletAddress);
     // TODO: Show toast notification
-  };
-
-  // Format USD value as currency
-  const formatCurrency = (value: string): string => {
-    const num = parseFloat(value);
-    if (isNaN(num)) return "$0.00";
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(num);
   };
 
   if (!isOpen) return null;
@@ -168,6 +158,7 @@ export default function WalletBalancePanel({
               onClick={onDisconnect}
               className="bg-[#0b0f0a] border border-[#1f261e] flex items-center p-3 lg:p-2.5 xl:p-2.5 2xl:p-3 relative rounded-full shrink-0 cursor-pointer hover:opacity-90 transition-opacity"
               aria-label="Disconnect"
+              title="Disconnect wallet"
             >
               <div className="relative shrink-0 size-6 lg:size-4 xl:size-5 2xl:size-6">
                 <Image
@@ -212,7 +203,7 @@ export default function WalletBalancePanel({
                   </p>
                 ) : (
                   <p className="font-bold leading-normal relative shrink-0 text-4xl lg:text-3xl xl:text-3.5xl 2xl:text-4xl text-center text-white">
-                    {isBalanceVisible ? formatCurrency(totalUSD) : "****"}
+                    {isBalanceVisible ? formatCurrency(parseFloat(totalUSD || "0") || 0) : "****"}
                   </p>
                 )}
               </div>

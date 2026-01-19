@@ -10,6 +10,7 @@
  */
 
 import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 
 export type WalletSource =
   | 'local'
@@ -36,6 +37,7 @@ interface WalletManagerState {
   // Actions
   addOrUpdateWallet: (wallet: Omit<ManagedWallet, 'id' | 'createdAt'> & { id?: string }) => void;
   setActiveWallet: (walletId: string) => void;
+  clearActiveWallet: () => void; // Clear active wallet to allow new connection
   removeWallet: (walletId: string) => void;
   getActiveWallet: () => ManagedWallet | null;
 }
@@ -51,74 +53,92 @@ function normalizeSource(raw: string | null | undefined): WalletSource {
   return 'other';
 }
 
-export const useWalletManagerStore = create<WalletManagerState>((set, get) => ({
-  wallets: [],
-  activeWalletId: null,
+const STORAGE_KEY = 'tiwi_wallet_manager_v1';
 
-  addOrUpdateWallet: (input) => {
-    const source = normalizeSource(input.source);
-    const address = input.address.toLowerCase();
+export const useWalletManagerStore = create<WalletManagerState>()(
+  persist(
+    (set, get) => ({
+      wallets: [],
+      activeWalletId: null,
 
-    set((state) => {
-      // If wallet already exists by address+source, update label/isLocal
-      const existingIndex = state.wallets.findIndex(
-        (w) => w.address.toLowerCase() === address && w.source === source
-      );
+      addOrUpdateWallet: (input) => {
+        const source = normalizeSource(input.source);
+        const address = input.address.toLowerCase();
 
-      if (existingIndex >= 0) {
-        const existing = state.wallets[existingIndex];
-        const updated: ManagedWallet = {
-          ...existing,
-          label: input.label ?? existing.label,
-          isLocal: input.isLocal ?? existing.isLocal,
-        };
-        const wallets = [...state.wallets];
-        wallets[existingIndex] = updated;
-        return { wallets, activeWalletId: state.activeWalletId || updated.id };
-      }
+        set((state) => {
+          // If wallet already exists by address+source, update label/isLocal
+          const existingIndex = state.wallets.findIndex(
+            (w) => w.address.toLowerCase() === address && w.source === source
+          );
 
-      // New wallet
-      const id = input.id || `${source}:${address}`;
-      const newWallet: ManagedWallet = {
-        id,
-        address,
-        source,
-        label: input.label,
-        isLocal: input.isLocal,
-        createdAt: Date.now(),
-      };
+          if (existingIndex >= 0) {
+            const existing = state.wallets[existingIndex];
+            const updated: ManagedWallet = {
+              ...existing,
+              label: input.label ?? existing.label,
+              isLocal: input.isLocal ?? existing.isLocal,
+            };
+            const wallets = [...state.wallets];
+            wallets[existingIndex] = updated;
+            return { wallets, activeWalletId: state.activeWalletId || updated.id };
+          }
 
-      return {
-        wallets: [...state.wallets, newWallet],
-        // If no active wallet yet, set this as active
-        activeWalletId: state.activeWalletId || id,
-      };
-    });
-  },
+          // New wallet
+          const id = input.id || `${source}:${address}`;
+          const newWallet: ManagedWallet = {
+            id,
+            address,
+            source,
+            label: input.label,
+            isLocal: input.isLocal,
+            createdAt: Date.now(),
+          };
 
-  setActiveWallet: (walletId) => {
-    const { wallets } = get();
-    const exists = wallets.some((w) => w.id === walletId);
-    if (!exists) return;
-    set({ activeWalletId: walletId });
-  },
+          return {
+            wallets: [...state.wallets, newWallet],
+            // If no active wallet yet, set this as active
+            activeWalletId: state.activeWalletId || id,
+          };
+        });
+      },
 
-  removeWallet: (walletId) => {
-    set((state) => {
-      const wallets = state.wallets.filter((w) => w.id !== walletId);
-      let activeWalletId = state.activeWalletId;
-      if (activeWalletId === walletId) {
-        activeWalletId = wallets.length > 0 ? wallets[0].id : null;
-      }
-      return { wallets, activeWalletId };
-    });
-  },
+      setActiveWallet: (walletId) => {
+        const { wallets } = get();
+        const exists = wallets.some((w) => w.id === walletId);
+        if (!exists) return;
+        set({ activeWalletId: walletId });
+      },
 
-  getActiveWallet: () => {
-    const state = get();
-    if (!state.activeWalletId) return null;
-    return state.wallets.find((w) => w.id === state.activeWalletId) || null;
-  },
-}));
+      clearActiveWallet: () => {
+        set({ activeWalletId: null });
+      },
+
+      removeWallet: (walletId) => {
+        set((state) => {
+          const wallets = state.wallets.filter((w) => w.id !== walletId);
+          let activeWalletId = state.activeWalletId;
+          if (activeWalletId === walletId) {
+            activeWalletId = wallets.length > 0 ? wallets[0].id : null;
+          }
+          return { wallets, activeWalletId };
+        });
+      },
+
+      getActiveWallet: () => {
+        const state = get();
+        if (!state.activeWalletId) return null;
+        return state.wallets.find((w) => w.id === state.activeWalletId) || null;
+      },
+    }),
+    {
+      name: STORAGE_KEY,
+      // Only persist wallets and activeWalletId, not any sensitive data
+      partialize: (state) => ({
+        wallets: state.wallets,
+        activeWalletId: state.activeWalletId,
+      }),
+    }
+  )
+);
 
 

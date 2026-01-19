@@ -1,9 +1,11 @@
 /**
  * Token Formatter for Homepage
  * 
- * Formats backend token data to match homepage table format
+ * Formats backend token data to match homepage table format.
+ * Uses formatPrice from formatting.ts for locale-aware price display.
  */
 
+import { formatPrice as formatPriceLocale } from '@/lib/shared/utils/formatting';
 import type { Token } from '@/lib/frontend/types/tokens';
 
 export interface HomepageToken {
@@ -71,25 +73,11 @@ function formatPriceChange(change: number | undefined): { change: string; positi
 }
 
 /**
- * Format price
+ * Format price using locale and currency from settings
  */
 export function formatPrice(price: string | undefined): string {
-  if (!price) {
-    return '$0.00';
-  }
-
-  const numPrice = parseFloat(price);
-  if (isNaN(numPrice)) {
-    return '$0.00';
-  }
-
-  // Format with commas for large numbers
-  if (numPrice >= 1) {
-    return `$${numPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-  } else {
-    // For small prices, show more decimals
-    return `$${numPrice.toFixed(6)}`;
-  }
+  const result = formatPriceLocale(price);
+  return result === '-' ? '$0.00' : result;
 }
 
 /**

@@ -53,6 +53,11 @@ const fetchStakingPools = async (
           : pool.minStakeAmount 
             ? `Min: ${pool.minStakeAmount} ${pool.tokenSymbol || ""}`
             : undefined,
+        // Contract and chain info
+        contractAddress: pool.contractAddress || undefined,
+        chainId: pool.chainId || undefined,
+        tokenAddress: pool.tokenAddress || undefined,
+        decimals: 18, // Default to 18, can be fetched from token contract if needed
       }));
     } catch (error) {
       console.error("Error fetching staking pools:", error);

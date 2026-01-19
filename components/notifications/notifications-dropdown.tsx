@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { IoNotificationsOutline, IoCloseOutline } from "react-icons/io5";
+import { useTranslation } from "@/lib/i18n/useTranslation";
 import type { Notification } from "@/lib/shared/types/notifications";
 
 interface NotificationsDropdownProps {
@@ -17,6 +18,7 @@ export default function NotificationsDropdown({
   walletAddress,
   onNotificationsViewed,
 }: NotificationsDropdownProps) {
+  const { t } = useTranslation();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -114,10 +116,10 @@ export default function NotificationsDropdown({
     const diffHours = Math.floor(diffMs / 3600000);
     const diffDays = Math.floor(diffMs / 86400000);
 
-    if (diffMins < 1) return "Just now";
-    if (diffMins < 60) return `${diffMins}m ago`;
-    if (diffHours < 24) return `${diffHours}h ago`;
-    if (diffDays < 7) return `${diffDays}d ago`;
+    if (diffMins < 1) return t("common.just_now");
+    if (diffMins < 60) return `${diffMins}${t("common.minutes_ago")}`;
+    if (diffHours < 24) return `${diffHours}${t("common.hours_ago")}`;
+    if (diffDays < 7) return `${diffDays}${t("common.days_ago")}`;
     return date.toLocaleDateString();
   };
 
@@ -138,11 +140,11 @@ export default function NotificationsDropdown({
       >
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-[#1f261e]">
-          <h3 className="text-lg font-semibold text-white">Notifications</h3>
+          <h3 className="text-lg font-semibold text-white">{t("notifications.title")}</h3>
           <button
             onClick={onClose}
             className="p-1 hover:bg-[#121712] rounded-lg transition-colors"
-            aria-label="Close notifications"
+            aria-label={t("notifications.close")}
           >
             <IoCloseOutline className="w-5 h-5 text-[#b5b5b5]" />
           </button>
@@ -152,12 +154,12 @@ export default function NotificationsDropdown({
         <div className="flex-1 overflow-y-auto">
           {isLoading ? (
             <div className="p-8 text-center">
-              <p className="text-[#b5b5b5]">Loading notifications...</p>
+              <p className="text-[#b5b5b5]">{t("notifications.loading")}</p>
             </div>
           ) : notifications.length === 0 ? (
             <div className="p-8 text-center">
               <IoNotificationsOutline className="w-12 h-12 text-[#7c7c7c] mx-auto mb-3" />
-              <p className="text-[#b5b5b5] text-sm">No notifications</p>
+              <p className="text-[#b5b5b5] text-sm">{t("notifications.no_notifications")}</p>
             </div>
           ) : (
             <div className="divide-y divide-[#1f261e]">

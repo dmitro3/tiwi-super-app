@@ -8,6 +8,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { getTokensQueryKey } from '@/hooks/useTokensQuery';
 import { fetchTokens } from '@/lib/frontend/api/tokens';
+import { formatPrice } from '@/lib/shared/utils/formatting';
 import type { Token } from '@/lib/frontend/types/tokens';
 
 // TWC Token Constants
@@ -26,29 +27,6 @@ export interface UseTWCPriceReturn {
   data: TWCPriceData | null;
   isLoading: boolean;
   error: Error | null;
-}
-
-/**
- * Format price as raw value (no truncation, show full precision)
- * Returns the raw price string with $ prefix, preserving all decimals
- */
-function formatPriceRaw(priceUSD: string | undefined): string {
-  if (!priceUSD) return '$0';
-  
-  const price = parseFloat(priceUSD);
-  if (isNaN(price) || price === 0) return '$0';
-  
-  // Return raw price with $ prefix, preserving all significant digits
-  // Convert to string and remove trailing zeros after decimal point
-  const priceStr = price.toString();
-  // If it's scientific notation, convert to decimal
-  if (priceStr.includes('e')) {
-    return `$${price.toFixed(18).replace(/\.?0+$/, '')}`;
-  }
-  
-  // Remove trailing zeros but keep at least one decimal place if needed
-  const formatted = priceStr.replace(/\.?0+$/, '');
-  return `$${formatted}`;
 }
 
 /**
@@ -83,10 +61,11 @@ export function useTWCPrice(): UseTWCPriceReturn {
   const priceChange24h = twcToken?.priceChange24h ?? 0;
   const changeType: 'positive' | 'negative' = priceChange24h >= 0 ? 'positive' : 'negative';
 
+  const formattedPrice = formatPrice(priceUSD);
   const data: TWCPriceData | null = twcToken
     ? {
-        price: formatPriceRaw(priceUSD), // Raw price without truncation
-        priceUSD: priceUSD, // Store raw price for reference
+        price: formattedPrice === '-' ? '$0' : formattedPrice,
+        priceUSD: priceUSD,
         priceChange24h,
         changeType,
         token: twcToken,

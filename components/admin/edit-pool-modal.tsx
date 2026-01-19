@@ -37,6 +37,11 @@ export default function EditPoolModal({
   const [country, setCountry] = useState("");
   const [stakePoolCreationFee, setStakePoolCreationFee] = useState("0.15");
   const [rewardPoolCreationFee, setRewardPoolCreationFee] = useState("");
+  
+  // Reward configuration fields
+  const [maxTvl, setMaxTvl] = useState(""); // Maximum TVL or Total Staked Tokens
+  const [poolReward, setPoolReward] = useState(""); // Pool Reward
+  const [rewardDurationDays, setRewardDurationDays] = useState<number | "">(""); // Reward duration in days
 
   const chainRef = useRef<HTMLDivElement>(null);
 
@@ -57,8 +62,12 @@ export default function EditPoolModal({
       setStakeModificationFee(poolData.stakeModificationFee || false);
       setTimeBoost(poolData.timeBoost || false);
       setCountry(poolData.country || "");
-      setStakePoolCreationFee(poolData.stakePoolCreationFee || "0.15");
+      setStakePoolCreationFee(poolData.stakePoolCreationFee?.toString() || "0.15");
       setRewardPoolCreationFee(poolData.rewardPoolCreationFee || "");
+      // Initialize reward configuration fields
+      setMaxTvl(poolData.maxTvl?.toString() || "");
+      setPoolReward(poolData.poolReward?.toString() || "");
+      setRewardDurationDays(poolData.rewardDurationSeconds ? Math.floor(poolData.rewardDurationSeconds / (24 * 60 * 60)) : "");
     }
   }, [open, poolData, chains]);
 
@@ -87,6 +96,13 @@ export default function EditPoolModal({
 
     setIsSubmitting(true);
     try {
+      // Parse reward configuration
+      const maxTvlValue = maxTvl ? parseFloat(maxTvl) : undefined;
+      const poolRewardValue = poolReward ? parseFloat(poolReward) : undefined;
+      const rewardDurationSecondsValue = rewardDurationDays !== "" && typeof rewardDurationDays === 'number' 
+        ? rewardDurationDays * 24 * 60 * 60 
+        : undefined;
+      
       const response = await fetch("/api/v1/staking-pools", {
         method: "PATCH",
         headers: {
@@ -109,6 +125,10 @@ export default function EditPoolModal({
           country: country || undefined,
           stakePoolCreationFee: parseFloat(stakePoolCreationFee) || 0.15,
           rewardPoolCreationFee: rewardPoolCreationFee || undefined,
+          // Reward configuration
+          maxTvl: maxTvlValue,
+          poolReward: poolRewardValue,
+          rewardDurationSeconds: rewardDurationSecondsValue,
         }),
       });
 
@@ -289,6 +309,89 @@ export default function EditPoolModal({
               className="w-full bg-[#0b0f0a] border border-[#1f261e] rounded-lg px-4 py-2.5 text-white placeholder-[#7c7c7c] focus:outline-none focus:border-[#b1f128]"
               placeholder="Select country"
             />
+          </div>
+
+          {/* Reward Configuration */}
+          <div className="bg-[#0b0f0a] border border-[#1f261e] rounded-lg p-4 space-y-4">
+            <div>
+              <h4 className="text-white font-semibold text-sm mb-3">Reward Configuration (TIWI Protocol)</h4>
+              <p className="text-[#7c7c7c] text-xs mb-4">
+                Configure staking rewards using the TIWI Protocol formula:
+                <br />
+                <span className="text-[#b5b5b5]">Reward Rate = Pool Reward / (Total Staked Tokens × Time)</span>
+              </p>
+            </div>
+
+            {/* Maximum TVL / Total Staked Tokens */}
+            <div>
+              <label className="block text-[#b5b5b5] text-sm font-medium mb-2">
+                Maximum TVL / Total Staked Tokens
+              </label>
+              <input
+                type="text"
+                value={maxTvl}
+                onChange={(e) => setMaxTvl(e.target.value)}
+                className="w-full bg-[#121712] border border-[#1f261e] rounded-lg px-4 py-2.5 text-white placeholder-[#7c7c7c] focus:outline-none focus:border-[#b1f128]"
+                placeholder="0.00"
+              />
+              <p className="text-[#7c7c7c] text-xs mt-1">
+                Maximum Total Value Locked or Total Staked Tokens for the pool
+              </p>
+            </div>
+
+            {/* Pool Reward */}
+            <div>
+              <label className="block text-[#b5b5b5] text-sm font-medium mb-2">
+                Pool Reward (Total Reward Tokens)
+              </label>
+              <input
+                type="text"
+                value={poolReward}
+                onChange={(e) => setPoolReward(e.target.value)}
+                className="w-full bg-[#121712] border border-[#1f261e] rounded-lg px-4 py-2.5 text-white placeholder-[#7c7c7c] focus:outline-none focus:border-[#b1f128]"
+                placeholder="0.00"
+              />
+              <p className="text-[#7c7c7c] text-xs mt-1">
+                Total reward tokens allocated to the pool
+              </p>
+            </div>
+
+            {/* Reward Duration */}
+            <div>
+              <label className="block text-[#b5b5b5] text-sm font-medium mb-2">
+                Reward Duration (Days)
+              </label>
+              <input
+                type="number"
+                min="0"
+                step="1"
+                value={rewardDurationDays}
+                onChange={(e) => {
+                  const value = e.target.value === "" ? "" : parseInt(e.target.value, 10);
+                  if (value === "" || (!isNaN(value) && value >= 0)) {
+                    setRewardDurationDays(value);
+                  }
+                }}
+                className="w-full bg-[#121712] border border-[#1f261e] rounded-lg px-4 py-2.5 text-white placeholder-[#7c7c7c] focus:outline-none focus:border-[#b1f128]"
+                placeholder="30"
+              />
+              <p className="text-[#7c7c7c] text-xs mt-1">
+                Reward duration in days (will be converted to seconds: {rewardDurationDays !== "" && typeof rewardDurationDays === 'number' ? (rewardDurationDays * 24 * 60 * 60).toLocaleString() : '0'} seconds)
+              </p>
+            </div>
+
+            {/* Calculated Reward Rate (display only) */}
+            {maxTvl && poolReward && rewardDurationDays !== "" && typeof rewardDurationDays === 'number' && parseFloat(maxTvl) > 0 && parseFloat(poolReward) > 0 && rewardDurationDays > 0 && (
+              <div className="bg-[#081f02] border border-[#b1f128] rounded-lg p-3 mt-2">
+                <div className="text-[#b1f128] text-xs font-medium mb-2">Calculated Reward Rate:</div>
+                <div className="text-white text-sm">
+                  {(parseFloat(poolReward) / (parseFloat(maxTvl) * rewardDurationDays * 24 * 60 * 60)).toExponential(6)} tokens per token per second
+                </div>
+                <div className="text-[#7c7c7c] text-xs mt-1">
+                  Reward Per Second: {(parseFloat(poolReward) / (rewardDurationDays * 24 * 60 * 60)).toFixed(6)} tokens/sec
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Fee Information */}

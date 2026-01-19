@@ -1,23 +1,37 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
-import { IoChevronDown, IoArrowBack } from "react-icons/io5";
-import { SettingsView } from "./types";
+import { useState, useEffect, useRef, useMemo } from "react";
+import { IoChevronDown, IoArrowBack, IoSearch } from "react-icons/io5";
+import { LANGUAGES, getLanguageByCode, type LanguageOption } from "@/lib/locale/constants";
+import { useLocaleStore } from "@/lib/locale/locale-store";
+import { getLocaleFromLanguage } from "@/lib/locale/language-to-region";
+import { useTranslation } from "@/lib/i18n/useTranslation";
 
 interface LanguageRegionProps {
   onGoBack: () => void;
 }
 
-const languages = ["English", "French", "Spanish", "Chinese", "Arabic", "Portuguese"];
-const currencies = ["USD", "EUR", "NGN", "GBP", "CNY", "JPY"];
-const regionalFormats = ["MM/DD/YY", "DD/MM/YY", "YYYY-MM-DD"];
-
 export default function LanguageRegion({ onGoBack }: LanguageRegionProps) {
-  const [selectedLanguage, setSelectedLanguage] = useState("English");
-  const [selectedCurrency, setSelectedCurrency] = useState("USD");
-  const [selectedFormat, setSelectedFormat] = useState("MM/DD/YY");
+  const { language, currency, dateFormat, region, applySettings } = useLocaleStore();
+  const { t } = useTranslation();
+  const [selectedLanguage, setSelectedLanguage] = useState<LanguageOption>(
+    () => getLanguageByCode(language) ?? LANGUAGES[0]
+  );
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
+  const [languageSearch, setLanguageSearch] = useState("");
+  const [applied, setApplied] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Auto-derive region, currency, and date format from selected language
+  const derivedLocale = useMemo(() => {
+    return getLocaleFromLanguage(selectedLanguage.code);
+  }, [selectedLanguage.code]);
+
+  const filteredLanguages = useMemo(() => {
+    const q = languageSearch.trim().toLowerCase();
+    if (!q) return LANGUAGES;
+    return LANGUAGES.filter((l) => l.name.toLowerCase().includes(q));
+  }, [languageSearch]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -25,13 +39,14 @@ export default function LanguageRegion({ onGoBack }: LanguageRegionProps) {
         dropdownRef.current &&
         !dropdownRef.current.contains(event.target as Node)
       ) {
+        if (openDropdown === "language") setLanguageSearch("");
         setOpenDropdown(null);
       }
     };
 
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
+  }, [openDropdown]);
 
   return (
     <div className="bg-[#0B0F0A] rounded-2xl border border-[#1f261e] p-6 md:p-8">
@@ -46,23 +61,29 @@ export default function LanguageRegion({ onGoBack }: LanguageRegionProps) {
       </div>
 
       <h2 className="text-2xl font-semibold text-white mb-6">
-        Language & Region
+        {t("settings.language_region")}
       </h2>
 
       <div className="space-y-6" ref={dropdownRef}>
         {/* Application Language Dropdown */}
         <div className="relative">
           <label className="text-sm text-[#B5B5B5] mb-2 block">
-            Application Language
+            {t("settings.application_language")}
           </label>
           <div className="relative">
             <button
-              onClick={() =>
-                setOpenDropdown(openDropdown === "language" ? null : "language")
-              }
+              onClick={() => {
+                if (openDropdown === "language") {
+                  setOpenDropdown(null);
+                  setLanguageSearch("");
+                } else {
+                  setLanguageSearch("");
+                  setOpenDropdown("language");
+                }
+              }}
               className="w-full bg-[#010501] border border-[#1f261e] rounded-xl px-4 py-4 text-white flex items-center justify-between hover:border-[#B1F128] transition-colors"
             >
-              <span>{selectedLanguage}</span>
+              <span>{selectedLanguage.name}</span>
               <IoChevronDown
                 size={20}
                 className={`text-[#B5B5B5] transition-transform ${
@@ -71,155 +92,103 @@ export default function LanguageRegion({ onGoBack }: LanguageRegionProps) {
               />
             </button>
             {openDropdown === "language" && (
-              <div className="absolute z-10 w-full mt-2 bg-[#0B0F0A] border border-[#1f261e] rounded-xl shadow-lg overflow-hidden">
-                {languages.map((language) => (
-                  <button
-                    key={language}
-                    onClick={() => {
-                      setSelectedLanguage(language);
-                      setOpenDropdown(null);
-                    }}
-                    className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-[#121712] transition-colors"
-                  >
-                    <div
-                      className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
-                        selectedLanguage === language
-                          ? "border-[#B1F128] bg-[#B1F128]"
-                          : "border-[#3E453E]"
-                      }`}
-                    >
-                      {selectedLanguage === language && (
-                        <div className="w-2 h-2 rounded-full bg-[#010501]" />
-                      )}
-                    </div>
-                    <span
-                      className={`text-sm ${
-                        selectedLanguage === language
-                          ? "text-white"
-                          : "text-[#B5B5B5]"
-                      }`}
-                    >
-                      {language}
-                    </span>
-                  </button>
-                ))}
+              <div className="absolute z-10 w-full mt-2 bg-[#0B0F0A] border border-[#1f261e] rounded-xl shadow-lg overflow-hidden flex flex-col max-h-[min(70vh,420px)]">
+                <div className="p-2 border-b border-[#1f261e] shrink-0">
+                  <div className="relative">
+                    <IoSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-[#6E7873]" size={18} />
+                    <input
+                      type="text"
+                      value={languageSearch}
+                      onChange={(e) => setLanguageSearch(e.target.value)}
+                    onKeyDown={(e) => e.stopPropagation()}
+                    placeholder={`${t("common.search")} languages...`}
+                      className="w-full bg-[#010501] border border-[#1f261e] rounded-lg pl-9 pr-3 py-2.5 text-sm text-white placeholder-[#6E7873] outline-none focus:ring-2 focus:ring-[#B1F128] focus:border-[#B1F128]"
+                    />
+                  </div>
+                </div>
+                <div className="overflow-y-auto overscroll-contain flex-1 min-h-0">
+                  {filteredLanguages.length === 0 ? (
+                    <p className="px-4 py-6 text-sm text-[#6E7873] text-center">No languages match &quot;{languageSearch}&quot;</p>
+                  ) : (
+                    filteredLanguages.map((lang) => (
+                      <button
+                        key={lang.code}
+                        onClick={() => {
+                          setSelectedLanguage(lang);
+                          setOpenDropdown(null);
+                          setLanguageSearch("");
+                        }}
+                        className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-[#121712] transition-colors"
+                      >
+                        <div
+                          className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${
+                            selectedLanguage.code === lang.code
+                              ? "border-[#B1F128] bg-[#B1F128]"
+                              : "border-[#3E453E]"
+                          }`}
+                        >
+                          {selectedLanguage.code === lang.code && (
+                            <div className="w-2 h-2 rounded-full bg-[#010501]" />
+                          )}
+                        </div>
+                        <span
+                          className={`text-sm ${
+                            selectedLanguage.code === lang.code
+                              ? "text-white"
+                              : "text-[#B5B5B5]"
+                          }`}
+                        >
+                          {lang.name}
+                        </span>
+                      </button>
+                    ))
+                  )}
+                </div>
+                <p className="px-4 py-2 text-xs text-[#6E7873] border-t border-[#1f261e] shrink-0">
+                  {filteredLanguages.length} of {LANGUAGES.length} languages
+                </p>
               </div>
             )}
           </div>
         </div>
 
-        {/* Currency Display Dropdown */}
-        <div className="relative">
+        {/* Currency Display (auto from language, read-only) */}
+        <div>
           <label className="text-sm text-[#B5B5B5] mb-2 block">
-            Currency Display
+            {t("settings.currency_display")}
           </label>
-          <div className="relative">
-            <button
-              onClick={() =>
-                setOpenDropdown(openDropdown === "currency" ? null : "currency")
-              }
-              className="w-full bg-[#010501] border border-[#1f261e] rounded-xl px-4 py-4 text-white flex items-center justify-between hover:border-[#B1F128] transition-colors"
-            >
-              <span>{selectedCurrency}</span>
-              <IoChevronDown
-                size={20}
-                className={`text-[#B5B5B5] transition-transform ${
-                  openDropdown === "currency" ? "rotate-180" : ""
-                }`}
-              />
-            </button>
-            {openDropdown === "currency" && (
-              <div className="absolute z-10 w-full mt-2 bg-[#0B0F0A] border border-[#1f261e] rounded-xl shadow-lg overflow-hidden">
-                {currencies.map((currency) => (
-                  <button
-                    key={currency}
-                    onClick={() => {
-                      setSelectedCurrency(currency);
-                      setOpenDropdown(null);
-                    }}
-                    className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-[#121712] transition-colors"
-                  >
-                    <div
-                      className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
-                        selectedCurrency === currency
-                          ? "border-[#B1F128] bg-[#B1F128]"
-                          : "border-[#3E453E]"
-                      }`}
-                    >
-                      {selectedCurrency === currency && (
-                        <div className="w-2 h-2 rounded-full bg-[#010501]" />
-                      )}
-                    </div>
-                    <span
-                      className={`text-sm ${
-                        selectedCurrency === currency
-                          ? "text-white"
-                          : "text-[#B5B5B5]"
-                      }`}
-                    >
-                      {currency}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            )}
+          <div className="w-full bg-[#010501] border border-[#1f261e] rounded-xl px-4 py-4 text-[#B5B5B5]">
+            {derivedLocale.currency}
           </div>
+          <p className="text-xs text-[#6E7873] mt-1">{t("settings.auto_detected")}</p>
         </div>
 
-        {/* Regional Format Dropdown */}
-        <div className="relative">
+        {/* Regional Format (auto from language, read-only) */}
+        <div>
           <label className="text-sm text-[#B5B5B5] mb-2 block">
-            Regional Format
+            {t("settings.regional_format")}
           </label>
-          <div className="relative">
-            <button
-              onClick={() =>
-                setOpenDropdown(openDropdown === "format" ? null : "format")
-              }
-              className="w-full bg-[#010501] border border-[#1f261e] rounded-xl px-4 py-4 text-white flex items-center justify-between hover:border-[#B1F128] transition-colors"
-            >
-              <span>{selectedFormat}</span>
-              <IoChevronDown
-                size={20}
-                className={`text-[#B5B5B5] transition-transform ${
-                  openDropdown === "format" ? "rotate-180" : ""
-                }`}
-              />
-            </button>
-            {openDropdown === "format" && (
-              <div className="absolute z-10 w-full mt-2 bg-[#0B0F0A] border border-[#1f261e] rounded-xl shadow-lg overflow-hidden">
-                {regionalFormats.map((format) => (
-                  <button
-                    key={format}
-                    onClick={() => {
-                      setSelectedFormat(format);
-                      setOpenDropdown(null);
-                    }}
-                    className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-[#121712] transition-colors"
-                  >
-                    <div
-                      className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
-                        selectedFormat === format
-                          ? "border-[#B1F128] bg-[#B1F128]"
-                          : "border-[#3E453E]"
-                      }`}
-                    >
-                      {selectedFormat === format && (
-                        <div className="w-2 h-2 rounded-full bg-[#010501]" />
-                      )}
-                    </div>
-                    <span
-                      className={`text-sm ${
-                        selectedFormat === format ? "text-white" : "text-[#B5B5B5]"
-                      }`}
-                    >
-                      {format}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            )}
+          <div className="w-full bg-[#010501] border border-[#1f261e] rounded-xl px-4 py-4 text-[#B5B5B5]">
+            {derivedLocale.dateFormat}
           </div>
+          <p className="text-xs text-[#6E7873] mt-1">{t("settings.auto_detected")}</p>
+        </div>
+
+        {/* Apply: persist and apply site-wide */}
+        <div className="pt-2">
+          <button
+            onClick={() => {
+              applySettings(selectedLanguage.code);
+              setApplied(true);
+              setTimeout(() => setApplied(false), 2000);
+            }}
+            className="w-full bg-[#B1F128] text-[#010501] font-semibold py-4 px-6 rounded-full hover:opacity-90 transition-opacity"
+          >
+            {applied ? t("common.applied") : t("common.apply")}
+          </button>
+          <p className="text-xs text-[#6E7873] mt-2 text-center">
+            {t("settings.applies_sitewide")}
+          </p>
         </div>
       </div>
     </div>

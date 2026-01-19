@@ -15,6 +15,11 @@ export interface StakingPool {
   apr?: string;
   totalStaked?: string;
   limits?: string;
+  // Contract and chain info
+  contractAddress?: string; // Smart contract address
+  chainId?: number; // Chain ID
+  tokenAddress?: string; // Staking token address
+  decimals?: number; // Token decimals
   // Additional fields for "My Stakes"
   stakedAmount?: string;
   rewardsEarned?: string;

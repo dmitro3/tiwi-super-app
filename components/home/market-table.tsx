@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/table";
 import { formatTokenForHomepage, type HomepageToken, formatPrice } from "@/lib/home/token-formatter";
 import type { Token } from "@/lib/frontend/types/tokens";
+import { useLocaleStore } from "@/lib/locale/locale-store";
 import { TableSkeleton } from "@/components/home/table-skeleton";
 import { useTokensQuery } from "@/hooks/useTokensQuery";
 
@@ -28,6 +29,7 @@ interface MarketTableProps {
 }
 
 export function MarketTable({ activeTab = "Hot", searchQuery = "", sortBy = 'none', onSortChange }: MarketTableProps) {
+  useLocaleStore((s) => `${s.language}|${s.currency}`); // re-render when locale changes
   const [tokens, setTokens] = useState<HomepageToken[]>([]);
   const [favourites, setFavourites] = useState<string[]>([]);
   const leftTableRef = useRef<HTMLTableElement | null>(null);
