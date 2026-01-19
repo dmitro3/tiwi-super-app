@@ -40,10 +40,12 @@ interface RouteRequestBody {
     symbol?: string;
     decimals?: number | undefined;  // undefined means unknown, will be fetched
   };
-  fromAmount: string;
+  fromAmount?: string;  // For normal routing (fromAmount → toAmount)
+  toAmount?: string;    // For reverse routing (toAmount → fromAmount)
   slippage?: number;
   slippageMode?: 'fixed' | 'auto';
   recipient?: string;
+  fromAddress?: string;                // User's wallet address (optional, for LiFi getQuote)
   order?: 'RECOMMENDED' | 'FASTEST' | 'CHEAPEST';
   liquidityUSD?: number;                // Token pair liquidity in USD (from frontend)
 }
@@ -89,6 +91,7 @@ export async function GET(req: NextRequest) {
     const slippage = searchParams.get('slippage');
     const slippageMode = searchParams.get('slippageMode') as 'fixed' | 'auto' | null;
     const recipient = searchParams.get('recipient');
+    const fromAddress = searchParams.get('fromAddress'); // User's wallet address (for LiFi getQuote)
     const order = searchParams.get('order') as 'RECOMMENDED' | 'FASTEST' | 'CHEAPEST' | null;
     const liquidityUSD = searchParams.get('liquidityUSD');
     
@@ -108,6 +111,7 @@ export async function GET(req: NextRequest) {
       slippage: slippage ? parseFloat(slippage) : undefined,
       slippageMode: slippageMode || 'fixed',
       recipient: recipient || undefined,
+      fromAddress: fromAddress || undefined, // Pass fromAddress if provided
       order: order || 'RECOMMENDED',
       liquidityUSD: liquidityUSD ? parseFloat(liquidityUSD) : undefined, // Pass liquidity from query params (if provided)
     };
@@ -145,10 +149,29 @@ export async function POST(req: NextRequest) {
     console.log("🚀 ~ POST ~ body:", body)
     
     // Validate required fields
-    if (!body.fromToken || !body.toToken || !body.fromAmount) {
+    if (!body.fromToken || !body.toToken) {
       return NextResponse.json(
         {
-          error: 'Missing required fields: fromToken, toToken, fromAmount',
+          error: 'Missing required fields: fromToken, toToken',
+        },
+        { status: 400 }
+      );
+    }
+    
+    // Validate that exactly one of fromAmount or toAmount is provided
+    if (!body.fromAmount && !body.toAmount) {
+      return NextResponse.json(
+        {
+          error: 'Either fromAmount or toAmount must be provided',
+        },
+        { status: 400 }
+      );
+    }
+    
+    if (body.fromAmount && body.toAmount) {
+      return NextResponse.json(
+        {
+          error: 'Cannot provide both fromAmount and toAmount. Provide exactly one.',
         },
         { status: 400 }
       );
@@ -188,9 +211,11 @@ export async function POST(req: NextRequest) {
         decimals: body.toToken.decimals, // Required: from token data
       },
       fromAmount: body.fromAmount,
+      toAmount: body.toAmount,  // For reverse routing
       slippage: body.slippage,
       slippageMode: body.slippageMode || 'fixed',
       recipient: body.recipient,
+      fromAddress: body.fromAddress, // User's wallet address (for LiFi getQuote)
       order: body.order || 'RECOMMENDED',
       liquidityUSD: body.liquidityUSD, // Pass liquidity from frontend
     };

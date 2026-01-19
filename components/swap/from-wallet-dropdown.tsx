@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { useWallet } from "@/lib/wallet/hooks/useWallet";
-import { getWalletIconFromAccount, truncateAddress } from "@/lib/frontend/utils/wallet-display";
+import { getWalletIconFromAccount, truncateAddress, isWalletChainCompatible } from "@/lib/frontend/utils/wallet-display";
 import WalletDropdown from "./wallet-dropdown";
 import { generateWalletId as genWalletId } from "@/lib/wallet/state/types";
 
@@ -12,6 +12,7 @@ interface FromWalletDropdownProps {
   onConnectNewWallet: () => void;
   onSelectWallet?: (address: string) => void;
   currentAddress?: string | null;
+  chainId?: number; // Token chain ID for filtering compatible wallets
 }
 
 export default function FromWalletDropdown({
@@ -20,6 +21,7 @@ export default function FromWalletDropdown({
   onConnectNewWallet,
   onSelectWallet,
   currentAddress,
+  chainId,
 }: FromWalletDropdownProps) {
   const { 
     connectedWallets, 
@@ -27,6 +29,11 @@ export default function FromWalletDropdown({
     activeWalletId,
     setActiveWallet,
   } = useWallet();
+  
+  // Filter wallets to only show those compatible with the token's chain
+  const compatibleWallets = chainId
+    ? connectedWallets.filter((wallet) => wallet && isWalletChainCompatible(wallet, chainId))
+    : connectedWallets;
 
   const handleWalletSelect = (wallet: typeof connectedWallets[0]) => {
     if (!wallet) return;
@@ -48,12 +55,12 @@ export default function FromWalletDropdown({
   };
 
   return (
-    <WalletDropdown open={open} onClose={onClose} className="top-full mt-1.5">
+      <WalletDropdown open={open} onClose={onClose} className="top-full mt-1.5">
       <div className="py-2">
-        {/* Connected Wallets Section */}
-        {connectedWallets.length > 0 && (
+        {/* Connected Wallets Section - Only show compatible wallets */}
+        {compatibleWallets.length > 0 && (
           <div className="px-2">
-            {connectedWallets.map((wallet) => {
+            {compatibleWallets.map((wallet) => {
               if (!wallet) return null;
               const walletIcon = getWalletIconFromAccount(wallet);
               const walletId = genWalletId(wallet);
@@ -101,7 +108,7 @@ export default function FromWalletDropdown({
         )}
 
         {/* Divider */}
-        {connectedWallets.length > 0 && (
+        {compatibleWallets.length > 0 && (
           <div className="my-1.5 border-t border-[#1f261e]"></div>
         )}
 

@@ -6,6 +6,10 @@
  */
 
 import { getQuote, getRoutes, type RouteExtended, type LiFiStep } from '@lifi/sdk';
+import { initializeBackendLiFiSDK } from '@/lib/backend/config/lifi-sdk-config';
+
+// Initialize LiFi SDK config for backend
+initializeBackendLiFiSDK();
 import { BaseRouter } from '../base';
 import { ChainTransformer } from '../transformers/chain-transformer';
 import { toHumanReadable } from '../transformers/amount-transformer';
@@ -91,8 +95,17 @@ export class LiFiAdapter extends BaseRouter {
         throw new Error('Invalid chain IDs');
       }
       
-      // Try getQuote first (preferred method)
+      // Try getQuote first (preferred method, especially when fromAddress is provided)
       let lifiRoute: RouteExtended | null = null;
+      
+      // Prioritize getQuote when fromAddress is provided (faster and more accurate)
+      const shouldUseGetQuote = params.fromAddress !== undefined;
+      
+      if (shouldUseGetQuote) {
+        console.log('[LiFiAdapter] Using getQuote (fromAddress provided) for faster routing');
+      } else {
+        console.log('[LiFiAdapter] Attempting getQuote (will fallback to getRoutes if needed)');
+      }
       
       try {
         console.log("🚀 ~ LiFiAdapter ~ getRoute ~ params:", {
@@ -101,13 +114,15 @@ export class LiFiAdapter extends BaseRouter {
           fromAmount: params.fromAmount,
           toChain: toChainId,
           toToken: params.toToken,
+          fromAddress: params.fromAddress, // Log fromAddress
           toAddress: params.recipient,
           order: this.mapOrderPreference(params.order),
           slippage: params.slippage || 0.5
         });
 
         
-        const quote: LiFiStep = await getQuote({
+        // Build quote parameters
+        const quoteParams: any = {
           fromChain: fromChainId,
           fromToken: params.fromToken,
           fromAmount: params.fromAmount,
@@ -116,7 +131,17 @@ export class LiFiAdapter extends BaseRouter {
           toAddress: params.recipient,
           order: this.mapOrderPreference(params.order),
           slippage: params.slippage || 0.5,
-        } as any);
+        };
+        
+        // Add fromAddress if provided (improves quote accuracy and speed when wallet is connected)
+        if (params.fromAddress) {
+          quoteParams.fromAddress = params.fromAddress;
+          console.log('[LiFiAdapter] getQuote called with fromAddress - should be faster and more accurate');
+        } else {
+          console.log('[LiFiAdapter] getQuote called without fromAddress - may fallback to getRoutes');
+        }
+        
+        const quote: LiFiStep = await getQuote(quoteParams);
         console.log("🚀 ~ [Get QUOTE FROM LIFI] ~LiFiAdapter ~ getRoute ~ getQuote:", quote)
         
         // Convert quote (LiFiStep) to RouteExtended format
@@ -133,17 +158,31 @@ export class LiFiAdapter extends BaseRouter {
         } as unknown as RouteExtended;
       } catch (quoteError: any) {
         // If getQuote fails, try getRoutes as fallback
-        console.warn('[LiFiAdapter] getQuote failed, trying getRoutes:', quoteError.message);
+        // Note: This fallback is less ideal - getQuote with fromAddress should work in most cases
+        console.warn('[LiFiAdapter] getQuote failed, trying getRoutes as fallback:', quoteError.message);
         
-        const routesResult = await getRoutes({
+        // Build routes parameters
+        const routesParams: any = {
           fromChainId: fromChainId,
           toChainId: toChainId,
           fromTokenAddress: params.fromToken,
           toTokenAddress: params.toToken,
           fromAmount: params.fromAmount,
-          fromAddress: params.recipient,
-        });
-        console.log("🚀 ~[Get ROUTES FROM LIFI] ~ LiFiAdapter ~ getRoute ~ routesResult:", routesResult.routes[0].steps)
+        };
+        
+        // Add fromAddress if provided (use fromAddress if available, otherwise use recipient)
+        if (params.fromAddress) {
+          routesParams.fromAddress = params.fromAddress;
+          console.log('[LiFiAdapter] getRoutes called with fromAddress');
+        } else if (params.recipient) {
+          routesParams.fromAddress = params.recipient;
+          console.log('[LiFiAdapter] getRoutes called with recipient as fromAddress');
+        } else {
+          console.warn('[LiFiAdapter] getRoutes called without fromAddress - may be slower');
+        }
+        
+        const routesResult = await getRoutes(routesParams);
+        console.log("🚀 ~[Get ROUTES FROM LIFI] ~ LiFiAdapter ~ getRoute ~ routesResult:", routesResult.routes[0]?.steps)
         
         if (routesResult.routes && routesResult.routes.length > 0) {
           // Use first route (best route)

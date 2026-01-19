@@ -27,24 +27,24 @@ export default function TokenRow({
     >
       {/* Left Side - Token Info */}
       <div className="flex gap-2 sm:gap-[8px] items-center relative shrink-0 min-w-0 flex-1">
-        {/* Token Logo */}
-        <div className="relative shrink-0 size-8 sm:size-10 lg:size-[40px]">
+        {/* Token Logo - Made smaller for better visual alignment with badge */}
+        <div className="relative shrink-0 size-8 sm:size-8 lg:size-[32px]">
           <TokenIcon
             logo={token.logo}
             symbol={token.symbol}
             address={token.address}
             chainId={token.chainId}
-            size="xl"
+            size="lg"
             className="w-full h-full"
           />
           {token.chainLogo ? (
-            <div className="absolute -bottom-0.5 -right-0.5 size-4 sm:size-5">
+            <div className="absolute -bottom-0.5 -right-0.5 size-3.5 sm:size-4 lg:size-[14px]">
               <Image
                 src={token.chainLogo}
                 alt={token.chain}
-                width={20}
-                height={20}
-                className="rounded-full border-2 border-[#0b0f0a] w-full h-full"
+                width={14}
+                height={14}
+                className="rounded-full border-2 border-[#0b0f0a] w-full h-full object-cover"
               />
             </div>
           ) : null}

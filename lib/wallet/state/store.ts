@@ -202,7 +202,42 @@ export const useWalletStore = create<WalletStore>()(
             connectedWallets: [],
             activeWalletId: null,
             error: null,
+            isConnecting: false,
           });
+          
+          // Force clear all wallet-related localStorage to ensure disconnection persists
+          if (typeof window !== 'undefined') {
+            try {
+              // Clear our store
+              localStorage.removeItem(WALLET_STORAGE_KEY);
+              
+              // Clear Wagmi storage
+              localStorage.removeItem('wagmi.store');
+              localStorage.removeItem('wagmi.connections');
+              
+              // Clear chain-specific Wagmi storage
+              const origin = window.location.origin;
+              const chains = ['ethereum', 'mainnet', 'arbitrum', 'optimism', 'polygon', 'base', 'bsc', '56', '1', '42161', '10', '137', '8453'];
+              chains.forEach(chain => {
+                const key = `${chain}-${origin}`;
+                localStorage.removeItem(key);
+              });
+              localStorage.removeItem(origin);
+              
+              // Clear LiFi/WalletConnect storage
+              const lifiKeys = Object.keys(localStorage).filter(key => 
+                key.toLowerCase().includes('lifi') || 
+                key.toLowerCase().includes('walletconnect')
+              );
+              lifiKeys.forEach(key => {
+                localStorage.removeItem(key);
+              });
+              
+              console.log('[WalletStore] Cleared all wallet storage on disconnect');
+            } catch (error) {
+              console.warn('[WalletStore] Error clearing localStorage on disconnect:', error);
+            }
+          }
         }
       },
 
@@ -344,7 +379,42 @@ export const useWalletStore = create<WalletStore>()(
           secondaryWallet: state.secondaryWallet && generateWalletId(state.secondaryWallet) === walletId
             ? null
             : state.secondaryWallet,
+          isConnecting: false,
         });
+        
+        // If no wallets remain, clear all storage to ensure disconnection persists
+        if (newWallets.length === 0 && typeof window !== 'undefined') {
+          try {
+            // Clear our store
+            localStorage.removeItem(WALLET_STORAGE_KEY);
+            
+            // Clear Wagmi storage
+            localStorage.removeItem('wagmi.store');
+            localStorage.removeItem('wagmi.connections');
+            
+            // Clear chain-specific Wagmi storage
+            const origin = window.location.origin;
+            const chains = ['ethereum', 'mainnet', 'arbitrum', 'optimism', 'polygon', 'base', 'bsc', '56', '1', '42161', '10', '137', '8453'];
+            chains.forEach(chain => {
+              const key = `${chain}-${origin}`;
+              localStorage.removeItem(key);
+            });
+            localStorage.removeItem(origin);
+            
+            // Clear LiFi/WalletConnect storage
+            const lifiKeys = Object.keys(localStorage).filter(key => 
+              key.toLowerCase().includes('lifi') || 
+              key.toLowerCase().includes('walletconnect')
+            );
+            lifiKeys.forEach(key => {
+              localStorage.removeItem(key);
+            });
+            
+            console.log('[WalletStore] Cleared all wallet storage on disconnect');
+          } catch (error) {
+            console.warn('[WalletStore] Error clearing localStorage after removing last wallet:', error);
+          }
+        }
       },
       
       /**

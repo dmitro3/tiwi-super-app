@@ -74,3 +74,4 @@ export abstract class BaseBridgeAdapter implements BridgeAdapter {
   }
 }
 
+

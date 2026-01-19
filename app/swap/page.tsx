@@ -84,6 +84,7 @@ export default function SwapPage() {
   const setExpires = useSwapStore((state) => state.setExpires);
   const setToAmount = useSwapStore((state) => state.setToAmount);
   const setQuoteLoading = useSwapStore((state) => state.setQuoteLoading);
+  const swapTokens = useSwapStore((state) => state.swapTokens);
 
   // Wallet connection state
   const {
@@ -119,6 +120,13 @@ export default function SwapPage() {
   // Determine recipient address (secondary wallet or manual address)
   const effectiveRecipientAddress = secondaryWallet?.address || secondaryAddress || null;
   // Initialize default tokens on mount (use real chainId/address to avoid quote errors)
+
+  // Recipient wallet state for wallet-to-wallet transfers
+  // Use secondary wallet/address if available, otherwise default to primary wallet address
+  const [recipientAddress, setRecipientAddress] = useState<string | null>(
+    effectiveRecipientAddress || connectedAddress
+  );
+
   useEffect(() => {
     if (!fromToken) {
       setFromToken(DEFAULT_FROM_TOKEN);
@@ -129,11 +137,17 @@ export default function SwapPage() {
   useTokenPricePrefetch(fromToken, toToken);
 
   // Use custom hook for quote calculation (updates store)
+  // Get activeInput from store
+  const activeInput = useSwapStore((state) => state.activeInput);
+
   useSwapQuote({
     fromAmount,
+    toAmount,
+    activeInput,
     activeTab,
     fromToken,
     toToken,
+    recipient: recipientAddress, // Pass recipient address for routing
   });
 
   // Fetch token balances for fromToken and toToken
@@ -241,11 +255,29 @@ export default function SwapPage() {
 
   const handleFromAmountChange = (value: string) => {
     // Sanitize input and update store
-    setFromAmount(sanitizeDecimal(value));
+    // This sets activeInput to 'from' automatically
+    const sanitized = sanitizeDecimal(value);
+    setFromAmount(sanitized);
+    
+    // When user clears input, clear both fields (user requirement)
+    if (sanitized === '') {
+      const setToAmount = useSwapStore.getState().setToAmount;
+      setToAmount('');
+    }
   };
 
-  // Note: toAmount is read-only (derived from quote), so handleToAmountChange is removed
-  // The onToAmountChange prop is kept for API compatibility but won't be called
+  const handleToAmountChange = (value: string) => {
+    // Sanitize input and update store
+    // This sets activeInput to 'to' automatically (for reverse routing)
+    const sanitized = sanitizeDecimal(value);
+    const setToAmount = useSwapStore.getState().setToAmount;
+    setToAmount(sanitized);
+    
+    // When user clears input, clear both fields (user requirement)
+    if (sanitized === '') {
+      setFromAmount('');
+    }
+  };
 
   const handleLimitPriceChange = (value: string) => {
     setLimitPrice(sanitizeDecimal(value));
@@ -259,14 +291,65 @@ export default function SwapPage() {
     }
   };
 
-  // Recipient wallet state for wallet-to-wallet transfers
-  // Use secondary wallet/address if available, otherwise default to primary wallet address
-  const [recipientAddress, setRecipientAddress] = useState<string | null>(
-    effectiveRecipientAddress || connectedAddress
-  );
+  // Handle swap tokens button (middle arrow) - swaps tokens, amounts, and addresses
+  const handleSwapTokens = () => {
+    // Only swap if both tokens are selected
+    if (!fromToken || !toToken) {
+      return;
+    }
+
+    // Store current values before swap
+    const currentFromAddress = connectedAddress;
+    const currentToAddress = recipientAddress;
+    const currentFromToken = fromToken;
+    const currentToToken = toToken;
+
+    // Swap tokens and amounts in the store
+    swapTokens();
+
+    // Swap addresses: fromAddress (connectedAddress) ↔ toAddress (recipientAddress)
+    // After swap:
+    // - New fromToken (was toToken) needs the address that was previously the toAddress
+    // - New toToken (was fromToken) needs the address that was previously the fromAddress
+    
+    // The new fromToken is the old toToken
+    const newFromToken = currentToToken;
+    // The new toToken is the old fromToken
+    const newToToken = currentFromToken;
+
+    // Swap recipient address
+    // If there was a recipient address and it's compatible with the new fromToken, keep it
+    // Otherwise, set recipient to the old fromAddress if it's compatible with new toToken
+    if (currentToAddress && newFromToken?.chainId && isAddressChainCompatible(currentToAddress, newFromToken.chainId)) {
+      // Old recipient is compatible with new fromToken - this becomes the new "from" address
+      // But we can't change connectedAddress directly, so we'll just update recipient
+      // The new recipient should be the old fromAddress if compatible with new toToken
+      if (currentFromAddress && newToToken?.chainId && isAddressChainCompatible(currentFromAddress, newToToken.chainId)) {
+        setRecipientAddress(currentFromAddress);
+      } else {
+        // Old fromAddress not compatible with new toToken, clear recipient
+        setRecipientAddress(null);
+      }
+    } else {
+      // Old recipient was null or incompatible
+      // Set new recipient to old fromAddress if compatible with new toToken
+      if (currentFromAddress && newToToken?.chainId && isAddressChainCompatible(currentFromAddress, newToToken.chainId)) {
+        setRecipientAddress(currentFromAddress);
+      } else {
+        setRecipientAddress(null);
+      }
+    }
+  };
 
   // Sync recipient address with secondary wallet/address changes
+  // IMPORTANT: Only sync if user hasn't manually changed the recipient
+  // This prevents overwriting pasted addresses (e.g., Solana addresses)
   useEffect(() => {
+    // Don't overwrite if user has manually set a recipient address
+    if (userChangedRecipientRef.current) {
+      return;
+    }
+    
     const newRecipient = effectiveRecipientAddress || connectedAddress;
     if (newRecipient !== recipientAddress) {
       // Only update if it's compatible with current toToken
@@ -274,7 +357,7 @@ export default function SwapPage() {
         setRecipientAddress(newRecipient);
       }
     }
-  }, [effectiveRecipientAddress, connectedAddress, toToken?.chainId]);
+  }, [effectiveRecipientAddress, connectedAddress, toToken?.chainId, recipientAddress]);
 
   // Handle recipient change with chain compatibility + user override tracking
   const handleRecipientChange = (address: string | null) => {
@@ -317,24 +400,27 @@ export default function SwapPage() {
     return null;
   }, [recipientAddress, secondaryWallet, primaryWallet]);
 
-  // Check chain compatibility when tokens change
+  // Check chain compatibility when tokens change and auto-clear incompatible selections
   useEffect(() => {
-    // Check fromToken compatibility with primary wallet
-    if (fromToken?.chainId && primaryWallet) {
-      if (!isWalletChainCompatible(primaryWallet, fromToken.chainId)) {
-        console.log('[SwapPage] Primary wallet incompatible with fromToken chain');
-        // Don't clear primary wallet, just log - user can switch token or wallet
+    // Check fromToken compatibility with connected address
+    // If incompatible, clear the selection (user needs to connect/paste compatible wallet)
+    if (fromToken?.chainId && connectedAddress) {
+      if (!isAddressChainCompatible(connectedAddress, fromToken.chainId)) {
+        console.log('[SwapPage] Connected address is incompatible with fromToken chain, clearing selection');
+        // Note: We don't clear connectedAddress itself, just note it's incompatible
+        // The wallet dropdown will hide it, and useSwapQuote won't use it
       }
     }
 
     // Check toToken compatibility with recipient address
+    // If incompatible, automatically clear recipient address
     if (toToken?.chainId && recipientAddress) {
       if (!isAddressChainCompatible(recipientAddress, toToken.chainId)) {
-        console.log('[SwapPage] Recipient address incompatible with toToken chain, clearing');
+        console.log('[SwapPage] Recipient address incompatible with toToken chain, auto-clearing');
         setRecipientAddress(null);
       }
     }
-  }, [fromToken, toToken, primaryWallet, recipientAddress]);
+  }, [fromToken, toToken, connectedAddress, recipientAddress]);
   const [isExecutingTransfer, setIsExecutingTransfer] = useState(false);
   // Toast state for swap status
   const [toastState, setToastState] = useState<{
@@ -976,10 +1062,12 @@ export default function SwapPage() {
               onFromTokenSelect={handleFromTokenSelect}
               onToTokenSelect={handleToTokenSelect}
               onFromAmountChange={handleFromAmountChange}
+              onToAmountChange={handleToAmountChange}
               onLimitPriceChange={handleLimitPriceChange}
               onExpiresChange={setExpires}
               onMaxClick={handleMaxClick}
               onSwapClick={handleSwapClick}
+              onSwapTokens={handleSwapTokens}
               onConnectClick={handleConnectClick}
               onConnectFromSection={handleConnectFromSection}
               isConnected={!!connectedAddress}

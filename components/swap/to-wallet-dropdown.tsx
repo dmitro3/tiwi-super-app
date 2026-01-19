@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import Image from "next/image";
 import { useWallet } from "@/lib/wallet/hooks/useWallet";
-import { truncateAddress, getWalletIconFromAccount } from "@/lib/frontend/utils/wallet-display";
+import { truncateAddress, getWalletIconFromAccount, isWalletChainCompatible } from "@/lib/frontend/utils/wallet-display";
 import WalletDropdown from "./wallet-dropdown";
 import PasteAddressModal from "./paste-address-modal";
 
@@ -28,12 +28,16 @@ export default function ToWalletDropdown({
   const { primaryWallet, secondaryWallet } = useWallet();
   const [showPasteModal, setShowPasteModal] = useState(false);
 
-
   // Get available wallets (primary + secondary if exists)
-  const availableWallets = [
+  const allAvailableWallets = [
     primaryWallet,
     secondaryWallet,
   ].filter((w): w is NonNull<typeof w> => w !== null);
+  
+  // Filter wallets to only show those compatible with the token's chain
+  const availableWallets = chainId
+    ? allAvailableWallets.filter((wallet) => isWalletChainCompatible(wallet, chainId))
+    : allAvailableWallets;
 
   const handlePasteAddressSave = (address: string) => {
     onAddressSelect(address);

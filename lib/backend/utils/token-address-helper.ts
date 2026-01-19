@@ -122,3 +122,13 @@ export function getWrappedTokenAddress(chainId: number): Address | null {
   return WETH_ADDRESSES[chainId] || null;
 }
 
+/**
+ * Get wrapped native token address for a chain (alias for getWrappedTokenAddress)
+ * 
+ * @param chainId - Chain ID
+ * @returns Wrapped token address, or null if not supported
+ */
+export function getWrappedNativeToken(chainId: number): Address | null {
+  return getWrappedTokenAddress(chainId);
+}
+

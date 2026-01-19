@@ -5,12 +5,17 @@ import { useSwapStore } from "@/lib/frontend/store/swap-store";
 import { useSettingsStore } from "@/lib/frontend/store/settings-store";
 import type { Token } from "@/lib/frontend/types/tokens";
 import { RouterRoute } from "@/lib/backend/routers";
+import { useAccount } from "wagmi";
+import { isAddressChainCompatible } from "@/lib/frontend/utils/wallet-display";
 
 interface UseSwapQuoteOptions {
   fromAmount: string;
+  toAmount: string;
+  activeInput: 'from' | 'to' | null;
   activeTab: "swap" | "limit";
   fromToken: Token | null;
   toToken: Token | null;
+  recipient?: string | null; // Recipient address (toAddress) - user-provided or connected wallet
   delay?: number; // Debounce delay in ms (default: 500)
 }
 
@@ -21,13 +26,19 @@ interface UseSwapQuoteOptions {
  */
 export function useSwapQuote({
   fromAmount,
+  toAmount,
+  activeInput,
   activeTab,
   fromToken,
   toToken,
+  recipient,
   delay = 500,
 }: UseSwapQuoteOptions): void {
   const setRoute = useSwapStore((state) => state.setRoute);
   const setToAmount = useSwapStore((state) => state.setToAmount);
+  const setFromAmount = useSwapStore((state) => state.setFromAmount);
+  const updateFromAmount = useSwapStore((state) => state.updateFromAmount);
+  const updateToAmount = useSwapStore((state) => state.updateToAmount);
   const setQuoteLoading = useSwapStore((state) => state.setQuoteLoading);
   const setQuoteError = useSwapStore((state) => state.setQuoteError);
   // Note: Do NOT read route here - it's stale. Use getState() for debugging only.
@@ -35,31 +46,95 @@ export function useSwapQuote({
   const slippageMode = useSettingsStore((state) => state.slippageMode);
   const slippageTolerance = useSettingsStore((state) => state.slippageTolerance);
   
+  // Get connected wallet address for fromAddress parameter
+  // This improves routing speed and accuracy, especially for LiFi
+  const { address: connectedAddress, isConnected } = useAccount();
+  
   // Store latest quote expiration for refresh functionality
   const quoteExpiresAtRef = useRef<number | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  
+  // Track when updates are from quote responses (not user input) to prevent circular updates
+  const isUpdatingFromQuoteRef = useRef(false);
+  
+  // Track last requested amount and activeInput to prevent duplicate requests
+  const lastRequestedAmountRef = useRef<string>('');
+  const lastActiveInputRef = useRef<'from' | 'to' | null>(null);
 
   useEffect(() => {
-    const amountNum = parseNumber(fromAmount);
+    // Determine which amount to use based on activeInput
+    // Default to 'from' if activeInput is null (backward compatibility)
+    const isReverseRouting = activeInput === 'to';
+    const inputAmount = isReverseRouting ? toAmount : fromAmount;
+    const amountNum = parseNumber(inputAmount);
+
+    // Skip if we're updating from a quote response (prevents circular updates)
+    // This flag is set when we update amounts from a quote response, and checked here
+    // to prevent the effect from re-running when the store updates
+    if (isUpdatingFromQuoteRef.current) {
+      // Reset flag and return early - this update was triggered by our own quote response
+      isUpdatingFromQuoteRef.current = false;
+      return;
+    }
+    
+    // Check if this is a duplicate request (same amount and activeInput)
+    // This prevents re-fetching when the same input triggers the effect multiple times
+    const requestKey = `${activeInput}-${inputAmount}`;
+    if (requestKey === `${lastActiveInputRef.current}-${lastRequestedAmountRef.current}` && lastRequestedAmountRef.current !== '') {
+      return;
+    }
+    
+    // Update last requested values only if we're actually going to make a request
+    // (not for partial decimals or invalid inputs)
 
     // Define clear invariants for valid quote input
     // Route is valid ONLY when all of these are true:
+    // 1. amountNum > 0 (not zero, not "0.00000", etc.)
+    // 2. fromToken and toToken are selected
+    // 3. activeTab is "swap"
+    
+    // Check if input is a zero value (including "0", "0.0", "0.00", "0.00000", etc.)
+    const isZeroValue = amountNum === 0;
+    
+    // Check if input is a partial decimal (user is still typing, e.g., "0.", "0.0", "123.")
+    const isPartialDecimal = inputAmount.endsWith('.') || /^0\.0*$/.test(inputAmount);
+    
+    // Valid quote input requires:
+    // - amountNum > 0 (not zero)
+    // - tokens are selected
+    // - activeTab is "swap"
     const isValidQuoteInput =
       amountNum > 0 &&
       fromToken !== null &&
       toToken !== null &&
       activeTab === "swap";
 
-    // Explicitly clear route when invariants break
-    console.log("🚀 ~ useSwapQuote ~ isValidQuoteInput:", isValidQuoteInput)
+    // Explicitly clear route and loading state when invariants break
     if (!isValidQuoteInput) {
-      setQuoteLoading(false);
-      setToAmount("");
+      setQuoteLoading(false); // Don't show skeleton for invalid/zero amounts
+      // Only clear the calculated field (opposite of what user is editing)
+      // Use updateFromAmount/updateToAmount to avoid changing activeInput (prevents circular updates)
+      if (isReverseRouting) {
+        // User is editing toAmount, clear fromAmount (calculated)
+        updateFromAmount("");
+      } else {
+        // User is editing fromAmount, clear toAmount (calculated)
+        updateToAmount("");
+      }
       setRoute(null); // ✅ Explicitly and intentionally clear route
       setQuoteError(null);
       quoteExpiresAtRef.current = null;
+      lastRequestedAmountRef.current = '';
       return;
     }
+
+    // Only set loading state and fetch quote for valid amounts (amountNum > 0)
+    // Don't show skeleton or send requests for zero values or partial decimals
+    setQuoteLoading(true);
+
+    // Update last requested values now that we're actually making a request
+    lastRequestedAmountRef.current = inputAmount;
+    lastActiveInputRef.current = activeInput;
 
     // Cancel previous request if still pending
     if (abortControllerRef.current) {
@@ -69,9 +144,8 @@ export function useSwapQuote({
     // Create new abort controller for this request
     const abortController = new AbortController();
     abortControllerRef.current = abortController;
-
-    setQuoteLoading(true);
-    setToAmount("");
+    // Don't clear the opposite field here - it will be updated from quote response
+    // This allows the user to see their input while the quote is loading
     setQuoteError(null);
     // Don't clear route here - it will be updated after API call succeeds
     // Only clear route when explicitly resetting (amount zero, tokens change, etc.)
@@ -94,6 +168,39 @@ export function useSwapQuote({
         }
         // If neither has liquidity, liquidityUSD remains undefined (backend will fetch)
 
+        // Determine addresses for routing with chain compatibility validation
+        // fromAddress: Must be compatible with fromToken.chainId
+        // recipient: Must be compatible with toToken.chainId
+        let fromAddress: string | undefined = undefined;
+        let recipientAddress: string | undefined = undefined;
+        
+        // Validate fromAddress against fromToken chain
+        if (isConnected && connectedAddress && fromToken?.chainId) {
+          if (isAddressChainCompatible(connectedAddress, fromToken.chainId)) {
+            fromAddress = connectedAddress;
+          } else {
+            console.log('[useSwapQuote] Connected address is not compatible with fromToken chain, skipping fromAddress');
+          }
+        }
+        
+        // Validate recipient against toToken chain
+        if (recipient && toToken?.chainId) {
+          if (isAddressChainCompatible(recipient, toToken.chainId)) {
+            recipientAddress = recipient;
+          } else {
+            console.log('[useSwapQuote] Recipient address is not compatible with toToken chain, skipping recipient');
+            // Fallback to connected address if compatible with toToken chain
+            if (isConnected && connectedAddress && isAddressChainCompatible(connectedAddress, toToken.chainId)) {
+              recipientAddress = connectedAddress;
+            }
+          }
+        } else if (isConnected && connectedAddress && toToken?.chainId) {
+          // No recipient provided, use connected address if compatible
+          if (isAddressChainCompatible(connectedAddress, toToken.chainId)) {
+            recipientAddress = connectedAddress;
+          }
+        }
+
         // Fetch route from API
         // Type assertion: chainId is guaranteed to be number at this point due to validation above
         // Decimals are required and come from token data (enriched by TokenService from blockchain)
@@ -110,7 +217,10 @@ export function useSwapQuote({
             symbol: toToken.symbol,
             decimals: toToken.decimals, // Required: from token data
           },
-          fromAmount: fromAmount,
+          // Use reverse routing if activeInput is 'to'
+          ...(isReverseRouting ? { toAmount: inputAmount } : { fromAmount: inputAmount }),
+          fromAddress, // Connected wallet address (improves routing speed with LiFi getQuote)
+          recipient: recipientAddress, // Recipient address (toAddress) - user-provided or connected wallet
           slippage: slippageMode === 'fixed' ? slippageTolerance : undefined, // Use user's fixed slippage or let backend handle auto
           slippageMode: slippageMode,
           order: 'RECOMMENDED', // Default order (can be made configurable)
@@ -125,50 +235,82 @@ export function useSwapQuote({
         // Check for error in response (API returns error field even on 200 status)
         if (routeResponse.error) {
           console.error('[useSwapQuote] Route API error:', routeResponse.error);
-          setToAmount("");
+          // Clear the calculated field on error (use update functions to avoid changing activeInput)
+          if (isReverseRouting) {
+            updateFromAmount("");
+          } else {
+            updateToAmount("");
+          }
           setRoute(null); // ✅ Clear route on error
           setQuoteLoading(false);
           setQuoteError(new Error(routeResponse.error));
           quoteExpiresAtRef.current = null;
+          lastRequestedAmountRef.current = '';
+          isUpdatingFromQuoteRef.current = false;
           return;
         }
 
         // Validate route response before storing
         // Check if route exists and has required fields (router, fromToken, toToken)
+        // For reverse routing, output is in fromToken.amount; for normal routing, it's in toToken.amount
+        const outputAmount = isReverseRouting 
+          ? routeResponse.route?.fromToken?.amount 
+          : routeResponse.route?.toToken?.amount;
+        
         if (!routeResponse.route || 
             !routeResponse.route.router || 
             !routeResponse.route.fromToken || 
             !routeResponse.route.toToken ||
-            !routeResponse.route.toToken.amount) {
+            !outputAmount) {
           console.error('[useSwapQuote] Invalid route response:', {
             hasRoute: !!routeResponse.route,
             router: routeResponse.route?.router,
             hasFromToken: !!routeResponse.route?.fromToken,
             hasToToken: !!routeResponse.route?.toToken,
-            toTokenAmount: routeResponse.route?.toToken?.amount,
+            outputAmount,
+            isReverseRouting,
             fullResponse: routeResponse,
           });
-          setToAmount("");
+          // Clear the calculated field on error (use update functions to avoid changing activeInput)
+          if (isReverseRouting) {
+            updateFromAmount("");
+          } else {
+            updateToAmount("");
+          }
           setRoute(null); // ✅ Clear route on invalid response
           setQuoteLoading(false);
           setQuoteError(new Error('Invalid route response from server'));
           quoteExpiresAtRef.current = null;
+          lastRequestedAmountRef.current = '';
+          isUpdatingFromQuoteRef.current = false;
           return;
         }
 
-        // Extract output amount from route
-        const outputAmount = routeResponse.route.toToken.amount;
+        // Extract output amount from route (already extracted above during validation)
         const formattedOutput = formatToSixDecimals(outputAmount);
         
         // Store expiration timestamp for refresh functionality
         quoteExpiresAtRef.current = routeResponse.expiresAt;
 
         // Update store with quote result and full route
-        setToAmount(formattedOutput);
+        // Use updateFromAmount/updateToAmount to avoid changing activeInput
+        // This prevents circular updates (updating fromAmount shouldn't trigger another fetch)
+        
+        // Set flag BEFORE updating to prevent next effect run from re-fetching
+        isUpdatingFromQuoteRef.current = true;
+        
+        if (isReverseRouting) {
+          updateFromAmount(formattedOutput);
+        } else {
+          updateToAmount(formattedOutput);
+        }
         setRoute(routeResponse.route); // Store full route response (includes USD values, fees, etc.)
         
         setQuoteLoading(false);
         setQuoteError(null);
+        
+        // Don't reset flag here - let the next effect run check it and reset it
+        // This ensures any immediate re-render triggered by the store update will skip
         
         // Debug logging (use getState() for accurate current state)
         const storedRoute = useSwapStore.getState().route;
@@ -187,11 +329,18 @@ export function useSwapQuote({
 
         // Handle error
         console.error('[useSwapQuote] Error fetching quote:', error);
-        setToAmount("");
+        // Clear the calculated field on error (use update functions to avoid changing activeInput)
+        if (isReverseRouting) {
+          updateFromAmount("");
+        } else {
+          updateToAmount("");
+        }
         setRoute(null); // ✅ Clear route on error
         setQuoteLoading(false);
         setQuoteError(error instanceof Error ? error : new Error(error?.message || 'Failed to fetch quote'));
         quoteExpiresAtRef.current = null;
+        lastRequestedAmountRef.current = '';
+        isUpdatingFromQuoteRef.current = false;
       }
     }, delay);
 
@@ -201,7 +350,22 @@ export function useSwapQuote({
         abortControllerRef.current.abort();
       }
     };
-  }, [fromAmount, activeTab, fromToken, toToken, delay, setToAmount, setQuoteLoading, setQuoteError, setRoute, slippageMode, slippageTolerance]);
+  }, [
+    fromAmount, 
+    toAmount, 
+    activeInput, 
+    activeTab, 
+    fromToken?.chainId, 
+    fromToken?.address, 
+    toToken?.chainId, 
+    toToken?.address, 
+    delay, 
+    slippageMode, 
+    slippageTolerance, 
+    recipient,
+    // Note: Store functions (updateFromAmount, updateToAmount, setRoute, etc.) are stable
+    // and don't need to be in dependency array, but including them is safe
+  ]);
 }
 
 
@@ -221,6 +385,9 @@ export function useRefreshQuote() {
   // Get user slippage settings
   const slippageMode = useSettingsStore((state) => state.slippageMode);
   const slippageTolerance = useSettingsStore((state) => state.slippageTolerance);
+  
+  // Get connected wallet address for fromAddress parameter
+  const { address: connectedAddress, isConnected } = useAccount();
 
   return async () => {
     if (!fromAmount || !fromToken || !toToken || !fromToken.chainId || !toToken.chainId) {
@@ -232,6 +399,11 @@ export function useRefreshQuote() {
     setRoute(null);
 
     try {
+      // Determine addresses for routing
+      // Note: useRefreshQuote doesn't have recipient parameter, so we only use connected address
+      const fromAddress = isConnected && connectedAddress ? connectedAddress : undefined;
+      const recipientAddress = isConnected && connectedAddress ? connectedAddress : undefined;
+      
       const routeResponse = await fetchRoute({
         fromToken: {
           chainId: fromToken.chainId,
@@ -244,6 +416,8 @@ export function useRefreshQuote() {
           symbol: toToken.symbol,
         },
         fromAmount: fromAmount,
+        fromAddress, // Connected wallet address (improves routing speed with LiFi getQuote)
+        recipient: recipientAddress, // Recipient address (toAddress) - user-provided or connected wallet
         slippage: slippageMode === 'fixed' ? slippageTolerance : undefined,
         slippageMode: slippageMode,
         order: 'RECOMMENDED',

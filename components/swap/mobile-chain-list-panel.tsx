@@ -1,6 +1,7 @@
 "use client";
 
 import ChainRow from "./chain-row";
+import ChainRowSkeleton from "./chain-row-skeleton";
 import SearchInput from "@/components/ui/search-input";
 import { sortChains } from "@/lib/shared/utils/chains";
 import type { Chain } from "@/lib/frontend/types/tokens";
@@ -48,15 +49,15 @@ export default function MobileChainListPanel({
 
       {/* Chain List - Scrollable Container with Fixed Height */}
       <div className="flex flex-col gap-[8px] items-start px-4 sm:px-6 lg:px-[16px] py-0 relative flex-1 min-h-0 w-full overflow-y-auto overflow-x-hidden token-list-scrollbar">
-        {/* Loading State */}
+        {/* Loading State - Skeleton UI */}
         {isLoading && (
-          <div className="flex flex-col items-center justify-center px-6 py-12 w-full">
-            <div className="flex flex-col items-center gap-2">
-              <div className="w-8 h-8 border-2 border-[#b1f128] border-t-transparent rounded-full animate-spin"></div>
-              <p className="text-[#7c7c7c] font-medium text-sm text-center">
-                Loading chains...
-              </p>
-            </div>
+          <div className="flex flex-col gap-[8px] items-start relative w-full">
+            {/* All Networks Skeleton */}
+            <ChainRowSkeleton />
+            {/* Chain Skeletons */}
+            {Array.from({ length: 5 }).map((_, index) => (
+              <ChainRowSkeleton key={`chain-skeleton-${index}`} />
+            ))}
           </div>
         )}
 

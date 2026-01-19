@@ -48,13 +48,124 @@ export class RouteService {
     // 1. Validate request
     this.validateRequest(request);
 
-    // 2. Handle auto slippage mode
+    // 2. Handle reverse routing (toAmount -> fromAmount)
+    // If toAmount is provided, swap tokens and use normal routing, then swap result back
+    if (request.toAmount) {
+      return this.handleReverseRouting(request);
+    }
+
+    // 3. Handle auto slippage mode
     if (request.slippageMode === 'auto') {
       return this.getRouteWithAutoSlippage(request);
     }
 
-    // 3. Continue with fixed slippage logic (existing implementation)
+    // 4. Continue with fixed slippage logic (existing implementation)
     return this.getRouteWithFixedSlippage(request);
+  }
+
+  /**
+   * Handle reverse routing (toAmount -> fromAmount)
+   * Strategy: Swap tokens, use normal routing, then swap result back
+   * If reverse routing fails, toToken becomes fromToken and toAmount becomes fromAmount (user requirement)
+   */
+  private async handleReverseRouting(request: RouteRequest): Promise<RouteResponse> {
+    // Create reversed request: toToken becomes fromToken, fromToken becomes toToken
+    const reversedRequest: RouteRequest = {
+      fromToken: request.toToken,
+      toToken: request.fromToken,
+      fromAmount: request.toAmount!, // toAmount becomes fromAmount
+      slippage: request.slippage,
+      slippageMode: request.slippageMode,
+      recipient: request.recipient,
+      fromAddress: request.fromAddress,
+      order: request.order,
+      liquidityUSD: request.liquidityUSD,
+    };
+
+    // Get route using reversed tokens (normal routing)
+    let routeResponse: RouteResponse;
+    try {
+      if (reversedRequest.slippageMode === 'auto') {
+        routeResponse = await this.getRouteWithAutoSlippage(reversedRequest);
+      } else {
+        routeResponse = await this.getRouteWithFixedSlippage(reversedRequest);
+      }
+    } catch (error: any) {
+      // If reverse routing fails, toToken becomes fromToken and toAmount becomes fromAmount (user requirement)
+      console.warn('[RouteService] Reverse routing failed, falling back to direct routing:', error);
+      
+      // Create fallback request: use toToken as fromToken, toAmount as fromAmount
+      const fallbackRequest: RouteRequest = {
+        fromToken: request.toToken,
+        toToken: request.fromToken,
+        fromAmount: request.toAmount!,
+        slippage: request.slippage,
+        slippageMode: request.slippageMode,
+        recipient: request.recipient,
+        fromAddress: request.fromAddress,
+        order: request.order,
+        liquidityUSD: request.liquidityUSD,
+      };
+
+      // Try normal routing with swapped tokens
+      if (fallbackRequest.slippageMode === 'auto') {
+        routeResponse = await this.getRouteWithAutoSlippage(fallbackRequest);
+      } else {
+        routeResponse = await this.getRouteWithFixedSlippage(fallbackRequest);
+      }
+      
+      // Return the route as-is (tokens are already swapped in fallback)
+      // Frontend will need to handle this case
+      return routeResponse;
+    }
+
+    // Swap the route result back to original token order
+    // routeResponse.route.fromToken = original toToken (BNB) with amount = user's toAmount (0.005)
+    // routeResponse.route.toToken = original fromToken (TWC) with amount = calculated fromAmount (X)
+    // We want:
+    // - fromToken = original fromToken (TWC) with amount = calculated fromAmount (X) = route.toToken
+    // - toToken = original toToken (BNB) with amount = user's toAmount (0.005) = route.fromToken
+    const swappedRoute: RouterRoute = {
+      ...routeResponse.route,
+      // Swap tokens: fromToken becomes toToken and vice versa
+      fromToken: {
+        ...routeResponse.route.toToken, // Original fromToken (TWC) with calculated amount
+      },
+      toToken: {
+        ...routeResponse.route.fromToken, // Original toToken (BNB) with user's desired amount
+      },
+      // Reverse exchange rate (1/rate)
+      exchangeRate: routeResponse.route.exchangeRate && parseFloat(routeResponse.route.exchangeRate) > 0
+        ? (1 / parseFloat(routeResponse.route.exchangeRate)).toFixed(8)
+        : '0',
+      // Add reverse routing flag to raw for executor
+      raw: {
+        ...routeResponse.route.raw,
+        isReverseRouting: true,
+      },
+    };
+
+    return {
+      route: swappedRoute,
+      alternatives: routeResponse.alternatives?.map(alt => ({
+        ...alt,
+        fromToken: {
+          ...alt.toToken, // Original fromToken with calculated amount
+        },
+        toToken: {
+          ...alt.fromToken, // Original toToken with user's desired amount
+        },
+        exchangeRate: alt.exchangeRate && parseFloat(alt.exchangeRate) > 0
+          ? (1 / parseFloat(alt.exchangeRate)).toFixed(8)
+          : '0',
+        raw: {
+          ...alt.raw,
+          isReverseRouting: true,
+        },
+      })),
+      timestamp: routeResponse.timestamp,
+      expiresAt: routeResponse.expiresAt,
+    };
   }
 
   /**
@@ -109,7 +220,8 @@ export class RouteService {
       : await this.getTokenDecimals(request.toToken.chainId, request.toToken.address);
     
     // 2. Transform amount to smallest unit
-    const fromAmountSmallest = toSmallestUnit(request.fromAmount, fromDecimals);
+    // Note: This method is only called when fromAmount is provided (reverse routing handled separately)
+    const fromAmountSmallest = toSmallestUnit(request.fromAmount!, fromDecimals);
     
     // 3. Get eligible routers
     const eligibleRouters = await this.routerRegistry.getEligibleRouters(
@@ -121,9 +233,38 @@ export class RouteService {
       throw new Error('No routers support this chain combination');
     }
     
-    // 4. Try routers in parallel (faster, better quotes)
+    // 4. OPTIMIZED: Try primary routers AND enhanced routing in parallel (single attempt)
+    // This reduces total attempts from 2 (sequential) to 1 (parallel)
     const routes: RouterRoute[] = [];
     const errors: RouterError[] = [];
+    
+    // Prepare enhanced routing promise (runs in parallel with primary routers)
+    const enhancedRoutingPromise = (async () => {
+      try {
+        const { getRouteServiceEnhancer } = await import('@/lib/backend/routing/integration');
+        const enhancer = getRouteServiceEnhancer();
+        
+        console.log(`[RouteService] 🔄 Running enhanced routing in parallel with primary routers...`);
+        const enhancedResponse = await enhancer.enhanceRoute(
+          request,
+          {
+            route: null,
+            alternatives: undefined,
+            timestamp: Date.now(),
+            expiresAt: Date.now() + 60000,
+          },
+          {
+            enableUniversalRouting: true,
+            preferUniversalRouting: false, // Use existing if better
+          }
+        );
+        
+        return enhancedResponse;
+      } catch (error: any) {
+        console.warn(`[RouteService] Enhanced routing failed:`, error.message);
+        return null;
+      }
+    })();
     
     // Call all eligible routers in parallel
     const routerPromises = eligibleRouters.map(async (router) => {
@@ -158,62 +299,47 @@ export class RouteService {
       }
     });
     
-    // Wait for all routers to complete
-    const results = await Promise.allSettled(routerPromises);
+    // OPTIMIZATION: Wait for BOTH primary routers AND enhanced routing in parallel
+    const [primaryResults, enhancedResponse] = await Promise.allSettled([
+      Promise.all(routerPromises),
+      enhancedRoutingPromise,
+    ]);
     
-    // Collect successful routes and errors
-    for (const result of results) {
-      if (result.status === 'fulfilled') {
-        const { route, error } = result.value;
+    // Collect successful routes from primary routers
+    if (primaryResults.status === 'fulfilled') {
+      for (const result of primaryResults.value) {
+        const { route, error } = result;
         if (route) {
           routes.push(route);
         }
         if (error) {
           errors.push(error);
         }
-      } else {
-        // Promise rejection (shouldn't happen, but handle gracefully)
-        console.error('[RouteService] Router promise rejected:', result.reason);
       }
+    } else {
+      console.error('[RouteService] Primary routers promise rejected:', primaryResults.reason);
     }
     
-    // 5. Select best route
-    let bestRoute = selectBestRoute(routes);
-    
-    // 5a. If no route found, try enhanced system as fallback
-    if (!bestRoute) {
-      try {
-        const { getRouteServiceEnhancer } = await import('@/lib/backend/routing/integration');
-        const enhancer = getRouteServiceEnhancer();
+    // Collect enhanced routing result
+    if (enhancedResponse.status === 'fulfilled' && enhancedResponse.value) {
+      const enhanced = enhancedResponse.value;
+      if (enhanced.route) {
+        routes.push(enhanced.route);
+        console.log(`[RouteService] ✅ Enhanced routing found a route in parallel!`);
+        console.log(`[RouteService]   Router: ${enhanced.route.router}`);
+        console.log(`[RouteService]   Sources: ${enhanced.sources?.join(', ') || 'none'}`);
         
-        const enhancedResponse = await enhancer.enhanceRoute(
-          request,
-          {
-            route: null,
-            alternatives: undefined,
-            timestamp: Date.now(),
-            expiresAt: Date.now() + 60000,
-          },
-          {
-            enableUniversalRouting: true,
-            preferUniversalRouting: false, // Use existing if better
-          }
-        );
-        
-        if (enhancedResponse.route) {
-          // Use enhanced route
-          bestRoute = enhancedResponse.route;
-          // Add enhanced route to alternatives list if there are other routes
-          if (enhancedResponse.alternatives && enhancedResponse.alternatives.length > 0) {
-            routes.push(...enhancedResponse.alternatives);
-          }
-          console.log('[RouteService] Enhanced routing system found a route');
+        // Add enhanced alternatives if available
+        if (enhanced.alternatives && enhanced.alternatives.length > 0) {
+          routes.push(...enhanced.alternatives);
         }
-      } catch (enhancedError: any) {
-        console.warn('[RouteService] Enhanced routing fallback failed:', enhancedError);
-        // Continue with existing error handling
+      } else {
+        console.log(`[RouteService] Enhanced routing did not find a route (ran in parallel)`);
       }
     }
+    
+    // 5. Select best route from all sources (primary + enhanced)
+    let bestRoute = selectBestRoute(routes);
     
     if (!bestRoute) {
       // All routers failed - provide detailed error message
@@ -230,14 +356,14 @@ export class RouteService {
         e.message.toLowerCase().includes('low liquidity')
       );
       
-      // Build user-friendly error message
+      // Build user-friendly error message (updated to reflect parallel execution)
       let errorMessage: string;
       if (hasNoRouteError) {
-        errorMessage = `No swap route available for this token pair. We tried ${routerNames} and the enhanced routing system, but none of them support this swap.`;
+        errorMessage = `No swap route available for this token pair. We tried ${routerNames} and the enhanced routing system in parallel, but none of them support this swap.`;
       } else if (hasLiquidityError) {
-        errorMessage = `Insufficient liquidity for this swap. We tried ${routerNames} and the enhanced routing system, but there isn't enough liquidity available.`;
+        errorMessage = `Insufficient liquidity for this swap. We tried ${routerNames} and the enhanced routing system in parallel, but there isn't enough liquidity available.`;
       } else {
-        errorMessage = `Unable to find a swap route. We tried ${routerNames} and the enhanced routing system, but all attempts failed.`;
+        errorMessage = `Unable to find a swap route. We tried ${routerNames} and the enhanced routing system in parallel, but all attempts failed.`;
       }
       
       throw new Error(errorMessage);
@@ -320,6 +446,7 @@ export class RouteService {
       toToken,
       toDecimals,
       recipient: request.recipient,
+      fromAddress: request.fromAddress, // Pass fromAddress for LiFi getQuote
       slippage,
       slippageMode: request.slippageMode, // Pass slippage mode to router
       order,
@@ -384,8 +511,8 @@ export class RouteService {
    * Validate route request
    */
   private validateRequest(request: RouteRequest): void {
-    if (!request.fromToken || !request.toToken || !request.fromAmount) {
-      throw new Error('Missing required parameters: fromToken, toToken, fromAmount');
+    if (!request.fromToken || !request.toToken) {
+      throw new Error('Missing required parameters: fromToken, toToken');
     }
     
     if (!request.fromToken.chainId || !request.fromToken.address) {
@@ -396,8 +523,19 @@ export class RouteService {
       throw new Error('Invalid toToken: chainId and address are required');
     }
     
-    if (request.fromAmount === '' || parseFloat(request.fromAmount) <= 0) {
-      throw new Error('Invalid fromAmount: must be greater than 0');
+    // Validate that exactly one of fromAmount or toAmount is provided
+    if (!request.fromAmount && !request.toAmount) {
+      throw new Error('Either fromAmount or toAmount must be provided');
+    }
+    
+    if (request.fromAmount && request.toAmount) {
+      throw new Error('Cannot provide both fromAmount and toAmount. Provide exactly one.');
+    }
+    
+    // Validate amount
+    const amount = request.fromAmount || request.toAmount!;
+    if (amount === '' || parseFloat(amount) <= 0) {
+      throw new Error(`Invalid ${request.fromAmount ? 'fromAmount' : 'toAmount'}: must be greater than 0`);
     }
     
     // Validate slippage if provided

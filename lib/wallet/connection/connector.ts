@@ -480,12 +480,34 @@ export const connectWallet = async (
           throw new Error('User rejected connection or no accounts returned');
         }
         
-        // Return the connection with the requested provider ID (no verification needed)
-        // getWalletForChain already returns the correct provider, so we trust it
+        // CRITICAL: Detect the actual wallet provider after connection
+        // This is important because some wallets masquerade as MetaMask (Rabby, OKX, Trust Wallet)
+        // We need to detect the actual wallet to show the correct icon
+        const detectedProviderId = await detectWalletFromProvider(providerId, chain, wallet);
+        
+        // Map detected provider ID back to wallet ID for consistency
+        // Import mapProviderIdToWalletId at the top of the file
+        const { mapProviderIdToWalletId } = await import('../utils/wallet-id-mapper');
+        const finalWalletId = detectedProviderId 
+          ? mapProviderIdToWalletId(detectedProviderId) 
+          : providerId;
+        
+        console.log('[connectWallet] Wallet detection result:', {
+          requestedProviderId: providerId,
+          detectedProviderId,
+          finalWalletId,
+          walletProps: {
+            isRabby: wallet.isRabby,
+            isTrust: wallet.isTrust || wallet.isTrustWallet,
+            isMetaMask: wallet.isMetaMask,
+            isOkxWallet: wallet.isOkxWallet,
+          }
+        });
+        
         return {
           address: accounts[0],
           chain: chain,
-          provider: providerId,
+          provider: finalWalletId, // Use detected wallet ID (e.g., 'rabby', 'trust-wallet', not 'metamask')
         };
 
       default:
@@ -574,16 +596,35 @@ export const disconnectWallet = async (
         break;
 
       case 'ethereum':
-        // Try to revoke wallet permissions to prevent auto-reconnection
-        // This ensures a fresh connection prompt next time
+        // Try multiple methods to ensure complete disconnection
         try {
+          // Method 1: Revoke permissions (most reliable for preventing auto-reconnection)
           await wallet.request({
             method: 'wallet_revokePermissions',
             params: [{ eth_accounts: {} }]
           });
         } catch (revokeError) {
           // Some wallets don't support revokePermissions - that's okay
-          // Ethereum wallets don't have a standard disconnect method
+          console.warn('[disconnectWallet] wallet_revokePermissions not supported, trying alternative methods');
+        }
+        
+        // Method 2: Try to disconnect if the wallet has a disconnect method
+        try {
+          if (typeof wallet.disconnect === 'function') {
+            await wallet.disconnect();
+          }
+        } catch (disconnectError) {
+          // Not all wallets have disconnect method
+          console.warn('[disconnectWallet] Wallet disconnect method not available');
+        }
+        
+        // Method 3: Clear any cached connection state
+        try {
+          if (wallet.removeAllListeners) {
+            wallet.removeAllListeners();
+          }
+        } catch (clearError) {
+          // Ignore errors
         }
         break;
     }
@@ -606,33 +647,128 @@ export const detectWalletFromProvider = async (
 ): Promise<string | null> => {
   if (chain === 'ethereum') {
     // For EVM wallets, detect from the actual provider
+    // IMPORTANT: Check in order of specificity (most specific first)
+    // This ensures wallets that masquerade as others are detected correctly
     try {
-      // Check in order of specificity (most specific first)
+      // 1. Rabby - sets isMetaMask=true for compatibility, so check FIRST
       if (wallet.isRabby === true) {
         return "rabby";
-      } else if (wallet.isBraveWallet === true && wallet.isMetaMask !== true) {
-        return "brave";
-      } else if (wallet.isCoinbaseWallet === true || wallet.isCoinbaseBrowser === true) {
-        return "coinbase";
-      } else if (wallet.isOkxWallet === true) {
-        return "okx";
-      } else if (wallet.isTrust === true) {
-        return "trust";
-      } else if (wallet.isZerion === true) {
-        return "zerion";
-      } else if (wallet.isMetaMask === true && wallet.isRabby !== true && wallet.isOkxWallet !== true) {
-        // Only MetaMask if has isMetaMask but NOT isRabby and NOT OKX
-        return "metamask";
-      } else {
-        // Fallback to providerId
-        return providerId;
       }
+      
+      // 2. OKX - also sets isMetaMask=true, check before MetaMask
+      if (wallet.isOkxWallet === true) {
+        return "okx";
+      }
+      
+      // 3. Trust Wallet - check before MetaMask
+      if (wallet.isTrust === true || wallet.isTrustWallet === true) {
+        return "trust";
+      }
+      
+      // 4. Brave Wallet - check before MetaMask (can have isMetaMask=true)
+      if (wallet.isBraveWallet === true && wallet.isMetaMask !== true) {
+        return "brave";
+      }
+      
+      // 5. Coinbase Wallet
+      if (wallet.isCoinbaseWallet === true || wallet.isCoinbaseBrowser === true) {
+        return "coinbase";
+      }
+      
+      // 6. Binance Wallet
+      if (wallet.isBinance === true || wallet.isBinanceWallet === true) {
+        return "binance";
+      }
+      
+      // 7. Zerion
+      if (wallet.isZerion === true) {
+        return "zerion";
+      }
+      
+      // 8. TokenPocket
+      if (wallet.isTokenPocket === true) {
+        return "tokenpocket";
+      }
+      
+      // 9. BitKeep
+      if (wallet.isBitKeep === true) {
+        return "bitkeep";
+      }
+      
+      // 10. MathWallet
+      if (wallet.isMathWallet === true) {
+        return "mathwallet";
+      }
+      
+      // 11. Frame
+      if (wallet.isFrame === true) {
+        return "frame";
+      }
+      
+      // 12. Frontier
+      if (wallet.isFrontier === true) {
+        return "frontier";
+      }
+      
+      // 13. Tokenary
+      if (wallet.isTokenary === true) {
+        return "tokenary";
+      }
+      
+      // 14. MetaMask - check LAST after excluding masquerading wallets
+      // Only return MetaMask if it's actually MetaMask and NOT Rabby/OKX/Trust
+      if (wallet.isMetaMask === true && 
+          wallet.isRabby !== true && 
+          wallet.isOkxWallet !== true &&
+          wallet.isTrust !== true &&
+          wallet.isTrustWallet !== true) {
+        return "metamask";
+      }
+      
+      // 15. Fallback: Check wallet.info for rdns/name if available
+      // This helps detect wallets that don't set standard properties
+      if (wallet.info) {
+        const rdns = (wallet.info.rdns || '').toLowerCase();
+        const name = (wallet.info.name || '').toLowerCase();
+        
+        // Check for specific wallets by rdns/name
+        if (rdns.includes('rabby') || name.includes('rabby')) {
+          return "rabby";
+        }
+        if (rdns.includes('okx') || name.includes('okx')) {
+          return "okx";
+        }
+        if (rdns.includes('trust') || name.includes('trust')) {
+          return "trust";
+        }
+        if (rdns.includes('metamask') || name.includes('metamask')) {
+          // Only if not Rabby/OKX/Trust
+          if (!rdns.includes('rabby') && !rdns.includes('okx') && !rdns.includes('trust')) {
+            return "metamask";
+          }
+        }
+        if (rdns.includes('coinbase') || name.includes('coinbase')) {
+          return "coinbase";
+        }
+        if (rdns.includes('brave') || name.includes('brave')) {
+          return "brave";
+        }
+        if (rdns.includes('binance') || name.includes('binance')) {
+          return "binance";
+        }
+      }
+      
+      // 16. Final fallback: return the requested providerId
+      // This handles wallets that don't set detection properties
+      return providerId;
     } catch (error) {
+      console.warn('[detectWalletFromProvider] Error during detection, using providerId:', error);
       // Fallback to providerId if detection fails
       return providerId;
     }
   } else if (chain === 'solana') {
     // For Solana wallets, use the provider ID directly
+    // Solana wallets are typically more straightforward and don't masquerade
     return providerId;
   } else {
     // For other chains, use provider ID

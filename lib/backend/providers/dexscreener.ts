@@ -52,6 +52,12 @@ interface DexScreenerPair {
     h24?: number;
   };
   fdv?: number;
+  txns?: {
+    h24?: {
+      buys?: number;
+      sells?: number;
+    };
+  };
   info?: {
     imageUrl?: string;
     openGraph?: string;
@@ -140,6 +146,7 @@ export class DexScreenerProvider extends BaseTokenProvider {
       marketCap: token.marketCap,
       priceChange24h: token.priceChange24h,
       holders: token.holders,
+      transactionCount: (token as any).transactionCount,
     };
   }
 
@@ -223,13 +230,18 @@ export class DexScreenerProvider extends BaseTokenProvider {
           // Extract logo from pair info
           const logoURI = pair.info?.imageUrl || '';
           
+          // Extract transaction data
+          const txns = pair.txns?.h24;
+          const holders = txns?.buys || 0; // Holders = number of buys
+          const transactionCount = (txns?.buys || 0) + (txns?.sells || 0); // Transaction count = buys + sells
+          
           // Extract tokens from pair (baseToken and quoteToken)
           const tokensToAdd = [
-            { token: pair.baseToken, price: pair.priceUsd, liquidity: pair.liquidity, volume: pair.volume, priceChange: pair.priceChange, fdv: pair.fdv, logo: logoURI },
-            { token: pair.quoteToken, price: pair.priceUsd, liquidity: pair.liquidity, volume: pair.volume, priceChange: pair.priceChange, fdv: pair.fdv, logo: logoURI },
+            { token: pair.baseToken, price: pair.priceUsd, liquidity: pair.liquidity, volume: pair.volume, priceChange: pair.priceChange, fdv: pair.fdv, logo: logoURI, holders, transactionCount },
+            { token: pair.quoteToken, price: pair.priceUsd, liquidity: pair.liquidity, volume: pair.volume, priceChange: pair.priceChange, fdv: pair.fdv, logo: logoURI, holders, transactionCount },
           ];
           
-          for (const { token, price, liquidity, volume, priceChange, fdv, logo } of tokensToAdd) {
+          for (const { token, price, liquidity, volume, priceChange, fdv, logo, holders, transactionCount } of tokensToAdd) {
             // Map DexScreener chain slug to canonical chain ID
             const canonicalChain = getCanonicalChainByProviderId('dexscreener', pair.chainId);
             if (!canonicalChain) continue;
@@ -253,6 +265,8 @@ export class DexScreenerProvider extends BaseTokenProvider {
               liquidity: liquidity?.usd,
               marketCap: fdv,
               priceChange24h: priceChange?.h24,
+              holders: holders,
+              transactionCount: transactionCount,
             } as ProviderToken);
           }
         }
@@ -368,6 +382,11 @@ export class DexScreenerProvider extends BaseTokenProvider {
         for (const pair of sortedPairs.slice(0, limit * 2)) { // Get more pairs to extract more tokens
           const logoURI = pair.info?.imageUrl || '';
           
+          // Extract transaction data
+          const txns = pair.txns?.h24;
+          const holders = txns?.buys || 0; // Holders = number of buys
+          const transactionCount = (txns?.buys || 0) + (txns?.sells || 0); // Transaction count = buys + sells
+          
           // Extract tokens from pair (baseToken and quoteToken)
           // For base token, use pair price; for quote token, calculate inverse or use pair price
           const tokensToAdd = [
@@ -379,6 +398,8 @@ export class DexScreenerProvider extends BaseTokenProvider {
               priceChange: pair.priceChange, 
               fdv: pair.fdv,
               logo: logoURI,
+              holders,
+              transactionCount,
             },
             { 
               token: pair.quoteToken, 
@@ -388,10 +409,12 @@ export class DexScreenerProvider extends BaseTokenProvider {
               priceChange: pair.priceChange, 
               fdv: pair.fdv,
               logo: logoURI,
+              holders,
+              transactionCount,
             },
           ];
           
-          for (const { token, price, liquidity, volume, priceChange, fdv, logo } of tokensToAdd) {
+          for (const { token, price, liquidity, volume, priceChange, fdv, logo, holders, transactionCount } of tokensToAdd) {
             const key = `${chainId}:${token.address.toLowerCase()}`;
             if (seenTokens.has(key)) continue;
             seenTokens.add(key);
@@ -408,6 +431,8 @@ export class DexScreenerProvider extends BaseTokenProvider {
               volume24h: volume?.h24,
               priceChange24h: priceChange?.h24, // 24h price change percentage
               marketCap: fdv, // Use FDV as market cap approximation
+              holders: holders,
+              transactionCount: transactionCount,
             });
             
             if (tokens.length >= limit) break;

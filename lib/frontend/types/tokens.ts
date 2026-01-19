@@ -22,6 +22,7 @@ export interface Token {
   liquidity?: number;        // Liquidity in USD
   marketCap?: number;        // Market capitalization
   holders?: number;          // Number of token holders
+  transactionCount?: number; // 24h transaction count
 }
 
 export interface Chain {

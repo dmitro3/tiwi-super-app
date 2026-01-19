@@ -4,6 +4,7 @@ import { useRef } from "react";
 import Image from "next/image";
 import { Input } from "@/components/ui/input";
 import BalanceSkeleton from "@/components/ui/balance-skeleton";
+import Skeleton from "@/components/ui/skeleton";
 import { truncateAddress } from "@/lib/frontend/utils/wallet-display";
 import { ChevronDown, Clipboard } from "lucide-react";
 
@@ -30,6 +31,7 @@ interface TokenInputProps {
   walletAddress?: string | null;
   onWalletClick?: () => void;
   walletDropdown?: React.ReactNode;
+  isQuoteLoading?: boolean; // Show skeleton only on amount and USD value when loading quote
 }
 
 export default function TokenInput({
@@ -49,6 +51,7 @@ export default function TokenInput({
   walletAddress,
   onWalletClick,
   walletDropdown,
+  isQuoteLoading = false,
 }: TokenInputProps) {
   const isFrom = type === "from";
 
@@ -252,6 +255,14 @@ export default function TokenInput({
               )}
             </div>
           )}
+          {/* Amount Input - Show skeleton when quote is loading (for calculated field) */}
+          {isQuoteLoading ? (
+            <div className="flex flex-col items-end gap-1 mb-0.5 sm:mb-1 w-full">
+              <Skeleton className="h-[26px] sm:h-[29px] lg:h-[33px] w-32 sm:w-40" />
+              <Skeleton className="h-4 w-20" />
+            </div>
+          ) : (
+            <>
           <Input
             type="text"
             inputMode="decimal"
@@ -267,6 +278,8 @@ export default function TokenInput({
           <p className="text-[#7c7c7c] font-medium text-xs sm:text-sm text-right w-full truncate">
             {usdValue}
           </p>
+            </>
+          )}
         </div>
       </div>
     </div>

@@ -103,6 +103,11 @@ export function mapProviderIdToWalletId(providerId: string): string {
   // Common reverse mappings
   if (providerId === 'trust') return 'trust-wallet';
   if (providerId === 'okx') return 'okx-wallet';
+  if (providerId === 'rabby') return 'rabby';
+  if (providerId === 'metamask') return 'metamask';
+  if (providerId === 'coinbase') return 'coinbase';
+  if (providerId === 'brave') return 'brave';
+  if (providerId === 'binance') return 'binance-wallet';
   
   return providerId;
 }

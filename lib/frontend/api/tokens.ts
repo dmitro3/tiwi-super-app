@@ -122,6 +122,7 @@ function transformToken(backendToken: NormalizedToken): Token {
     liquidity: backendToken.liquidity,
     marketCap: backendToken.marketCap,
     holders: backendToken.holders,
+    transactionCount: backendToken.transactionCount,
     // balance and usdValue are not from API (wallet data, set separately)
   };
 }

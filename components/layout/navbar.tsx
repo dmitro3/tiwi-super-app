@@ -42,6 +42,7 @@ export default function Navbar() {
   const [isWalletPanelOpen, setIsWalletPanelOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [liveNotificationsCount, setLiveNotificationsCount] = useState(0);
+  const [isMounted, setIsMounted] = useState(false);
   const {
     isModalOpen,
     isExplorerOpen,
@@ -64,6 +65,11 @@ export default function Navbar() {
   const isFullyConnected = connectedAddress && !wallet.isConnecting;
 
   // Fetch unread notifications count (only when wallet is connected)
+  // Set mounted state after hydration to prevent hydration mismatches
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
+
   useEffect(() => {
     if (!connectedAddress) {
       setLiveNotificationsCount(0);
@@ -232,9 +238,10 @@ export default function Navbar() {
                   onClick={() => setIsNotificationsOpen(!isNotificationsOpen)}
                   className="relative bg-[#081f02] p-3 rounded-full hover:opacity-90 transition-opacity cursor-pointer"
                   aria-label="Notifications"
+                  suppressHydrationWarning
                 >
                   <IoNotificationsOutline className="w-6 h-6 text-white" />
-                  {liveNotificationsCount > 0 && (
+                  {isMounted && liveNotificationsCount > 0 && (
                     <span className="absolute -top-1 -right-1 bg-[#ff5c5c] text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
                       {liveNotificationsCount > 9 ? "9+" : liveNotificationsCount}
                     </span>
@@ -324,7 +331,7 @@ export default function Navbar() {
                   aria-label="Notifications"
                 >
                   <IoNotificationsOutline className="w-5 h-5 text-white" />
-                  {liveNotificationsCount > 0 && (
+                  {isMounted && liveNotificationsCount > 0 && (
                     <span className="absolute -top-1 -right-1 bg-[#ff5c5c] text-white text-xs font-bold rounded-full w-4 h-4 flex items-center justify-center text-[10px]">
                       {liveNotificationsCount > 9 ? "9+" : liveNotificationsCount}
                     </span>

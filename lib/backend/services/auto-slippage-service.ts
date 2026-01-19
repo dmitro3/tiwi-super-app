@@ -7,9 +7,8 @@
  * Strategy:
  * 1. Get liquidity for token pair
  * 2. Calculate initial slippage from liquidity
- * 3. Try route with initial slippage
- * 4. If fails, retry with 2x slippage (max 3 attempts)
- * 5. Select best route (highest output amount) from successful attempts
+ * 3. Try 2 slippage values in parallel (initial + 2x) - OPTIMIZED from 3 sequential
+ * 4. Select best route (highest output amount) from successful attempts
  */
 
 import { getLiquidityService, MAX_AUTO_SLIPPAGE } from './liquidity-service';
@@ -48,7 +47,7 @@ export class AutoSlippageService {
    * This method:
    * 1. Fetches liquidity for the token pair
    * 2. Calculates initial slippage based on liquidity
-   * 3. Attempts to fetch routes with increasing slippage (max 3 attempts)
+   * 3. Attempts to fetch routes with 2 slippage values in parallel (optimized from 3 sequential)
    * 4. Selects the best route (highest output amount) from successful attempts
    * 
    * IMPORTANT: For each slippage attempt, we still query ALL routers
@@ -97,73 +96,134 @@ export class AutoSlippageService {
       toToken: request.toToken.symbol,
     });
 
-    // 3. Try multiple slippage values (max 3 attempts)
+    // 3. OPTIMIZED: Try 2 slippage values in parallel (reduced from 3 sequential)
+    // This reduces total attempts from 3 (sequential) to 2 (parallel)
     const attempts: SlippageAttempt[] = [];
-    let currentSlippage = initialSlippage;
+    
+    // Calculate both slippage values upfront
+    const slippage1 = initialSlippage;
+    const slippage2 = this.liquidityService.calculateNextSlippage(initialSlippage, 1);
+    
+    // Ensure slippage2 doesn't exceed max
+    const finalSlippage2 = Math.min(slippage2, MAX_AUTO_SLIPPAGE);
+    
+    console.log(`[AutoSlippageService] Running 2 parallel attempts with slippage: ${slippage1}%, ${finalSlippage2}%`);
 
-    for (let attempt = 1; attempt <= 3; attempt++) {
-      try {
-        console.log(`[AutoSlippageService] Attempt ${attempt} with slippage ${currentSlippage}%`);
-
-        // Fetch route with current slippage
-        // NOTE: This still queries ALL routers and selects best route from them
-        const routeResponse: RouteResponse = await this.routeService.getRoute({
-          ...request,
-          slippage: currentSlippage,
-          slippageMode: 'fixed', // Force fixed mode for this attempt
-        });
-
-        if (routeResponse.route) {
-          const outputAmount = parseFloat(routeResponse.route.toToken.amount) || 0;
-
-          attempts.push({
-            slippage: currentSlippage,
-            route: routeResponse.route,
-            error: null,
-            outputAmount,
+    // OPTIMIZATION: Run both attempts in parallel
+    const [attempt1Result, attempt2Result] = await Promise.allSettled([
+      // Attempt 1: Initial slippage
+      (async () => {
+        try {
+          console.log(`[AutoSlippageService] Attempt 1 (parallel) with slippage ${slippage1}%`);
+          const routeResponse: RouteResponse = await this.routeService.getRoute({
+            ...request,
+            slippage: slippage1,
+            slippageMode: 'fixed', // Force fixed mode for this attempt
           });
 
-          console.log(`[AutoSlippageService] Attempt ${attempt} succeeded:`, {
-            slippage: currentSlippage,
-            outputAmount,
-            router: routeResponse.route.router,
-          });
-
-          // If we're already at max slippage and got a route, we can stop early
-          // But we'll continue to check if lower slippage gives better price
-          if (currentSlippage >= MAX_AUTO_SLIPPAGE) {
-            console.log('[AutoSlippageService] Reached max slippage, stopping attempts');
-            break;
+          if (routeResponse.route) {
+            const outputAmount = parseFloat(routeResponse.route.toToken.amount) || 0;
+            console.log(`[AutoSlippageService] Attempt 1 succeeded:`, {
+              slippage: slippage1,
+              outputAmount,
+              router: routeResponse.route.router,
+            });
+            return {
+              slippage: slippage1,
+              route: routeResponse.route,
+              error: null,
+              outputAmount,
+            };
+          } else {
+            console.log(`[AutoSlippageService] Attempt 1 failed: No route found`);
+            return {
+              slippage: slippage1,
+              route: null,
+              error: new Error('No route found'),
+              outputAmount: 0,
+            };
           }
-        } else {
-          // Route service returned null (no route found)
-          attempts.push({
-            slippage: currentSlippage,
+        } catch (error: any) {
+          console.log(`[AutoSlippageService] Attempt 1 failed:`, error.message);
+          return {
+            slippage: slippage1,
             route: null,
-            error: new Error('No route found'),
+            error: error instanceof Error ? error : new Error(String(error)),
             outputAmount: 0,
+          };
+        }
+      })(),
+      
+      // Attempt 2: Higher slippage (only if different from attempt 1)
+      slippage1 !== finalSlippage2 ? (async () => {
+        try {
+          console.log(`[AutoSlippageService] Attempt 2 (parallel) with slippage ${finalSlippage2}%`);
+          const routeResponse: RouteResponse = await this.routeService.getRoute({
+            ...request,
+            slippage: finalSlippage2,
+            slippageMode: 'fixed', // Force fixed mode for this attempt
           });
 
-          console.log(`[AutoSlippageService] Attempt ${attempt} failed: No route found`);
+          if (routeResponse.route) {
+            const outputAmount = parseFloat(routeResponse.route.toToken.amount) || 0;
+            console.log(`[AutoSlippageService] Attempt 2 succeeded:`, {
+              slippage: finalSlippage2,
+              outputAmount,
+              router: routeResponse.route.router,
+            });
+            return {
+              slippage: finalSlippage2,
+              route: routeResponse.route,
+              error: null,
+              outputAmount,
+            };
+          } else {
+            console.log(`[AutoSlippageService] Attempt 2 failed: No route found`);
+            return {
+              slippage: finalSlippage2,
+              route: null,
+              error: new Error('No route found'),
+              outputAmount: 0,
+            };
+          }
+        } catch (error: any) {
+          console.log(`[AutoSlippageService] Attempt 2 failed:`, error.message);
+          return {
+            slippage: finalSlippage2,
+            route: null,
+            error: error instanceof Error ? error : new Error(String(error)),
+            outputAmount: 0,
+          };
         }
-      } catch (error: any) {
-        attempts.push({
-          slippage: currentSlippage,
-          route: null,
-          error: error instanceof Error ? error : new Error(String(error)),
-          outputAmount: 0,
-        });
+      })() : Promise.resolve({
+        slippage: finalSlippage2,
+        route: null,
+        error: new Error('Skipped - same as attempt 1'),
+        outputAmount: 0,
+      }),
+    ]);
 
-        console.log(`[AutoSlippageService] Attempt ${attempt} failed:`, error.message);
-      }
+    // Collect results from both attempts
+    if (attempt1Result.status === 'fulfilled') {
+      attempts.push(attempt1Result.value);
+    } else {
+      attempts.push({
+        slippage: slippage1,
+        route: null,
+        error: attempt1Result.reason instanceof Error ? attempt1Result.reason : new Error(String(attempt1Result.reason)),
+        outputAmount: 0,
+      });
+    }
 
-      // Calculate next slippage (if not last attempt and not at max)
-      if (attempt < 3 && currentSlippage < MAX_AUTO_SLIPPAGE) {
-        currentSlippage = this.liquidityService.calculateNextSlippage(
-          currentSlippage,
-          attempt
-        );
-      }
+    if (attempt2Result.status === 'fulfilled') {
+      attempts.push(attempt2Result.value);
+    } else {
+      attempts.push({
+        slippage: finalSlippage2,
+        route: null,
+        error: attempt2Result.reason instanceof Error ? attempt2Result.reason : new Error(String(attempt2Result.reason)),
+        outputAmount: 0,
+      });
     }
 
     // 4. Select best route from successful attempts
@@ -172,7 +232,7 @@ export class AutoSlippageService {
     if (successfulAttempts.length === 0) {
       const lastError = attempts[attempts.length - 1]?.error;
       throw new Error(
-        `No route found after 3 attempts with auto slippage. ` +
+        `No route found after 2 parallel attempts with auto slippage. ` +
         `Tried slippage: ${attempts.map(a => `${a.slippage}%`).join(', ')}. ` +
         `Last error: ${lastError?.message || 'Unknown error'}. ` +
         `Consider using fixed slippage mode with higher tolerance.`

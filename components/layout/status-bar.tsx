@@ -4,6 +4,7 @@ import Image from "next/image";
 import { useChains } from "@/hooks/useChains";
 import { useTWCPrice } from "@/hooks/useTWCPrice";
 import Skeleton from "@/components/ui/skeleton";
+import { SubscriptUSDPrice } from "@/components/ui/subscript-usd-price";
 
 interface StatusBarProps {
   smartMarketsCount?: number;
@@ -17,8 +18,8 @@ export default function StatusBar({
   const activeChainsCount = chains.length;
   
   // Format TWC price and change
-  // Use raw price (no formatting/truncation) - width will be flexible
-  const twcPrice = twcData?.price || "$0";
+  // Use DexScreener style formatting for price
+  const twcPriceUSD = twcData?.priceUSD || '0';
   const twcChange = twcData 
     ? `${twcData.priceChange24h >= 0 ? '+' : ''}${twcData.priceChange24h.toFixed(2)}%`
     : "0.00%";
@@ -56,7 +57,10 @@ export default function StatusBar({
           </>
         ) : (
           <>
-            <span className="text-[#b5b5b5] font-medium text-xs whitespace-nowrap">{twcPrice}</span>
+            <SubscriptUSDPrice
+              price={twcPriceUSD}
+              className="text-[#b5b5b5] font-medium text-xs whitespace-nowrap"
+            />
             <span
               className={`font-medium text-xs whitespace-nowrap ${
                 twcChangeType === "positive" ? "text-[#4ade80]" : "text-[#ff5c5c]"
@@ -140,9 +144,10 @@ export default function StatusBar({
                   </>
                 ) : (
                   <>
-                    <span className="text-[#b5b5b5] font-medium text-xs sm:text-sm whitespace-nowrap">
-                      {twcPrice}
-                    </span>
+                    <SubscriptUSDPrice
+                      price={twcPriceUSD}
+                      className="text-[#b5b5b5] font-medium text-xs sm:text-sm whitespace-nowrap"
+                    />
                     <span
                       className={`font-medium text-xs sm:text-sm whitespace-nowrap ${
                         twcChangeType === "positive"

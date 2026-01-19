@@ -159,6 +159,7 @@ export class PancakeSwapExecutor extends EVMDEXExecutor implements SwapRouterExe
     isFeeOnTransfer?: boolean  // Whether to use fee-on-transfer supporting functions
   ): { to: string; data: string; value: string } {
     const routerAddress = this.getRouterAddress(route.fromToken.chainId, route);
+    console.log("🚀 ~ PancakeSwapExecutor ~ buildSwapData ~ routerAddress:", {route, amountIn, amountOutMin, recipient, deadline, isFeeOnTransfer})
     
     // ✅ EXACTLY match tiwi-test: Use route.raw.path first (exact path from router)
     // This is the same path used in simulation, ensuring consistency
@@ -191,7 +192,9 @@ export class PancakeSwapExecutor extends EVMDEXExecutor implements SwapRouterExe
 
     // Check if native token (ETH/BNB)
     const isNativeInput = tokenInLower === zeroAddress || tokenInLower === nativeAddress;
+    console.log("🚀 ~ PancakeSwapExecutor ~ buildSwapData ~ isNativeInput:", isNativeInput)
     const isNativeOutput = tokenOutLower === zeroAddress || tokenOutLower === nativeAddress;
+    console.log("🚀 ~ PancakeSwapExecutor ~ buildSwapData ~ isNativeOutput:", isNativeOutput)
 
     // Convert path to proper type
     const pathAddresses = validPath.map((addr: string) => getAddress(addr)) as readonly `0x${string}`[];

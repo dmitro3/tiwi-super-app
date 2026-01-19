@@ -34,6 +34,7 @@ export function MarketTable({ activeTab = "Hot", searchQuery = "", sortBy = 'non
   const leftTableRef = useRef<HTMLTableElement | null>(null);
   const rightTableRef = useRef<HTMLTableElement | null>(null);
   const scrollYContainerRef = useRef<HTMLDivElement | null>(null);
+  const scrollXContainerRef = useRef<HTMLDivElement | null>(null);
   const leftRowRefs = useRef<(HTMLTableRowElement | null)[]>([]);
 
   // Load favourites from localStorage
@@ -245,16 +246,20 @@ export function MarketTable({ activeTab = "Hot", searchQuery = "", sortBy = 'non
 
   return (
     <div className="w-full h-full flex flex-col overflow-hidden relative">
-      {/* Shared vertical scroll container - both tables scroll together */}
+      {/* Vertical scroll container - both tables scroll together */}
       <div
         ref={scrollYContainerRef}
-        className="flex-1 overflow-y-auto market-table-scrollbar min-h-0"
+        className="flex-1 overflow-y-auto overflow-x-hidden market-table-scrollbar min-h-0"
       >
-        <div className="flex relative">
-          {/* LEFT TABLE: All columns except Buy/Sell, inside horizontal scroll */}
-          {/* Remove horizontal scroll when loading */}
-          <div className={`flex-1 ${isLoading ? 'overflow-hidden' : 'overflow-x-auto'} market-table-scrollbar`}>
-            <div className="min-w-[46.875rem] lg:min-w-[50rem] xl:min-w-[53.125rem] 2xl:min-w-[56.25rem]">
+        {/* Horizontal scroll container - wraps table content, scrollbar appears at bottom when scrolling */}
+        <div
+          ref={scrollXContainerRef}
+          className="overflow-x-auto market-table-scrollbar"
+        >
+          <div className="flex relative min-w-[46.875rem] lg:min-w-[50rem] xl:min-w-[53.125rem] 2xl:min-w-[56.25rem]">
+            {/* LEFT TABLE: All columns except Buy/Sell */}
+            <div className="flex-1">
+              <div className="w-full">
               <Table ref={leftTableRef} className="table-fixed w-full sticky">
                 <TableHeader className="z-20 bg-[#010501]">
                   <TableRow className="border-b border-[#1f261e]/80 hover:bg-transparent">
@@ -291,10 +296,16 @@ export function MarketTable({ activeTab = "Hot", searchQuery = "", sortBy = 'non
                 <TableBody>
                   {isLoading ? (
                     <TableSkeleton rows={10} />
-                  ) : tokens.length === 0 ? (
+                  ) : tokens.length === 0 && searchQuery.trim() ? (
                     <TableRow>
                       <TableCell colSpan={6} className="text-center py-8 text-[#b5b5b5]">
                         No tokens found
+                      </TableCell>
+                    </TableRow>
+                  ) : tokens.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={6} className="text-center py-8 text-[#b5b5b5]">
+                        Loading tokens...
                       </TableCell>
                     </TableRow>
                   ) : (
@@ -374,7 +385,7 @@ export function MarketTable({ activeTab = "Hot", searchQuery = "", sortBy = 'non
             </div>
           </div>
 
-          {/* RIGHT TABLE: Fixed Buy/Sell column - positioned outside horizontal scroll */}
+          {/* RIGHT TABLE: Fixed Buy/Sell column */}
           <div className="flex-shrink-0 w-[4.5rem] lg:w-[4.75rem] xl:w-[5.3125rem] 2xl:w-[5.625rem] relative z-30 bg-[#010501]">
             <Table
               ref={rightTableRef}
@@ -416,6 +427,7 @@ export function MarketTable({ activeTab = "Hot", searchQuery = "", sortBy = 'non
           </div>
         </div>
       </div>
+    </div>
     </div>
   );
 }

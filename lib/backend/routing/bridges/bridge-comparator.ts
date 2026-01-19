@@ -158,3 +158,4 @@ export function getBridgeComparator(): BridgeComparator {
   return bridgeComparatorInstance;
 }
 
+

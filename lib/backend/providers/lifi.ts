@@ -5,6 +5,10 @@
  */
 
 import { getTokens, getChains, type Token, ChainType } from '@lifi/sdk';
+import { initializeBackendLiFiSDK } from '@/lib/backend/config/lifi-sdk-config';
+
+// Initialize LiFi SDK config for backend
+initializeBackendLiFiSDK();
 import { BaseTokenProvider } from './base';
 import { getCanonicalChainByProviderId, getChainBadge, getCanonicalChain } from '@/lib/backend/registry/chains';
 import { mixTokensByChain } from '@/lib/backend/utils/token-mixer';

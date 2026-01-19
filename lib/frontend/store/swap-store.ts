@@ -23,7 +23,8 @@ export interface SwapState {
   
   // Amounts
   fromAmount: string;        // User input (editable)
-  toAmount: string;         // Quote result (read-only, derived from quote)
+  toAmount: string;         // User input (editable for reverse routing) or quote result
+  activeInput: 'from' | 'to' | null;  // Track which field user is editing (null = default to 'from')
   
   // Limit order specific
   limitPrice: string;
@@ -45,8 +46,11 @@ export interface SwapState {
   swapTokens: () => void;  // Swap fromToken <-> toToken
   
   // Amount actions
-  setFromAmount: (amount: string) => void;
-  setToAmount: (amount: string) => void;  // For quote updates
+  setFromAmount: (amount: string) => void;  // Sets activeInput to 'from'
+  setToAmount: (amount: string) => void;  // Sets activeInput to 'to' (when user edits)
+  updateFromAmount: (amount: string) => void;  // Updates amount without changing activeInput (for quote updates)
+  updateToAmount: (amount: string) => void;  // Updates amount without changing activeInput (for quote updates)
+  setActiveInput: (input: 'from' | 'to' | null) => void;  // Track which field is being edited
   setMaxAmount: () => void;  // Set fromAmount to max balance (TODO: implement balance fetching)
   
   // Limit order actions
@@ -71,6 +75,7 @@ const initialState = {
   toToken: null as Token | null,
   fromAmount: '',
   toAmount: '',
+  activeInput: null as 'from' | 'to' | null,
   limitPrice: '',
   expires: 'never' as const,
   isQuoteLoading: false,
@@ -93,13 +98,21 @@ export const useSwapStore = create<SwapState>((set) => ({
   // ===== Token Actions =====
   
   setFromToken: (token) => {
-    set({ fromToken: token });
-    // TODO: When token changes, trigger quote refetch if fromAmount exists
+    set({ 
+      fromToken: token,
+      // Preserve amounts when switching tokens (better UX - user can compare tokens with same amount)
+      // Only clear route to force new quote calculation
+      route: null,
+    });
   },
   
   setToToken: (token) => {
-    set({ toToken: token });
-    // TODO: When token changes, trigger quote refetch if fromAmount exists
+    set({ 
+      toToken: token,
+      // Preserve amounts when switching tokens (better UX - user can compare tokens with same amount)
+      // Only clear route to force new quote calculation
+      route: null,
+    });
   },
   
   swapTokens: () => {
@@ -109,18 +122,34 @@ export const useSwapStore = create<SwapState>((set) => ({
       // Swap amounts too
       fromAmount: state.toAmount,
       toAmount: state.fromAmount,
+      // Reset activeInput when swapping tokens
+      activeInput: null,
     }));
   },
   
   // ===== Amount Actions =====
   
   setFromAmount: (amount) => {
-    set({ fromAmount: amount });
+    set({ fromAmount: amount, activeInput: 'from' });
     // Quote will be updated by useSwapQuote hook watching fromAmount
   },
   
   setToAmount: (amount) => {
+    set({ toAmount: amount, activeInput: 'to' });
+  },
+  
+  updateFromAmount: (amount) => {
+    set({ fromAmount: amount });
+    // Don't change activeInput - this is for quote updates, not user input
+  },
+  
+  updateToAmount: (amount) => {
     set({ toAmount: amount });
+    // Don't change activeInput - this is for quote updates, not user input
+  },
+  
+  setActiveInput: (input) => {
+    set({ activeInput: input });
   },
   
   setMaxAmount: () => {
@@ -166,6 +195,7 @@ export const useSwapStore = create<SwapState>((set) => ({
     set({
       fromAmount: '',
       toAmount: '',
+      activeInput: null,
       limitPrice: '',
       route: null, // Clear route when resetting amounts
     });

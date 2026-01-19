@@ -48,16 +48,41 @@ export function toSmallestUnit(amount: string, decimals: number): string {
   
   // Pad or truncate decimal part to match token decimals
   if (decimalPart.length > decimals) {
-    decimalPart = decimalPart.substring(0, decimals);
+    // Need to round, not just truncate, to preserve precision
+    // Check if we need to round up (next digit >= 5)
+    const nextDigit = parseInt(decimalPart[decimals] || '0', 10);
+    const truncatedDecimal = decimalPart.substring(0, decimals);
+    
+    if (nextDigit >= 5) {
+      // Round up: add 1 to the truncated decimal part
+      const decimalBigInt = BigInt(truncatedDecimal || '0');
+      const roundedDecimal = decimalBigInt + BigInt(1);
+      const roundedDecimalStr = roundedDecimal.toString().padStart(decimals, '0');
+      
+      // Check for overflow (e.g., 999 + 1 = 1000)
+      if (roundedDecimalStr.length > decimals) {
+        // Overflow: increment integer part and reset decimal to zeros
+        const integerBigInt = BigInt(integerPart) + BigInt(1);
+        return (integerBigInt * BigInt(10 ** decimals)).toString();
+      }
+      decimalPart = roundedDecimalStr;
+    } else {
+      // Round down: just truncate
+      decimalPart = truncatedDecimal;
+    }
   } else {
+    // Pad with zeros to match decimals
     decimalPart = decimalPart.padEnd(decimals, '0');
   }
   
-  // Combine integer and decimal parts (no decimal point)
-  const result = integerPart + decimalPart;
+  // Combine integer and decimal parts using BigInt arithmetic to avoid precision loss
+  // This ensures we preserve full precision even for very large numbers
+  const integerBigInt = BigInt(integerPart);
+  const decimalBigInt = BigInt(decimalPart);
+  const decimalsMultiplier = BigInt(10 ** decimals);
+  const result = (integerBigInt * decimalsMultiplier + decimalBigInt).toString();
   
-  // Remove leading zeros
-  return result.replace(/^0+/, '') || '0';
+  return result;
 }
 
 /**

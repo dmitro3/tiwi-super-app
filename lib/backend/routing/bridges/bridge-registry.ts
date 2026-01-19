@@ -87,3 +87,4 @@ export function getBridgeRegistry(): BridgeRegistry {
   return bridgeRegistryInstance;
 }
 
+

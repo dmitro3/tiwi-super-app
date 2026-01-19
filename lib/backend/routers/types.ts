@@ -22,6 +22,7 @@ export interface RouterParams {
   toToken: string;
   toDecimals: number;                  // Token decimals (from request or fetched)
   recipient?: string;                  // Provider-specific address format (taker for Jupiter)
+  fromAddress?: string;               // User's wallet address (optional, for LiFi getQuote)
   slippage?: number;                   // Provider-specific slippage format
   slippageMode?: 'fixed' | 'auto';    // Slippage mode (for Jupiter RTSE)
   order?: string;                      // Provider-specific order preference
@@ -128,13 +129,15 @@ export interface RouteRequest {
     decimals: number | undefined;       // From token data (undefined means unknown, will be fetched)
   };
   
-  // Amount
-  fromAmount: string;                   // Human-readable amount (e.g., "100.5")
+  // Amount (exactly one of fromAmount or toAmount must be provided)
+  fromAmount?: string;                   // Human-readable amount (e.g., "100.5")
+  toAmount?: string;                     // Human-readable output amount (for reverse routing)
   
   // Optional parameters
   slippage?: number;                    // Slippage tolerance (0-100, default: 0.5)
   slippageMode?: 'fixed' | 'auto';     // Fixed slippage or auto-adjust (default: 'fixed')
   recipient?: string;                   // Recipient address (optional, for cross-chain)
+  fromAddress?: string;                // User's wallet address (optional, for LiFi getQuote - improves quote accuracy)
   order?: 'RECOMMENDED' | 'FASTEST' | 'CHEAPEST';  // Route preference (default: 'RECOMMENDED')
   liquidityUSD?: number;                // Token pair liquidity in USD (from frontend, optional - used for auto slippage)
 }

@@ -24,10 +24,12 @@ export interface FetchRouteParams {
     symbol?: string;
     decimals?: number;       // From token data (undefined means unknown, will be fetched)
   };
-  fromAmount: string;
+  fromAmount?: string;      // For normal routing (fromAmount → toAmount)
+  toAmount?: string;        // For reverse routing (toAmount → fromAmount)
   slippage?: number;
   slippageMode?: 'fixed' | 'auto';
-  recipient?: string;
+  fromAddress?: string;                // Connected wallet address (for faster routing with LiFi getQuote)
+  recipient?: string;                  // Recipient address (toAddress) - user-provided or connected wallet
   order?: 'RECOMMENDED' | 'FASTEST' | 'CHEAPEST';
   liquidityUSD?: number;                // Token pair liquidity in USD (from token data)
 }

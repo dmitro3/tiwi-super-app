@@ -63,6 +63,7 @@ export interface NormalizedToken {
   marketCap?: number;          // Market capitalization
   priceChange24h?: number;     // 24h price change percentage (e.g., -12.1)
   holders?: number;            // Number of token holders
+  transactionCount?: number;   // 24h transaction count (buys + sells)
   
   // Router compatibility (enriched)
   routerFormats?: {
@@ -117,6 +118,7 @@ export interface ProviderToken {
   marketCap?: number;          // Market cap (from DexScreener)
   priceChange24h?: number;     // 24h price change percentage (from DexScreener)
   holders?: number;            // Number of token holders (from DexScreener)
+  transactionCount?: number;   // 24h transaction count (from DexScreener)
   verified?: boolean;          // Verification status (from Relay)
   vmType?: string;             // VM type (from Relay)
   // Provider-specific fields stored here

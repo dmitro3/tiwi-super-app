@@ -11,6 +11,7 @@
  * - Leading zeros (e.g., "01" → "01", "0.1" → "0.1")
  * - Decimal point at start (e.g., ".1" → "0.1")
  * - Multiple decimal points (keeps only the first)
+ * - Zero decimals (e.g., "0.00", "0.0" → preserved as-is)
  * - Empty input → ""
  * @param raw - Raw input string
  * @returns Sanitized decimal string
@@ -45,6 +46,7 @@ export function sanitizeDecimal(raw: string): string {
   }
   
   // No decimal part and no trailing "." - return integer part as-is (allows "01", "001", etc.)
+  // This also preserves "0" which is valid
   return intPart;
 }
 

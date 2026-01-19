@@ -518,8 +518,8 @@ export async function getSolanaTokenBalances(
       }
       
       for (const tokenData of tokenArray) {
-        try {
-          const mint = tokenData.mint || tokenData.token_address;
+          try {
+            const mint = tokenData.mint || tokenData.token_address;
           
           // Use amountRaw (integer string) instead of amount (decimal string) for BigInt conversion
           // amountRaw is the raw balance in smallest units (e.g., "23320246664668" for tokens with 6 decimals)
@@ -533,29 +533,29 @@ export async function getSolanaTokenBalances(
           }
           
           const balanceBigInt = BigInt(balanceRaw);
-          
-          if (balanceBigInt === BigInt(0)) {
-            continue;
-          }
-          
-          const decimals = tokenData.decimals !== undefined 
-            ? Number(tokenData.decimals) 
-            : 9;
+            
+            if (balanceBigInt === BigInt(0)) {
+              continue;
+            }
+            
+            const decimals = tokenData.decimals !== undefined 
+              ? Number(tokenData.decimals) 
+              : 9;
           const balanceFormatted = formatBalance(balanceRaw, decimals);
-          
-          tokens.push({
-            address: mint,
-            symbol: tokenData.symbol || 'UNKNOWN',
-            name: tokenData.name || 'Unknown Token',
-            decimals,
+            
+            tokens.push({
+              address: mint,
+              symbol: tokenData.symbol || 'UNKNOWN',
+              name: tokenData.name || 'Unknown Token',
+              decimals,
             balance: balanceRaw.toString(),
-            balanceFormatted,
-            chainId: SOLANA_CHAIN_ID,
-            logoURI: tokenData.logo || tokenData.thumbnail,
-          });
-        } catch (tokenError) {
-          console.warn('[MoralisProvider] Error processing Solana token:', tokenError);
-          continue;
+              balanceFormatted,
+              chainId: SOLANA_CHAIN_ID,
+              logoURI: tokenData.logo || tokenData.thumbnail,
+            });
+          } catch (tokenError) {
+            console.warn('[MoralisProvider] Error processing Solana token:', tokenError);
+            continue;
         }
       }
     } catch (splError: any) {

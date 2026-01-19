@@ -9,7 +9,7 @@ import type { WalletConnectWallet } from "@/lib/wallet/services/wallet-explorer-
 import type { WalletAccount, WalletChain } from "@/lib/wallet/connection/types";
 import { mapWalletIdToProviderId } from "@/lib/wallet/utils/wallet-id-mapper";
 import { useConnect, useDisconnect, useConfig } from "wagmi";
-import { getAccount } from "@wagmi/core";
+import { getConnection } from "@wagmi/core";
 import { connectWallet as connectWalletConnector } from "@/lib/wallet/connection/connector";
 import { useWalletStore } from "@/lib/wallet/state/store";
 
@@ -146,18 +146,18 @@ export function useWalletConnection(): UseWalletConnectionReturn {
               
               await wagmiConnect({ connector: metamaskConnector });
               
-              const wagmiAccount = getAccount(wagmiConfig);
+              const connection = getConnection(wagmiConfig);
               let address: string;
               
-              if (!wagmiAccount.address) {
+              if (!connection.address) {
                 await new Promise(resolve => setTimeout(resolve, 300));
-                const retryAccount = getAccount(wagmiConfig);
-                if (!retryAccount.address) {
+                const retryConnection = getConnection(wagmiConfig);
+                if (!retryConnection.address) {
                   throw new Error('Failed to get account address from MetaMask connector. Please try again.');
                 }
-                address = retryAccount.address;
+                address = retryConnection.address;
               } else {
-                address = wagmiAccount.address;
+                address = connection.address;
               }
               
               const account: WalletAccount = {
@@ -272,19 +272,20 @@ export function useWalletConnection(): UseWalletConnectionReturn {
             
             // Get the connected account directly from Wagmi core (synchronous after connection)
             // This is more reliable than waiting for React hooks to update
-            const wagmiAccount = getAccount(wagmiConfig);
+            // Using modern getConnection instead of deprecated getAccount
+            const connection = getConnection(wagmiConfig);
             let address: string;
             
-            if (!wagmiAccount.address) {
+            if (!connection.address) {
               // If address not immediately available, wait a bit and try again
               await new Promise(resolve => setTimeout(resolve, 300));
-              const retryAccount = getAccount(wagmiConfig);
-              if (!retryAccount.address) {
+              const retryConnection = getConnection(wagmiConfig);
+              if (!retryConnection.address) {
                 throw new Error('Failed to get account address from MetaMask connector. Please try again.');
               }
-              address = retryAccount.address;
+              address = retryConnection.address;
             } else {
-              address = wagmiAccount.address;
+              address = connection.address;
             }
             
             // Update wallet store with the connected account directly
@@ -366,19 +367,20 @@ export function useWalletConnection(): UseWalletConnectionReturn {
             
             // Get the connected account directly from Wagmi core (synchronous after connection)
             // This is more reliable than waiting for React hooks to update
-            const wagmiAccount = getAccount(wagmiConfig);
+            // Using modern getConnection instead of deprecated getAccount
+            const connection = getConnection(wagmiConfig);
             let address: string;
             
-            if (!wagmiAccount.address) {
+            if (!connection.address) {
               // If address not immediately available, wait a bit and try again
               await new Promise(resolve => setTimeout(resolve, 300));
-              const retryAccount = getAccount(wagmiConfig);
-              if (!retryAccount.address) {
+              const retryConnection = getConnection(wagmiConfig);
+              if (!retryConnection.address) {
                 throw new Error('Failed to get account address from MetaMask connector. Please try again.');
               }
-              address = retryAccount.address;
+              address = retryConnection.address;
             } else {
-              address = wagmiAccount.address;
+              address = connection.address;
             }
             
             // Update wallet store with the connected account directly

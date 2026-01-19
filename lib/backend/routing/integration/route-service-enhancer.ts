@@ -54,6 +54,23 @@ export class RouteServiceEnhancer {
       outputTokenPriceUSD?: number;
     } = {}
   ): Promise<EnhancedRouteResponse> {
+    console.log(`\n[RouteServiceEnhancer] ========================================`);
+    console.log(`[RouteServiceEnhancer] 🚀 ENHANCING ROUTE`);
+    console.log(`[RouteServiceEnhancer] Request Parameters:`);
+    console.log(`[RouteServiceEnhancer]   From: ${request.fromToken.address} (chain ${request.fromToken.chainId})`);
+    console.log(`[RouteServiceEnhancer]   To: ${request.toToken.address} (chain ${request.toToken.chainId})`);
+    console.log(`[RouteServiceEnhancer]   Amount: ${request.fromAmount}`);
+    console.log(`[RouteServiceEnhancer]   FromAddress: ${request.fromAddress || 'NOT PROVIDED'}`);
+    console.log(`[RouteServiceEnhancer]   Recipient: ${request.recipient || 'NOT PROVIDED'}`);
+    console.log(`[RouteServiceEnhancer]   Slippage: ${request.slippage || 'default'}`);
+    console.log(`[RouteServiceEnhancer] Options:`);
+    console.log(`[RouteServiceEnhancer]   enableUniversalRouting: ${options.enableUniversalRouting ?? true}`);
+    console.log(`[RouteServiceEnhancer]   preferUniversalRouting: ${options.preferUniversalRouting ?? false}`);
+    console.log(`[RouteServiceEnhancer] Existing Route Response:`);
+    console.log(`[RouteServiceEnhancer]   Route: ${existingRouteResponse.route ? existingRouteResponse.route.router : 'null'}`);
+    console.log(`[RouteServiceEnhancer]   Alternatives: ${existingRouteResponse.alternatives?.length || 0}`);
+    console.log(`[RouteServiceEnhancer] ========================================\n`);
+    
     const {
       enableUniversalRouting = true,
       preferUniversalRouting = false,
@@ -64,9 +81,10 @@ export class RouteServiceEnhancer {
     
     // If universal routing is disabled, return existing response as-is
     if (!enableUniversalRouting) {
+      console.log(`[RouteServiceEnhancer] ⚠️ Universal routing disabled, returning existing response`);
       return {
         ...existingRouteResponse,
-        sources: [existingRouteResponse.route.router],
+        sources: [existingRouteResponse.route?.router || 'unknown'],
         universalRoutingEnabled: false,
       };
     }
@@ -76,7 +94,27 @@ export class RouteServiceEnhancer {
       const fromToken = getAddress(request.fromToken.address);
       const toToken = getAddress(request.toToken.address);
       const chainId = request.fromToken.chainId;
-      const amountIn = BigInt(request.fromAmount);
+      const toChainId = request.toToken.chainId;
+      const isCrossChain = chainId !== toChainId;
+      
+      console.log(`[RouteServiceEnhancer] 📍 Preparing parameters...`);
+      console.log(`[RouteServiceEnhancer]   FromToken: ${fromToken}`);
+      console.log(`[RouteServiceEnhancer]   ToToken: ${toToken}`);
+      console.log(`[RouteServiceEnhancer]   ChainId: ${chainId}`);
+      console.log(`[RouteServiceEnhancer]   ToChainId: ${toChainId}`);
+      console.log(`[RouteServiceEnhancer]   IsCrossChain: ${isCrossChain}`);
+      
+      // CRITICAL FIX: Convert human-readable amount to smallest unit before BigInt
+      // request.fromAmount is a decimal string (e.g., "0.010689481219786505")
+      // We need to convert it to smallest unit using token decimals
+      const fromDecimals = request.fromToken.decimals ?? 18; // Default to 18 if not provided
+      console.log(`[RouteServiceEnhancer]   FromDecimals: ${fromDecimals}`);
+      console.log(`[RouteServiceEnhancer]   FromAmount (human-readable): ${request.fromAmount}`);
+      
+      const { toSmallestUnit } = await import('@/lib/backend/routers/transformers/amount-transformer');
+      const fromAmountSmallest = toSmallestUnit(request.fromAmount, fromDecimals);
+      const amountIn = BigInt(fromAmountSmallest);
+      console.log(`[RouteServiceEnhancer]   AmountIn (smallest unit): ${amountIn.toString()}`);
       
       // Get existing routes
       const existingRoutes = existingRouteResponse.route
@@ -87,7 +125,33 @@ export class RouteServiceEnhancer {
         existingRoutes.push(...existingRouteResponse.alternatives);
       }
       
+      console.log(`[RouteServiceEnhancer]   Existing routes: ${existingRoutes.length}`);
+      existingRoutes.forEach((route, idx) => {
+        console.log(`[RouteServiceEnhancer]     ${idx + 1}. ${route.router} - ${route.toToken.amount} output`);
+      });
+      
       // Aggregate quotes
+      console.log(`[RouteServiceEnhancer] 📍 Calling QuoteAggregator.aggregateQuotes...`);
+      console.log(`[RouteServiceEnhancer]   Parameters being passed:`);
+      console.log(`[RouteServiceEnhancer]     fromToken: ${fromToken}`);
+      console.log(`[RouteServiceEnhancer]     toToken: ${toToken}`);
+      console.log(`[RouteServiceEnhancer]     chainId: ${chainId}`);
+      console.log(`[RouteServiceEnhancer]     amountIn: ${amountIn.toString()}`);
+      console.log(`[RouteServiceEnhancer]     existingRoutes: ${existingRoutes.length}`);
+      console.log(`[RouteServiceEnhancer]     options:`, {
+        includeUniversalRouting: true,
+        includeExistingRouters: true,
+        maxQuotes: 5,
+        minLiquidityUSD: 0,
+        gasPrice: gasPrice?.toString(),
+        inputTokenPriceUSD,
+        outputTokenPriceUSD,
+      });
+      
+      // Pass recipient and fromAddress for cross-chain routes
+      console.log(`[RouteServiceEnhancer]   Recipient: ${request.recipient || 'NOT PROVIDED'}`);
+      console.log(`[RouteServiceEnhancer]   FromAddress: ${request.fromAddress || 'NOT PROVIDED'}`);
+      
       const aggregatedQuotes = await this.quoteAggregator.aggregateQuotes(
         fromToken,
         toToken,
@@ -101,10 +165,25 @@ export class RouteServiceEnhancer {
           gasPrice,
           inputTokenPriceUSD,
           outputTokenPriceUSD,
-        }
+          recipient: request.recipient ? getAddress(request.recipient) : undefined,
+          fromAddress: request.fromAddress ? getAddress(request.fromAddress) : undefined,
+          toChainId, // Pass toChainId for cross-chain detection
+        },
+        toChainId // Also pass as separate parameter for backward compatibility
       );
       
+      console.log(`[RouteServiceEnhancer] 📊 QuoteAggregator returned ${aggregatedQuotes.length} quote(s)`);
+      aggregatedQuotes.forEach((quote, idx) => {
+        console.log(`[RouteServiceEnhancer]   Quote ${idx + 1}:`);
+        console.log(`[RouteServiceEnhancer]     Source: ${quote.source}`);
+        console.log(`[RouteServiceEnhancer]     Router: ${(quote.route as any).router || 'unknown'}`);
+        console.log(`[RouteServiceEnhancer]     Output: ${quote.outputAmount}`);
+        console.log(`[RouteServiceEnhancer]     Score: ${quote.score}`);
+      });
+      
       if (aggregatedQuotes.length === 0) {
+        console.log(`[RouteServiceEnhancer] ❌ No quotes found from QuoteAggregator`);
+        console.log(`[RouteServiceEnhancer] Returning existing response...`);
         // No quotes found, return existing response
         return {
           ...existingRouteResponse,

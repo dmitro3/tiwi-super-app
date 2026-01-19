@@ -2,6 +2,7 @@
 
 import { Button } from "@/components/ui/button";
 import { parseNumber } from "@/lib/shared/utils/number";
+import { getChainDisplayName } from "@/lib/frontend/utils/chain-names";
 
 interface SwapActionButtonProps {
   activeTab: "swap" | "limit";
@@ -11,6 +12,10 @@ interface SwapActionButtonProps {
   isExecutingTransfer?: boolean;
   transferStatus?: string;
   fromAmount?: string;
+  fromCompatibleAddress?: string | null;
+  toCompatibleAddress?: string | null;
+  fromTokenChainId?: number;
+  toTokenChainId?: number;
 }
 
 export default function SwapActionButton({
@@ -21,20 +26,41 @@ export default function SwapActionButton({
   isExecutingTransfer = false,
   transferStatus,
   fromAmount = "",
+  fromCompatibleAddress = null,
+  toCompatibleAddress = null,
+  fromTokenChainId,
+  toTokenChainId,
 }: SwapActionButtonProps) {
   const isLimit = activeTab === "limit";
   const hasAmount = fromAmount && fromAmount.trim() !== "" && parseFloat(fromAmount) > 0;
+  
+  // Check if we have compatible addresses for cross-chain swaps
+  const hasFromAddress = !!fromCompatibleAddress;
+  const hasToAddress = !!toCompatibleAddress;
+  
+  // For cross-chain swaps, both addresses must be compatible
+  const isCrossChain = fromTokenChainId && toTokenChainId && fromTokenChainId !== toTokenChainId;
+  const canSwap = hasFromAddress && (!isCrossChain || hasToAddress);
+  
+  // Determine which chain name to show in error message
+  const missingChainName = !hasFromAddress && fromTokenChainId 
+    ? getChainDisplayName(fromTokenChainId)
+    : !hasToAddress && toTokenChainId && isCrossChain
+    ? getChainDisplayName(toTokenChainId)
+    : null;
 
   return (
     <div className="relative mt-3 sm:mt-4">
       {!isLimit && isConnected && (
         <Button
           onClick={onSwapClick}
-          disabled={isExecutingTransfer || !hasAmount}
+          disabled={isExecutingTransfer || !hasAmount || !canSwap}
           className="w-full relative z-10 text-sm sm:text-base py-2.5 sm:py-3 lg:py-3"
         >
           {isExecutingTransfer 
             ? (transferStatus || "Processing...") 
+            : !canSwap && missingChainName
+            ? `Connect A ${missingChainName} Wallet`
             : hasAmount
             ? "Swap"
             : "Enter Amount"}

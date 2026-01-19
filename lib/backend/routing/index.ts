@@ -1,31 +1,13 @@
 /**
  * Universal Routing System
  * 
- * Main entry point for the new Universal Routing System.
- * This module is separate from existing routers and does not interfere with them.
+ * Main entry point for the new On-Demand Routing System.
+ * This module replaces the old graph-based implementation.
  * 
- * @see README.md for architecture and integration strategy
+ * @see docs/ON_DEMAND_ROUTING_PLAN.md for implementation plan
  */
 
-// Graph Builder (Phase 1)
-export {
-  LiquidityGraph,
-  CacheManager,
-  PairFetcher,
-  GraphBuilder,
-  getGraphBuilder,
-} from './graph-builder';
-
-// Pathfinder (Phase 2)
-export {
-  BFSPathfinder,
-  DijkstraPathfinder,
-  IntermediarySelector,
-  RouteScorer,
-  Pathfinder,
-} from './pathfinder';
-
-// Quote Aggregator (Phase 3)
+// Quote Aggregator (kept for now, will be updated)
 export {
   QuoteAggregator,
   getQuoteAggregator,
@@ -33,13 +15,13 @@ export {
   getRouteValidator,
 } from './quote-aggregator';
 
-// Integration (Phase 3)
+// Integration (kept for now, will be updated)
 export {
   RouteServiceEnhancer,
   getRouteServiceEnhancer,
 } from './integration';
 
-// Bridges (Phase 4)
+// Bridges (kept - using LiFi)
 export {
   BaseBridgeAdapter,
   StargateAdapter,
@@ -56,16 +38,8 @@ export {
 
 // Types
 export type {
-  TokenNode,
-  PairEdge,
   UniversalRoute,
   RouteStep,
-  GraphQueryParams,
-  CacheTierConfig,
-  GraphUpdateStatus,
-  RouteScoringParams,
-  RouteScore,
-  PathfindingOptions,
   QuoteSource,
   AggregatedQuote,
   QuoteAggregationOptions,
@@ -83,18 +57,10 @@ export type {
 /**
  * Initialize routing system
  * 
- * This is optional and doesn't affect existing functionality.
- * Call this when you want to enable the new routing system.
+ * This will be updated as we implement the new on-demand routing.
  */
 export async function initializeRoutingSystem(): Promise<void> {
-  console.log('[UniversalRouting] Initializing routing system...');
-  
-  // For now, this is a no-op
-  // In future phases, this will:
-  // 1. Initialize graph builders for supported chains
-  // 2. Start background graph update tasks
-  // 3. Set up caching infrastructure
-  
-  console.log('[UniversalRouting] Routing system initialized (Phase 1)');
+  console.log('[OnDemandRouting] Initializing routing system...');
+  console.log('[OnDemandRouting] On-demand routing system (Phase 1-10)');
+  console.log('[OnDemandRouting] See docs/ON_DEMAND_ROUTING_PLAN.md for progress');
 }
-

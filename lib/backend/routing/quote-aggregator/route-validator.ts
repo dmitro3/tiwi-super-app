@@ -75,7 +75,13 @@ export class RouteValidator {
     }
     
     // 5. Check gas estimate
-    const gasEstimate = route.gasEstimate || BigInt(0);
+    let gasEstimate = BigInt(0);
+    if ('gasEstimate' in route && route.gasEstimate) {
+      gasEstimate = route.gasEstimate;
+    } else if (route.fees?.gas) {
+      gasEstimate = BigInt(route.fees.gas);
+    }
+    
     if (gasEstimate === BigInt(0)) {
       warnings.push('Gas estimate not available');
     } else if (gasEstimate > BigInt(1000000)) {
@@ -90,25 +96,31 @@ export class RouteValidator {
       }
     }
     
-    // 7. Check path (for universal routes)
-    if ('path' in route && route.path) {
-      if (route.path.length < 2) {
-        errors.push('Invalid route path');
-      }
-      
-      // Check path has valid addresses
-      for (const address of route.path) {
-        if (!address || address.length !== 42 || !address.startsWith('0x')) {
-          errors.push('Invalid address in path');
-          break;
+    // 7. Check path (for universal routes only)
+    if ('path' in route) {
+      const universalRoute = route as UniversalRoute;
+      if (universalRoute.path) {
+        if (universalRoute.path.length < 2) {
+          errors.push('Invalid route path');
+        }
+        
+        // Check path has valid addresses
+        for (const address of universalRoute.path) {
+          if (!address || address.length !== 42 || !address.startsWith('0x')) {
+            errors.push('Invalid address in path');
+            break;
+          }
         }
       }
     }
     
-    // 8. Check steps (for universal routes)
+    // 8. Check steps (for both route types)
     if ('steps' in route && route.steps) {
-      if (route.steps.length === 0 && route.path && route.path.length > 2) {
-        warnings.push('Route has path but no steps');
+      const routeWithSteps = route as RouterRoute | UniversalRoute;
+      if (routeWithSteps.steps.length === 0) {
+        if ('path' in route && (route as UniversalRoute).path && (route as UniversalRoute).path.length > 2) {
+          warnings.push('Route has path but no steps');
+        }
       }
     }
     
@@ -174,7 +186,13 @@ export class RouteValidator {
     }
     
     // Check gas estimate
-    const gasEstimate = route.gasEstimate || BigInt(0);
+    let gasEstimate = BigInt(0);
+    if ('gasEstimate' in route && route.gasEstimate) {
+      gasEstimate = route.gasEstimate;
+    } else if (route.fees?.gas) {
+      gasEstimate = BigInt(route.fees.gas);
+    }
+    
     if (gasEstimate === BigInt(0)) {
       // Gas estimate missing is a warning, not a blocker
       // But we'll allow it for now

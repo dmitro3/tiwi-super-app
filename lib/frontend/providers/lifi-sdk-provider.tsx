@@ -8,28 +8,21 @@
  * 
  * Based on LiFi SDK best practices:
  * - Uses Wagmi for EVM wallet client integration
- * - Supports dynamic chain switching
- * - Configures providers only when wallet is connected
+ * - Loads chains from LiFi API and syncs with Wagmi
+ * - Configures providers when wallet connects
+ * - Supports both EVM and Solana chains
  */
 
 import { useEffect, type ReactNode } from 'react';
-import { createConfig, EVM, config, getChains, ChainType } from '@lifi/sdk';
+import { EVM, Solana, config, getChains, ChainType } from '@lifi/sdk';
 import { useAccount, useChainId, useConfig } from 'wagmi';
 import { getWalletClient, switchChain } from '@wagmi/core';
-import type { Config as WagmiConfig } from 'wagmi';
+import { useQuery } from '@tanstack/react-query';
+import { initializeLiFiSDK } from '@/lib/frontend/config/lifi-sdk-config';
+import { getCanonicalChain } from '@/lib/backend/registry/chains';
 
-// Initialize LiFi SDK config (only once, on module load)
-// We'll add providers dynamically when wallet connects
-let isLiFiConfigInitialized = false;
-
-if (!isLiFiConfigInitialized) {
-  createConfig({
-    integrator: 'TIWI Protocol',
-    // Don't preload chains - we'll load them dynamically
-    preloadChains: false,
-  });
-  isLiFiConfigInitialized = true;
-}
+// Initialize LiFi SDK config at module level (only once)
+initializeLiFiSDK();
 
 // Global reference to wagmi config for executor access
 let globalWagmiConfig: any = null;
@@ -58,6 +51,39 @@ export function LiFiSDKProvider({ children }: { children: ReactNode }) {
     setWagmiConfigForLiFi(wagmiConfig);
   }, [wagmiConfig]);
 
+  // Load chains from LiFi API (EVM and Solana)
+  const { data: chains } = useQuery({
+    queryKey: ['lifi-chains'],
+    queryFn: async () => {
+      try {
+        // Load both EVM and Solana chains
+        const [evmChains, solanaChains] = await Promise.all([
+          getChains({ chainTypes: [ChainType.EVM] }),
+          getChains({ chainTypes: [ChainType.SVM] }),
+        ]);
+
+        // Combine all chains
+        const allChains = [...evmChains, ...solanaChains];
+
+        // Update SDK chain configuration
+        // This ensures SDK recognizes all chains including Solana (1151111081099710)
+        config.setChains(allChains);
+
+        console.log(`[LiFiSDKProvider] Loaded ${allChains.length} chains from LiFi API:`, {
+          evm: evmChains.length,
+          solana: solanaChains.length,
+        });
+
+        return allChains;
+      } catch (error) {
+        console.error('[LiFiSDKProvider] Error loading chains:', error);
+        throw error;
+      }
+    },
+    staleTime: 5 * 60 * 1000, // Cache for 5 minutes
+    gcTime: 10 * 60 * 1000, // Keep in cache for 10 minutes
+  });
+
   useEffect(() => {
     // Only configure providers if wallet is connected
     if (!isConnected || !address) {
@@ -65,9 +91,16 @@ export function LiFiSDKProvider({ children }: { children: ReactNode }) {
       return;
     }
 
+    // Wait for chains to be loaded before configuring providers
+    if (!chains || chains.length === 0) {
+      console.log('[LiFiSDKProvider] Waiting for chains to load...');
+      return;
+    }
+
     console.log('[LiFiSDKProvider] Configuring LiFi SDK providers...', {
       address,
       chainId,
+      chainsLoaded: chains.length,
     });
 
     // Capture current chainId for use in async functions
@@ -119,45 +152,45 @@ export function LiFiSDKProvider({ children }: { children: ReactNode }) {
       },
     });
 
+    // Configure Solana provider if Solana wallet is available
+    // Note: For now, we'll configure it but it will only work if Solana wallet adapter is set up
+    // This allows cross-chain swaps between EVM and Solana via LiFi
+    const providers: any[] = [evmProvider];
+
+    // Try to get Solana wallet adapter if available
+    // This will be set up when Solana wallet integration is complete
+    if (typeof window !== 'undefined' && (window as any).solana) {
+      try {
+        const solanaProvider = Solana({
+          getWalletAdapter: async () => {
+            // For now, return null - will be implemented when Solana wallet adapter is set up
+            // This allows the provider to be configured but won't error if no Solana wallet
+            return null as any;
+          },
+        });
+        providers.push(solanaProvider);
+        console.log('[LiFiSDKProvider] Solana provider configured (wallet adapter pending)');
+      } catch (error) {
+        console.warn('[LiFiSDKProvider] Could not configure Solana provider:', error);
+      }
+    }
+
     // Set providers in LiFi SDK config
-    config.setProviders([evmProvider]);
+    config.setProviders(providers);
 
-    // Optionally load and set chains from LiFi API
-    // This ensures we have the latest chain configurations
-    loadLiFiChains().catch((error) => {
-      console.warn('[LiFiSDKProvider] Failed to load chains from LiFi API:', error);
-      // This is not critical - SDK will work with default chains
+    console.log('[LiFiSDKProvider] LiFi SDK providers configured successfully:', {
+      evm: true,
+      solana: providers.length > 1,
     });
-
-    console.log('[LiFiSDKProvider] LiFi SDK providers configured successfully');
 
     // Cleanup: Remove providers when wallet disconnects or component unmounts
     return () => {
       console.log('[LiFiSDKProvider] Cleaning up providers');
       config.setProviders([]);
     };
-  }, [isConnected, address, chainId, wagmiConfig]);
+  }, [isConnected, address, chainId, wagmiConfig, chains]);
 
   return <>{children}</>;
 }
 
-/**
- * Load chains from LiFi API and update SDK configuration
- * This ensures we have the latest chain configurations
- */
-async function loadLiFiChains(): Promise<void> {
-  try {
-    const chains = await getChains({
-      chainTypes: [ChainType.EVM],
-    });
-
-    // Update SDK chain configuration
-    config.setChains(chains);
-
-    console.log(`[LiFiSDKProvider] Loaded ${chains.length} EVM chains from LiFi API`);
-  } catch (error) {
-    console.error('[LiFiSDKProvider] Error loading chains:', error);
-    throw error;
-  }
-}
 

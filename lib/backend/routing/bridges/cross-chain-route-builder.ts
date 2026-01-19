@@ -10,8 +10,7 @@
 import type { Address } from 'viem';
 import type { BridgeAdapter, BridgeQuote, CrossChainRoute } from './types';
 import { getBridgeRegistry } from './bridge-registry';
-import { getGraphBuilder } from '../graph-builder';
-import { Pathfinder } from '../pathfinder';
+// TODO: Replace with on-demand route finder (Phase 7)
 
 /**
  * Cross-chain route request
@@ -33,7 +32,7 @@ export interface CrossChainRouteRequest {
  */
 export class CrossChainRouteBuilder {
   private bridgeRegistry = getBridgeRegistry();
-  private graphBuilder = getGraphBuilder();
+  // TODO: Replace with on-demand route finder (Phase 7)
   
   /**
    * Build cross-chain route
@@ -254,4 +253,5 @@ export function getCrossChainRouteBuilder(): CrossChainRouteBuilder {
   }
   return crossChainRouteBuilderInstance;
 }
+
 
