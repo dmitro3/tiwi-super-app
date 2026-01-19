@@ -269,14 +269,14 @@ export function MarketTable({ activeTab = "Hot", searchQuery = "", sortBy = 'non
           ref={scrollXContainerRef}
           className="overflow-x-auto market-table-scrollbar"
         >
-          <div className="flex relative min-w-[46.875rem] lg:min-w-[50rem] xl:min-w-[53.125rem] 2xl:min-w-[56.25rem]">
+          <div className="flex relative min-w-[52.875rem] lg:min-w-[58rem] xl:min-w-[65.125rem] 2xl:min-w-[70.25rem]">
             {/* LEFT TABLE: All columns except Buy/Sell */}
             <div className="flex-1">
               <div className="w-full">
               <Table ref={leftTableRef} className="table-fixed w-full sticky">
                 <TableHeader className="z-20 bg-[#010501]">
                   <TableRow className="border-b border-[#1f261e]/80 hover:bg-transparent">
-                    <TableHead className="z-20 w-[6.5rem] lg:w-[7rem] xl:w-[8.125rem] 2xl:w-[8.75rem] px-3 lg:px-4 xl:px-5 2xl:px-6 py-1.5 lg:py-2 text-left text-[10px] lg:text-xs xl:text-sm text-[#7c7c7c] font-semibold bg-[#010501]">
+                    <TableHead className="z-20 w-[12rem] lg:w-[14rem] xl:w-[16rem] 2xl:w-[18rem] px-3 lg:px-4 xl:px-5 2xl:px-6 py-1.5 lg:py-2 text-left text-[10px] lg:text-xs xl:text-sm text-[#7c7c7c] font-semibold bg-[#010501]">
                       Token
                     </TableHead>
                     <TableHead className="z-20 w-[5rem] lg:w-[5.5rem] xl:w-[6.5625rem] 2xl:w-[6.875rem] px-3 lg:px-4 xl:px-5 2xl:px-6 py-1.5 lg:py-2 text-right text-[10px] lg:text-xs xl:text-sm text-[#7c7c7c] font-semibold bg-[#010501]">
@@ -330,8 +330,8 @@ export function MarketTable({ activeTab = "Hot", searchQuery = "", sortBy = 'non
                       }}
                       className="group border-b border-[#1f261e]/60 hover:bg-[#0b0f0a] transition-colors"
                     >
-                      <TableCell className="w-[6.5rem] lg:w-[7rem] xl:w-[8.125rem] 2xl:w-[8.75rem] px-3 lg:px-4 xl:px-5 2xl:px-6 py-2.5 lg:py-3 xl:py-4 text-white text-[10px] lg:text-xs xl:text-base font-semibold">
-                        <div className="flex items-center gap-1 lg:gap-1.5 xl:gap-2.5 2xl:gap-3">
+                      <TableCell className="w-[12rem] lg:w-[14rem] xl:w-[16rem] 2xl:w-[18rem] px-3 lg:px-4 xl:px-5 2xl:px-6 py-2.5 lg:py-3 xl:py-4 text-white text-[10px] lg:text-xs xl:text-base font-semibold align-middle">
+                        <div className="flex items-center gap-1.5 lg:gap-2 xl:gap-3 2xl:gap-3.5">
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
@@ -347,7 +347,7 @@ export function MarketTable({ activeTab = "Hot", searchQuery = "", sortBy = 'non
                               setFavourites(newFavourites);
                               localStorage.setItem('favouriteTokens', JSON.stringify(newFavourites));
                             }}
-                            className="shrink-0"
+                            className="shrink-0 cursor-pointer"
                             aria-label="Toggle favourite"
                           >
                             <Image
@@ -364,12 +364,12 @@ export function MarketTable({ activeTab = "Hot", searchQuery = "", sortBy = 'non
                           <TokenImage
                             src={token.icon}
                             alt={token.symbol}
-                            width={20}
-                            height={20}
+                            width={28}
+                            height={28}
                             symbol={token.symbol}
-                            className="lg:w-6 lg:h-6 xl:w-8 xl:h-8 shrink-0"
+                            className="lg:w-8 lg:h-8 xl:w-10 xl:h-10 2xl:w-12 2xl:h-12 shrink-0"
                           />
-                          <span className="truncate">{token.symbol}</span>
+                          <span className="whitespace-nowrap">{token.symbol}</span>
                         </div>
                       </TableCell>
                       <TableCell className="w-[5rem] lg:w-[5.5rem] xl:w-[6.5625rem] 2xl:w-[6.875rem] px-3 lg:px-4 xl:px-5 2xl:px-6 py-2.5 lg:py-3 xl:py-4 text-right text-white text-[10px] lg:text-xs xl:text-base font-medium">
