@@ -1,31 +1,37 @@
 /**
  * Wagmi Configuration
  * 
- * Configures Wagmi for EVM wallet connections
+ * Configures Wagmi for EVM wallet connections.
+ * Uses optimized RPC settings for reliability.
  */
 
 import { createConfig, http } from 'wagmi';
-import { mainnet, arbitrum, optimism, polygon, base, bsc } from 'wagmi/chains';
+import * as allChains from 'wagmi/chains';
 import { metaMask, walletConnect, injected } from 'wagmi/connectors';
+import { createClient } from 'viem';
+import { getRpcUrl, RPC_TRANSPORT_OPTIONS } from '@/lib/backend/utils/rpc-config';
 
-// WalletConnect Project ID (you'll need to get this from WalletConnect Cloud)
-// For now, using a placeholder - replace with your actual project ID
-const WALLETCONNECT_PROJECT_ID = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID || '';
+const WALLETCONNECT_PROJECT_ID = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID || '8e998cd112127e42dce5e2bf74122539';
+
+const connectors = [
+  metaMask(),
+  ...(WALLETCONNECT_PROJECT_ID ? [walletConnect({ projectId: WALLETCONNECT_PROJECT_ID, showQrModal: true })] : []),
+  injected(),
+];
 
 export const wagmiConfig = createConfig({
-  chains: [mainnet, arbitrum, optimism, polygon, base, bsc],
-  connectors: [
-    metaMask(),
-    ...(WALLETCONNECT_PROJECT_ID ? [walletConnect({ projectId: WALLETCONNECT_PROJECT_ID })] : []),
-    injected(),
-  ],
-  transports: {
-    [mainnet.id]: http(),
-    [arbitrum.id]: http(),
-    [optimism.id]: http(),
-    [polygon.id]: http(),
-    [base.id]: http(),
-    [bsc.id]: http(),
+  chains: Object.values(allChains).filter((c): c is any => typeof c === 'object' && c !== null && 'id' in c) as any,
+  connectors,
+  client({ chain }) {
+    const customRpcUrl = getRpcUrl(chain.id);
+    
+    if (customRpcUrl) {
+      return createClient({ 
+        chain, 
+        transport: http(customRpcUrl, RPC_TRANSPORT_OPTIONS)
+      });
+    }
+    
+    return createClient({ chain, transport: http() });
   },
 });
-

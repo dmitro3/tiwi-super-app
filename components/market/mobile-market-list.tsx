@@ -1,26 +1,23 @@
 "use client";
 
 import MobileMarketCard from "./mobile-market-card";
-import type { MarketToken } from "@/lib/market/mock-data";
+import type { Token } from "@/lib/frontend/types/tokens";
 
 interface MobileMarketListProps {
-  tokens: MarketToken[];
+  tokens: Token[];
   isLoading?: boolean;
 }
 
-/**
- * Mobile Market List Component
- * Vertical list of market cards matching Figma design
- */
 export default function MobileMarketList({ tokens, isLoading = false }: MobileMarketListProps) {
   // Default leverage mapping (can be made dynamic later)
-  const getLeverage = (token: MarketToken): string => {
+  const getLeverage = (token: Token): string => {
     // Some tokens have different leverage in the design
     if (token.symbol.includes("TWC") || token.symbol.includes("LINK") || token.symbol.includes("TIWI")) {
       return "5X";
     }
     return "10X";
   };
+
 
   if (isLoading) {
     return (

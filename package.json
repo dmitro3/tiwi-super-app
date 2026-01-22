@@ -30,7 +30,7 @@
   },
   "dependencies": {
     "@jup-ag/referral-sdk": "^0.3.0",
-    "@lifi/sdk": "^3.14.1",
+    "@lifi/sdk": "^3.15.4",
     "@metamask/sdk": "^0.33.1",
     "@radix-ui/react-dialog": "^1.1.15",
     "@radix-ui/react-slot": "^1.2.4",

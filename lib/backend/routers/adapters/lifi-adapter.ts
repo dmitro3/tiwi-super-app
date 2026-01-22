@@ -147,12 +147,14 @@ export class LiFiAdapter extends BaseRouter {
         // Convert quote (LiFiStep) to RouteExtended format
         // A quote is essentially a single-step route
         const quoteAction = quote.action as any;
+        const quoteEstimate = quote.estimate as any;
+        
         lifiRoute = {
           id: quote.id || `quote-${Date.now()}`,
           fromChainId: fromChainId,
           toChainId: toChainId,
           fromAmount: quoteAction.fromAmount,
-          toAmount: quoteAction.toAmount,
+          toAmount: quoteEstimate.toAmount || quoteAction.toAmount, // Use estimate for output amount
           steps: [quote],
           tags: [],
         } as unknown as RouteExtended;
@@ -255,7 +257,17 @@ export class LiFiAdapter extends BaseRouter {
     
     // Calculate amounts
     const fromAmount = lifiRoute.fromAmount || firstAction.fromAmount || '0';
-    const toAmount = lifiRoute.toAmount || (lastAction.toAmount || lastAction.toAmountMin || '0');
+    
+    // Robust extraction of toAmount:
+    // 1. From route-level toAmount
+    // 2. From last action's toAmount
+    // 3. From last step's estimate (most accurate for quotes)
+    // 4. From last action's toAmountMin (fallback)
+    const toAmount = lifiRoute.toAmount || 
+                    lastAction.toAmount || 
+                    (lastStep.estimate as any)?.toAmount || 
+                    lastAction.toAmountMin || 
+                    '0';
     
     // Extract USD values from route (LiFi provides these)
     const fromAmountUSD = (lifiRoute as any).fromAmountUSD || (firstAction as any).fromAmountUSD;

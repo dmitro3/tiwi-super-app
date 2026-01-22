@@ -72,7 +72,7 @@ export default function Navbar() {
   const activeAddress = useActiveWalletAddress();
   const getActiveManagedWallet = useWalletManagerStore((s) => s.getActiveWallet);
   const activeManagedWallet = getActiveManagedWallet();
-  
+
   // Determine if wallet is fully connected (local or external, not in connecting state)
   const isFullyConnected = !!activeAddress && !wallet.isConnecting;
 
@@ -150,10 +150,10 @@ export default function Navbar() {
     if (activeManagedWallet?.isLocal && activeManagedWallet?.source === 'local') {
       return '/walleticon.svg';
     }
-    
+
     // For external wallets, use the existing logic
     if (!wallet.primaryWallet) return '/assets/icons/wallet/wallet-04.svg';
-    
+
     const walletInfo = getWalletById(wallet.primaryWallet.provider);
     if (walletInfo?.imageId) {
       try {
@@ -176,13 +176,13 @@ export default function Navbar() {
   const handleDisconnect = async () => {
     // Disconnect the wallet connection (works for both local and external)
     await wallet.disconnect();
-    
+
     // Clear active wallet state to allow new connection
     // This works like external wallets - disconnect and allow reconnection
     // The wallet remains in the list but is no longer active
     const clearActiveWallet = useWalletManagerStore.getState().clearActiveWallet;
     clearActiveWallet();
-    
+
     setIsWalletPanelOpen(false);
   };
 
@@ -215,11 +215,10 @@ export default function Navbar() {
                 <Link
                   key={item.href}
                   href={item.href}
-                  className={`px-3 py-2 lg:px-4 lg:py-3 font-medium text-base lg:text-lg transition-colors ${
-                    isActive
+                  className={`px-3 py-2 lg:px-4 lg:py-3 font-medium text-base lg:text-lg transition-colors ${isActive
                       ? "text-[#b1f128] font-semibold"
                       : "text-[#b5b5b5] hover:text-[#b1f128]"
-                  }`}
+                    }`}
                 >
                   {item.label}
                 </Link>
@@ -229,7 +228,25 @@ export default function Navbar() {
 
           {/* Wallet UI - Desktop */}
           <div className="hidden md:flex items-center gap-2">
-            {wallet.address && wallet.isConnecting ? (
+            {!isMounted ? (
+              <>
+                <button
+                  className="bg-[#081f02] p-2.5 sm:p-3 rounded-full opacity-50 cursor-default"
+                  aria-label="Settings"
+                >
+                  <Image
+                    src="/assets/icons/settings.svg"
+                    alt="Settings"
+                    width={24}
+                    height={24}
+                    className="[&_path]:stroke-[#b1f128] w-5 h-5 sm:w-6 sm:h-6"
+                  />
+                </button>
+                <Button className="text-sm lg:text-base px-4 lg:px-6 py-2 lg:py-3 opacity-50 cursor-default">
+                  Connect
+                </Button>
+              </>
+            ) : wallet.address && wallet.isConnecting ? (
               <>
                 {/* Loading state: Only show settings icon */}
                 <button
@@ -268,16 +285,15 @@ export default function Navbar() {
                   onClick={() => setIsNotificationsOpen(!isNotificationsOpen)}
                   className="relative bg-[#081f02] p-3 rounded-full hover:opacity-90 transition-opacity cursor-pointer"
                   aria-label="Notifications"
-                  suppressHydrationWarning
                 >
                   <IoNotificationsOutline className="w-6 h-6 text-white" />
-                  {isMounted && liveNotificationsCount > 0 && (
+                  {liveNotificationsCount > 0 && (
                     <span className="absolute -top-1 -right-1 bg-[#ff5c5c] text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
                       {liveNotificationsCount > 9 ? "9+" : liveNotificationsCount}
                     </span>
                   )}
                 </button>
-                
+
                 {/* Settings Icon */}
                 <button
                   onClick={handleSettings}
@@ -292,7 +308,7 @@ export default function Navbar() {
                     className="w-6 h-6"
                   />
                 </button>
-                
+
                 {/* Wallet Address Button with Icon Inside */}
                 <button
                   onClick={handleWalletPanelToggle}
@@ -352,7 +368,25 @@ export default function Navbar() {
 
           {/* Mobile Right Side - Wallet UI or Connect Button and Menu */}
           <div className="md:hidden flex items-center gap-3">
-            {isFullyConnected ? (
+            {!isMounted ? (
+              <>
+                <Button className="text-sm px-4 py-2 opacity-50 cursor-default">
+                  Connect
+                </Button>
+                <button
+                  className="bg-[#081f02] p-2.5 rounded-full opacity-50 cursor-default"
+                  aria-label="Open menu"
+                >
+                  <Image
+                    src="/assets/icons/menu.svg"
+                    alt="Menu"
+                    width={20}
+                    height={20}
+                    className="h-5 w-5"
+                  />
+                </button>
+              </>
+            ) : isFullyConnected ? (
               <>
                 {/* Notifications Icon with Badge */}
                 <button
@@ -361,7 +395,7 @@ export default function Navbar() {
                   aria-label="Notifications"
                 >
                   <IoNotificationsOutline className="w-5 h-5 text-white" />
-                  {isMounted && liveNotificationsCount > 0 && (
+                  {liveNotificationsCount > 0 && (
                     <span className="absolute -top-1 -right-1 bg-[#ff5c5c] text-white text-xs font-bold rounded-full w-4 h-4 flex items-center justify-center text-[10px]">
                       {liveNotificationsCount > 9 ? "9+" : liveNotificationsCount}
                     </span>
@@ -386,7 +420,7 @@ export default function Navbar() {
                     />
                   </div>
                 </button>
-                
+
                 {/* Hamburger Menu */}
                 <button
                   onClick={handleMenu}
@@ -490,7 +524,7 @@ export default function Navbar() {
         open={isMenuOpen}
         onClose={handleCloseMenu}
       />
-      
+
       {/* Wallet Balance Panel */}
       {isFullyConnected && activeAddress && (
         <WalletBalancePanel

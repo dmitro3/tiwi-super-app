@@ -12,8 +12,7 @@ import {
   TableCell,
 } from "@/components/ui/table";
 import MarketTableRowSkeleton from "./market-table-row-skeleton";
-import { useNetworkFilterStore } from "@/lib/frontend/store/network-store";
-import { useMarketPairsBatch } from "@/hooks/useMarketPairsBatch";
+import { marketPairToToken } from "@/lib/frontend/utils/market-utils";
 import { PairLogoStack } from "@/components/ui/pair-logo-stack";
 import { SubscriptPairPrice } from "@/components/ui/subscript-pair-price";
 import { SubscriptUSDPrice } from "@/components/ui/subscript-usd-price";
@@ -21,43 +20,24 @@ import { formatPercentageChange, formatNumber } from "@/lib/frontend/utils/price
 import type { MarketTokenPair } from "@/lib/backend/types/backend-tokens";
 import type { Token } from "@/lib/frontend/types/tokens";
 
+
 interface MarketTableProps {
-  activeSubTab: "Favourite" | "Top" | "Spotlight" | "New" | "Gainers" | "Losers";
-  searchQuery: string;
+  tokens: Token[];
+  isLoading: boolean;
+  total: number;
+  currentPage: number;
+
+  onPageChange: (page: number) => void;
   sortBy: 'volume' | 'liquidity' | 'performance' | 'none';
   onSortChange: (sort: 'volume' | 'liquidity' | 'performance' | 'none') => void;
   marketType?: "spot" | "perp";
 }
 
-/**
- * Helper to transform backend MarketTokenPair to frontend Token format
- */
-const marketPairToToken = (pair: MarketTokenPair): Token => {
-  const { baseToken, quoteToken } = pair;
-  return {
-    id: `${pair.chainId}-${baseToken.address.toLowerCase()}`,
-    name: baseToken.name,
-    symbol: baseToken.symbol,
-    address: baseToken.address,
-    logo: baseToken.logoURI,
-    logoURI: baseToken.logoURI,
-    chain: pair.chainName,
-    chainId: pair.chainId,
-    decimals: baseToken.decimals,
-    price: pair.pairPrice || baseToken.priceUSD,
-    priceChange24h: pair.priceChange24h,
-    volume24h: pair.volume24h,
-    liquidity: pair.liquidity,
-    marketCap: pair.marketCap,
-    transactionCount: pair.transactionCount,
-    // Store pair info for specific rendering
-    pair: pair,
-  };
-};
-
 export default function MarketTable({
-  activeSubTab,
-  searchQuery,
+  tokens,
+  isLoading,
+  currentPage,
+  onPageChange,
   sortBy,
   onSortChange,
   marketType = "spot"
@@ -65,64 +45,6 @@ export default function MarketTable({
   const router = useRouter();
   const [hoveredRowId, setHoveredRowId] = useState<string | null>(null);
   const scrollYContainerRef = useRef<HTMLDivElement | null>(null);
-
-  const { selectedNetworkSlug } = useNetworkFilterStore();
-  const [currentPage, setCurrentPage] = useState(1);
-  const rowsPerPage = 60; // Fetch 3 CoinGecko pages (20 each)
-
-  // Mapping subtabs to API categories
-  const categoryMap: Record<string, 'hot' | 'new' | 'gainers' | 'losers' | null> = {
-    Top: 'hot',
-    Spotlight: 'hot', // Spotlight can map to Hot for now
-    New: 'new',
-    Gainers: 'gainers',
-    Losers: 'losers',
-    Favourite: null,
-  };
-
-  const activeCategory = categoryMap[activeSubTab] || 'hot';
-
-  // Reset to page 1 when network or category changes
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [selectedNetworkSlug, activeSubTab]);
-
-  // Fetch real data in batches (60 items)
-  const {
-    pairs: marketPairs,
-    isLoading,
-    total
-  } = useMarketPairsBatch({
-    category: activeCategory,
-    network: selectedNetworkSlug || undefined,
-    uiPage: currentPage,
-    uiRowsPerPage: rowsPerPage,
-  });
-
-  // Transform to tokens
-  const tokens = useMemo(() => {
-    let result = marketPairs.map(marketPairToToken);
-
-    // Apply client-side search
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase();
-      result = result.filter(
-        t => t.symbol.toLowerCase().includes(query) || t.name.toLowerCase().includes(query)
-      );
-    }
-
-    // Apply sorting
-    if (sortBy !== 'none') {
-      result.sort((a, b) => {
-        if (sortBy === 'volume') return (b.volume24h || 0) - (a.volume24h || 0);
-        if (sortBy === 'liquidity') return (b.liquidity || 0) - (a.liquidity || 0);
-        if (sortBy === 'performance') return (b.priceChange24h || 0) - (a.priceChange24h || 0);
-        return 0;
-      });
-    }
-
-    return result;
-  }, [marketPairs, searchQuery, sortBy]);
 
   const handleRowClick = (token: Token) => {
     // If it's a pair, use the pool address or symbol
@@ -132,11 +54,12 @@ export default function MarketTable({
 
   const changePage = (page: number) => {
     if (page < 1) return;
-    setCurrentPage(page);
+    onPageChange(page);
     if (scrollYContainerRef.current) {
       scrollYContainerRef.current.scrollTo({ top: 0, behavior: "smooth" });
     }
   };
+
 
   return (
     <div className="w-full h-full flex flex-col overflow-hidden relative">
@@ -206,7 +129,7 @@ export default function MarketTable({
 
                     return (
                       <TableRow
-                        key={token.id}
+                        key={rowId}
                         onMouseEnter={() => setHoveredRowId(rowId)}
                         onMouseLeave={() => setHoveredRowId(null)}
                         onClick={() => handleRowClick(token)}
@@ -224,11 +147,10 @@ export default function MarketTable({
                             />
                             {pair ? (
                               <PairLogoStack
-                                baseLogo={pair.baseToken.logoURI}
-                                quoteLogo={pair.quoteToken.logoURI}
-                                baseSymbol={pair.baseToken.symbol}
-                                quoteSymbol={pair.quoteToken.symbol}
-                                size="md"
+                                baseToken={pair.baseToken}
+                                quoteToken={pair.quoteToken}
+                                pairName={`${pair.baseToken.symbol}/${pair.quoteToken.symbol}`}
+                                chainName={pair.chainName}
                               />
                             ) : (
                               <Image src={token.logo || ''} alt={token.symbol} width={32} height={32} className="rounded-full" />
@@ -250,16 +172,16 @@ export default function MarketTable({
                         </TableCell>
                         <TableCell className={`px-6 py-5 text-right font-medium text-[16px] ${(token.priceChange24h || 0) >= 0 ? "text-[#3fea9b]" : "text-[#ff5c5c]"
                           }`}>
-                          {formatPercentageChange(token.priceChange24h)}
+                          {formatPercentageChange(token.priceChange24h).formatted}
                         </TableCell>
                         <TableCell className="px-6 py-5 text-right text-white font-medium text-[16px]">
-                          ${formatNumber(token.volume24h, true)}
+                          ${formatNumber(token.volume24h)}
                         </TableCell>
                         <TableCell className="px-6 py-5 text-right text-white font-medium text-[16px]">
-                          ${formatNumber(token.liquidity, true)}
+                          ${formatNumber(token.liquidity)}
                         </TableCell>
                         <TableCell className="px-6 py-5 text-right text-white font-medium text-[16px]">
-                          ${formatNumber(token.marketCap, true)}
+                          ${formatNumber(token.marketCap)}
                         </TableCell>
 
                         {marketType === "perp" && (
@@ -305,8 +227,8 @@ export default function MarketTable({
                 key={p}
                 onClick={() => changePage(p)}
                 className={`w-9 h-9 rounded-lg flex items-center justify-center text-[15px] font-medium transition-colors ${currentPage === p
-                    ? 'bg-[#b1f128] text-black font-bold'
-                    : 'text-[#7c7c7c] hover:text-white hover:bg-[#0b0f0a]'
+                  ? 'bg-[#b1f128] text-black font-bold'
+                  : 'text-[#7c7c7c] hover:text-white hover:bg-[#0b0f0a]'
                   }`}
               >
                 {p}

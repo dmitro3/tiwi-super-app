@@ -1,83 +1,130 @@
 /**
  * LiFi SDK Configuration
  * 
- * Centralized configuration for LiFi SDK with RPC URLs and integrator.
- * This should be called once at application startup.
- * 
- * Based on LiFi SDK best practices:
- * - Configure RPC URLs for reliable connections
- * - Set integrator for partner tracking
- * - Initialize before providers are configured
+ * Re-implemented following the robust approach from tiwi-test.
+ * Uses a layered resolution for wallet clients.
  */
 
-import { createConfig, ChainId } from '@lifi/sdk';
-import { RPC_CONFIG } from '@/lib/backend/utils/rpc-config';
+import { createConfig, EVM, Solana, config, ChainType } from '@lifi/sdk';
+import { getWalletClient, switchChain, getAccount } from '@wagmi/core';
+import { createWalletClient, custom, getAddress } from 'viem';
+import { mainnet } from 'viem/chains';
+import { wagmiConfig } from '@/lib/wallet/providers/wagmi-config';
+import { getWalletForChain, type WalletAccount } from '../utils/wallet-detector';
+import { getSolanaWalletAdapterForLiFi } from '../utils/solana-wallet-adapter';
+import { LIFI_SOLANA_CHAIN_ID } from '../utils/bridge-mappers';
 
-let isInitialized = false;
+import * as allViemChains from 'viem/chains';
+
+const CHAIN_MAP: Record<number, any> = Object.values(allViemChains).reduce((acc, chain: any) => {
+  if (chain && typeof chain.id === 'number') {
+    acc[chain.id] = chain;
+  }
+  return acc;
+}, {} as Record<number, any>);
+
+/**
+ * Helper to get wallet client from custom wallet detector (localStorage)
+ */
+const getCustomWalletClient = async (chainId?: number): Promise<any | null> => {
+  if (typeof window === 'undefined') return null;
+  
+  try {
+    const stored = localStorage.getItem('lifi_connected_wallet');
+    if (!stored) return null;
+    
+    const connectedWallet: WalletAccount = JSON.parse(stored);
+    if (connectedWallet.chain !== 'ethereum') return null;
+    
+    const provider = await getWalletForChain(connectedWallet.provider, 'ethereum');
+    if (!provider) return null;
+    
+    const targetChain = chainId ? CHAIN_MAP[chainId] : mainnet;
+    if (!targetChain) return null;
+    
+    const walletClient = createWalletClient({
+      chain: targetChain,
+      transport: custom(provider),
+      account: getAddress(connectedWallet.address) as `0x${string}`,
+    });
+    
+    return walletClient;
+  } catch (error) {
+    console.error('[LiFiConfig] Error getting custom wallet client:', error);
+    return null;
+  }
+};
 
 /**
  * Initialize LiFi SDK configuration
- * Should be called once at application startup (frontend only)
  */
 export function initializeLiFiSDK() {
-  if (isInitialized) {
-    console.log('[LiFiSDKConfig] Already initialized, skipping...');
-    return;
-  }
-
-  // Map our canonical chain IDs to LiFi ChainId enum
-  // Note: LiFi uses different chain IDs for some chains
-  const rpcUrls: Record<number, string[]> = {};
-
-  // Ethereum Mainnet (1)
-  if (RPC_CONFIG[1]) {
-    rpcUrls[ChainId.ETH] = [RPC_CONFIG[1]];
-  }
-
-  // Arbitrum One (42161)
-  if (RPC_CONFIG[42161]) {
-    rpcUrls[ChainId.ARB] = [RPC_CONFIG[42161]];
-  }
-
-  // Optimism (10)
-  if (RPC_CONFIG[10]) {
-    rpcUrls[ChainId.OPT] = [RPC_CONFIG[10]];
-  }
-
-  // Polygon (137)
-  if (RPC_CONFIG[137]) {
-    rpcUrls[ChainId.POL] = [RPC_CONFIG[137]];
-  }
-
-  // Base (8453)
-  if (RPC_CONFIG[8453]) {
-    rpcUrls[ChainId.BAS] = [RPC_CONFIG[8453]];
-  }
-
-  // BSC / Binance Smart Chain (56)
-  if (RPC_CONFIG[56]) {
-    rpcUrls[ChainId.BSC] = [RPC_CONFIG[56]];
-  }
-
-  // Solana - LiFi uses special chain ID: 1151111081099710
-  // We'll add Solana RPC when available
-  // For now, SDK will use default public RPCs for Solana
-  const solanaRpc = process.env.NEXT_PUBLIC_SOLANA_RPC_URL;
-  if (solanaRpc) {
-    rpcUrls[ChainId.SOL] = [solanaRpc];
-  }
-
   createConfig({
     integrator: 'TIWI-Protocol',
-    rpcUrls,
-    // Don't preload chains - we'll load them dynamically from LiFi API
-    // This ensures we get the latest chain configurations
+    providers: [
+      EVM({
+        getWalletClient: async (chainId?: number) => {
+          // 1. Try custom wallet detector first (highest priority)
+          try {
+            const customClient = await getCustomWalletClient(chainId);
+            if (customClient) {
+              console.log('[LI.FI] Using custom wallet detector client');
+              return customClient;
+            }
+          } catch (error) {
+            console.warn('[LI.FI] Custom detector failed:', error);
+          }
+          
+          // 2. Fallback to Wagmi
+          try {
+            const account = getAccount(wagmiConfig);
+            if (account?.connector && account?.address) {
+              const targetChainId = chainId || account.chainId;
+              // @ts-ignore
+              const walletClient = await getWalletClient(wagmiConfig, { chainId: targetChainId as any });
+              if (walletClient) return walletClient;
+            }
+          } catch (error) {
+            console.warn('[LI.FI] Wagmi fallback failed:', error);
+          }
+          
+          throw new Error('No wallet connected for EVM');
+        },
+        switchChain: async (chainId: number) => {
+          // Try switching via custom provider if possible
+          try {
+            const stored = localStorage.getItem('lifi_connected_wallet');
+            if (stored) {
+              const connectedWallet: WalletAccount = JSON.parse(stored);
+              if (connectedWallet.chain === 'ethereum') {
+                const provider = await getWalletForChain(connectedWallet.provider, 'ethereum');
+                if (provider?.request) {
+                  await provider.request({
+                    method: 'wallet_switchEthereumChain',
+                    params: [{ chainId: `0x${chainId.toString(16)}` }],
+                  });
+                  await new Promise(resolve => setTimeout(resolve, 1000));
+                  return await getCustomWalletClient(chainId);
+                }
+              }
+            }
+          } catch (error) {
+            console.warn('[LI.FI] Custom switchChain failed, trying wagmi:', error);
+          }
+          
+          // @ts-ignore - bypass strict Wagmi chain ID type check to support dynamic/unlimited chains
+          const chain = await switchChain(wagmiConfig, { chainId: chainId as any });
+          return getWalletClient(wagmiConfig, { chainId: chain.id as any });
+        },
+      }),
+      Solana({
+        getWalletAdapter: async () => {
+          return await getSolanaWalletAdapterForLiFi();
+        },
+      }),
+    ],
     preloadChains: false,
-    // Disable version check in production (optional)
-    disableVersionCheck: process.env.NODE_ENV === 'production',
   });
 
-  isInitialized = true;
-  console.log('[LiFiSDKConfig] LiFi SDK initialized with RPC URLs:', Object.keys(rpcUrls).length, 'chains');
+  console.log('[LiFiSDKConfig] LiFi SDK initialized with robust provider resolution');
 }
-

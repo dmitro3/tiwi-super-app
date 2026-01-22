@@ -8,8 +8,9 @@ interface UseMarketPairsBatchOptions {
     network?: string;
     uiPage: number;      // The current UI page (1-based)
     uiRowsPerPage: number; // e.g., 60
-    apiRowsPerPage: number; // strictly 20 for CoinGecko
+    apiRowsPerPage?: number; // optional, defaults to 20
 }
+
 
 /**
  * Hook to fetch batch data for the market page.

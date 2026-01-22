@@ -416,7 +416,7 @@ export function MarketTable({ activeTab = "Hot", searchQuery = "", sortBy = 'non
                     ) : (
                       homepageTokens.map((token: HomepageToken, idx: number) => (
                         <TableRow
-                          key={token.symbol}
+                          key={token.token.id}
                           ref={(el) => {
                             if (el) leftRowRefs.current[idx] = el;
                           }}
@@ -529,7 +529,7 @@ export function MarketTable({ activeTab = "Hot", searchQuery = "", sortBy = 'non
                 <TableBody>
                   {!isLoading && homepageTokens.length > 0 && homepageTokens.map((token, idx) => (
                     <TableRow
-                      key={token.symbol}
+                      key={token.token.id}
                       data-row-index={idx}
                       className="group border-b border-[#1f261e]/60 hover:bg-[#0b0f0a] transition-colors"
                     >

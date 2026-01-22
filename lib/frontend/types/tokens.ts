@@ -27,7 +27,9 @@ export interface Token {
   baseToken?: any;           // Full baseToken details (for routing to swap/market pages)
   quoteToken?: any;          // Full quoteToken details (for routing to swap/market pages)
   pairPrice?: string;        // Raw pair price (base_token_price_quote_token) for formatting
+  pair?: any;                // Full market pair metadata
 }
+
 
 export interface Chain {
   id: string;                // Canonical chain ID as string

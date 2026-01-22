@@ -1,21 +1,86 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo, useEffect } from "react";
 import Image from "next/image";
 import MarketTabs from "@/components/market/market-tabs";
 import MarketSubTabs from "@/components/market/market-sub-tabs";
 import MarketTable from "@/components/market/market-table";
 import MobileMarketList from "@/components/market/mobile-market-list";
 import { NetworkSelector } from "@/components/home/network-selector";
+import { useNetworkFilterStore } from "@/lib/frontend/store/network-store";
+import { useMarketPairsBatch } from "@/hooks/useMarketPairsBatch";
+import { usePrefetchMarkets } from "@/hooks/usePrefetchMarkets";
+import { marketPairToToken } from "@/lib/frontend/utils/market-utils";
+import type { MarketTokenPair } from "@/lib/backend/types/backend-tokens";
+import type { Token } from "@/lib/frontend/types/tokens";
 
 type MarketTab = "Spot" | "Perp";
 type SubTabKey = "Favourite" | "Top" | "Spotlight" | "New" | "Gainers" | "Losers";
 
 export default function MarketPage() {
+
+  usePrefetchMarkets();
+
   const [activeTab, setActiveTab] = useState<MarketTab>("Spot");
   const [activeSubTab, setActiveSubTab] = useState<SubTabKey>("Top");
   const [searchQuery, setSearchQuery] = useState("");
   const [sortBy, setSortBy] = useState<'volume' | 'liquidity' | 'performance' | 'none'>('none');
+  const [currentPage, setCurrentPage] = useState(1);
+  const rowsPerPage = 60;
+
+  const { selectedNetworkSlug } = useNetworkFilterStore();
+
+  // Mapping subtabs to API categories
+  const categoryMap: Record<string, 'hot' | 'new' | 'gainers' | 'losers' | null> = {
+    Top: 'hot',
+    Spotlight: 'hot',
+    New: 'new',
+    Gainers: 'gainers',
+    Losers: 'losers',
+    Favourite: null,
+  };
+
+  const activeCategory = categoryMap[activeSubTab] || 'hot';
+
+  // Fetch real data in batches (60 items)
+  const {
+    pairs: marketPairs,
+    isLoading,
+    total
+  } = useMarketPairsBatch({
+    category: activeCategory,
+    network: selectedNetworkSlug || undefined,
+    uiPage: currentPage,
+    uiRowsPerPage: rowsPerPage,
+  });
+
+  // Transform and filter tokens
+  const tokens = useMemo(() => {
+    let result = marketPairs.map(marketPairToToken);
+
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      result = result.filter(
+        t => t.symbol.toLowerCase().includes(query) || t.name.toLowerCase().includes(query)
+      );
+    }
+
+    if (sortBy !== 'none') {
+      result.sort((a, b) => {
+        if (sortBy === 'volume') return (b.volume24h || 0) - (a.volume24h || 0);
+        if (sortBy === 'liquidity') return (b.liquidity || 0) - (a.liquidity || 0);
+        if (sortBy === 'performance') return (b.priceChange24h || 0) - (a.priceChange24h || 0);
+        return 0;
+      });
+    }
+
+    return result;
+  }, [marketPairs, searchQuery, sortBy]);
+
+  // Reset page when category or network changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [activeSubTab, selectedNetworkSlug]);
 
   return (
     <>
@@ -58,8 +123,11 @@ export default function MarketPage() {
               {/* Market Table */}
               <div className="flex-1 border border-[#1f261e] rounded-xl overflow-hidden flex flex-col min-h-0 w-full" style={{ minHeight: '600px', maxHeight: 'calc(100vh - 250px)' }}>
                 <MarketTable
-                  activeSubTab={activeSubTab}
-                  searchQuery={searchQuery}
+                  tokens={tokens}
+                  isLoading={isLoading}
+                  total={total}
+                  currentPage={currentPage}
+                  onPageChange={setCurrentPage}
                   sortBy={sortBy}
                   onSortChange={setSortBy}
                   marketType={activeTab.toLowerCase() as "spot" | "perp"}
@@ -145,4 +213,3 @@ export default function MarketPage() {
     </>
   );
 }
-

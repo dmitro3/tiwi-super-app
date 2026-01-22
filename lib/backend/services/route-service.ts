@@ -44,7 +44,6 @@ export class RouteService {
    * If slippageMode is 'fixed', uses user's specified slippage.
    */
   async getRoute(request: RouteRequest): Promise<RouteResponse> {
-    console.log("🚀 ~ RouteService ~ getRoute ~ request:THIS IS THE REQUEST TO FIND OUT WHAT'S THE SLIPPAGE MODE", request)
     // 1. Validate request
     this.validateRequest(request);
 
@@ -613,7 +612,7 @@ export class RouteService {
     }
 
     // Identify route provider for logging
-    console.log(`[enrichRouteWithUSD] Route provider: ${route}`);
+    console.log(`[enrichRouteWithUSD] Route provider: ${route.router}`);
 
     // If route already has USD values (e.g., from LiFi), just add Tiwi fee
     if (route.fromToken.amountUSD && route.toToken.amountUSD) {
