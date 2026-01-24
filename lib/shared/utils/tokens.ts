@@ -108,9 +108,7 @@ export function filterAndSortTokensByTab(
       });
       // Filter out non-positive changes
       filtered = filtered.filter(token => (token.priceChange24h ?? 0) > 0);
-      break;
-
-    case 'Losers':
+      break;    case 'Losers':
       // Sort by price change (lowest negative first)
       filtered.sort((a, b) => {
         const aChange = a.priceChange24h ?? Infinity;
