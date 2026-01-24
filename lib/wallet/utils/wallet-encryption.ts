@@ -67,6 +67,29 @@ function generateIV(): Uint8Array {
  * @param password - User's password for encryption
  * @returns Encrypted data with salt and IV (base64 encoded)
  */
+/**
+ * Validate password strength
+ * SECURITY FIX: Strengthened password requirements
+ */
+function validatePasswordStrength(password: string): { valid: boolean; error?: string } {
+  if (password.length < 12) {
+    return { valid: false, error: 'Password must be at least 12 characters' };
+  }
+  if (!/[A-Z]/.test(password)) {
+    return { valid: false, error: 'Password must contain at least one uppercase letter' };
+  }
+  if (!/[a-z]/.test(password)) {
+    return { valid: false, error: 'Password must contain at least one lowercase letter' };
+  }
+  if (!/[0-9]/.test(password)) {
+    return { valid: false, error: 'Password must contain at least one number' };
+  }
+  if (!/[^A-Za-z0-9]/.test(password)) {
+    return { valid: false, error: 'Password must contain at least one special character' };
+  }
+  return { valid: true };
+}
+
 export async function encryptWalletData(
   plaintext: string,
   password: string
@@ -76,8 +99,10 @@ export async function encryptWalletData(
       throw new Error('Plaintext and password are required');
     }
 
-    if (password.length < 8) {
-      throw new Error('Password must be at least 8 characters');
+    // SECURITY FIX: Use strengthened password validation
+    const validation = validatePasswordStrength(password);
+    if (!validation.valid) {
+      throw new Error(validation.error || 'Password does not meet security requirements');
     }
 
     // Generate salt and IV

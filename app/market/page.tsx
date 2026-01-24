@@ -29,7 +29,6 @@ export default function MarketPage() {
   const rowsPerPage = 60;
 
   const { selectedNetworkSlug } = useNetworkFilterStore();
-
   // Mapping subtabs to API categories
   const categoryMap: Record<string, 'hot' | 'new' | 'gainers' | 'losers' | null> = {
     Top: 'hot',

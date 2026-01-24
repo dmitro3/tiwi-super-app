@@ -15,8 +15,11 @@ import { getCache, CACHE_TTL } from '@/lib/backend/utils/cache';
 
 // Chainbase API configuration
 const CHAINBASE_API_BASE = 'https://api.chainbase.online/v1';
-// Get API key from environment variable (fallback to provided key for now)
-const CHAINBASE_API_KEY = process.env.CHAINBASE_API_KEY || process.env.NEXT_PUBLIC_CHAINBASE_API_KEY || '38XflTlP5w7kKiHcIdmZ6gkWePP';
+// SECURITY FIX: Remove hardcoded API key - use environment variable only
+const CHAINBASE_API_KEY = process.env.CHAINBASE_API_KEY;
+if (!CHAINBASE_API_KEY) {
+  console.warn('[Chainbase] CHAINBASE_API_KEY environment variable is not set. Chainbase API calls will fail.');
+}
 
 // Chainbase supported chain IDs
 // Note: Solana (7565164) is NOT supported by Chainbase
@@ -89,6 +92,12 @@ export async function getTokenHoldersCount(
     url.searchParams.set('page', '0');
     url.searchParams.set('chain_id', chainbaseChainId.toString());
     url.searchParams.set('contract_address', tokenAddress);
+
+    // SECURITY FIX: Fail gracefully if API key is not set
+    if (!CHAINBASE_API_KEY) {
+      console.warn('[Chainbase] API key not configured, skipping request');
+      return null;
+    }
 
     // Make API request
     const response = await fetch(url.toString(), {

@@ -54,6 +54,9 @@ const fetchStakingPools = async (
           : pool.minStakeAmount 
             ? `Min: ${pool.minStakeAmount} ${pool.tokenSymbol || ""}`
             : undefined,
+        // Staking limits set by admin - these are used for validation
+        minStakeAmount: pool.minStakeAmount,
+        maxStakeAmount: pool.maxStakeAmount,
         // Contract and chain info
         contractAddress: pool.contractAddress || undefined, // Factory contract address or single pool contract
         chainId: pool.chainId || undefined,
@@ -179,6 +182,26 @@ export default function EarnPage() {
       .finally(() => {
         setIsLoading(false);
       });
+  }, [activeTab, activeButton, connectedAddress]);
+
+  // Listen for stake updates and refresh pools
+  useEffect(() => {
+    const handleStakeUpdate = () => {
+      console.log('[Earn] Stake updated, refreshing pools...');
+      setIsLoading(true);
+      fetchStakingPools(activeTab, activeButton, connectedAddress)
+        .then((data) => {
+          setPools(data);
+        })
+        .finally(() => {
+          setIsLoading(false);
+        });
+    };
+
+    window.addEventListener('stake-updated', handleStakeUpdate);
+    return () => {
+      window.removeEventListener('stake-updated', handleStakeUpdate);
+    };
   }, [activeTab, activeButton, connectedAddress]);
 
   const handlePoolClick = (pool: StakingPool) => {

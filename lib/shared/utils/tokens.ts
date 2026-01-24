@@ -95,9 +95,7 @@ export function filterAndSortTokensByTab(
         const bVol = b.volume24h || 0;
         return bVol - aVol;
       });
-      break;
-
-    case 'Gainers':
+      break;    case 'Gainers':
       // Sort by price change (highest positive first)
       filtered.sort((a, b) => {
         const aChange = a.priceChange24h ?? -Infinity;
@@ -126,7 +124,5 @@ export function filterAndSortTokensByTab(
       // Filter out non-negative changes
       filtered = filtered.filter(token => (token.priceChange24h ?? 0) < 0);
       break;
-  }
-
-  return filtered;
+  }  return filtered;
 }

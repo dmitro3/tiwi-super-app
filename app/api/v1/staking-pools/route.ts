@@ -37,6 +37,8 @@ export interface StakingPool {
   rewardPerSecond?: number; // Calculated reward per second
   // Contract address
   contractAddress?: string; // Deployed smart contract address
+  poolId?: number; // Pool ID from factory contract (for factory-based staking)
+  factoryAddress?: string; // Factory contract address (for factory-based staking)
   status: 'active' | 'inactive' | 'archived';
   createdAt: string;
   updatedAt: string;
@@ -68,6 +70,10 @@ export interface CreateStakingPoolRequest {
   maxTvl?: number; // Maximum TVL or Total Staked Tokens
   poolReward?: number; // Total reward tokens allocated to the pool
   rewardDurationSeconds?: number; // Reward duration in seconds
+  // Contract and factory fields
+  contractAddress?: string; // Deployed smart contract address (for single-pool contracts)
+  poolId?: number; // Pool ID from factory contract (for factory-based staking)
+  factoryAddress?: string; // Factory contract address (for factory-based staking)
   status?: 'active' | 'inactive' | 'archived';
 }
 
@@ -93,6 +99,10 @@ export interface UpdateStakingPoolRequest {
   maxTvl?: number; // Maximum TVL or Total Staked Tokens
   poolReward?: number; // Total reward tokens allocated to the pool
   rewardDurationSeconds?: number; // Reward duration in seconds
+  // Contract and factory fields
+  contractAddress?: string; // Deployed smart contract address (for single-pool contracts)
+  poolId?: number; // Pool ID from factory contract (for factory-based staking)
+  factoryAddress?: string; // Factory contract address (for factory-based staking)
   status?: 'active' | 'inactive' | 'archived';
 }
 
@@ -125,6 +135,8 @@ function mapRowToPool(row: any): StakingPool {
     rewardDurationSeconds: row.reward_duration_seconds ? parseInt(row.reward_duration_seconds, 10) : undefined,
     rewardPerSecond: row.reward_per_second ? parseFloat(row.reward_per_second) : undefined,
     contractAddress: row.contract_address || undefined,
+    poolId: row.pool_id ? parseInt(row.pool_id, 10) : undefined,
+    factoryAddress: row.factory_address || undefined,
     status: row.status || 'active',
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -244,6 +256,8 @@ export async function POST(req: NextRequest) {
         reward_duration_seconds: body.rewardDurationSeconds || null,
         reward_per_second: rewardPerSecond,
         contract_address: body.contractAddress || null,
+        pool_id: body.poolId || null,
+        factory_address: body.factoryAddress || null,
         status: body.status || 'active',
       })
       .select()
@@ -326,6 +340,8 @@ export async function PATCH(req: NextRequest) {
     if (body.poolReward !== undefined) updateData.pool_reward = body.poolReward || null;
     if (body.rewardDurationSeconds !== undefined) updateData.reward_duration_seconds = body.rewardDurationSeconds || null;
     if (body.contractAddress !== undefined) updateData.contract_address = body.contractAddress || null;
+    if (body.poolId !== undefined) updateData.pool_id = body.poolId || null;
+    if (body.factoryAddress !== undefined) updateData.factory_address = body.factoryAddress || null;
     
     // Calculate reward per second if reward configuration is provided or updated
     const poolReward = body.poolReward !== undefined ? body.poolReward : existing.pool_reward;

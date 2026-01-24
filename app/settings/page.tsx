@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, Suspense } from "react";
 import Image from "next/image";
 import { IoArrowBack, IoChevronForward, IoChevronDown, IoRefresh, IoBugOutline } from "react-icons/io5";
 import { FiCopy, FiCheck, FiDownload, FiTrash2, FiFile, FiSettings, FiMail, FiSend, FiPlus, FiUpload } from "react-icons/fi";
@@ -50,7 +50,7 @@ const recoveryPhrase = [
 ];
 
 
-export default function SettingsPage() {
+function SettingsPageContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const [currentView, setCurrentView] = useState<SettingsView>("main");
@@ -2166,6 +2166,14 @@ export default function SettingsPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function SettingsPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-transparent text-white font-manrope flex items-center justify-center">Loading...</div>}>
+      <SettingsPageContent />
+    </Suspense>
   );
 }
 
