@@ -23,6 +23,9 @@ interface TokenInputProps {
   usdValue?: string;
   onTokenSelect?: () => void;
   onMaxClick?: () => void;
+  on30PercentClick?: () => void;
+  on50PercentClick?: () => void;
+  on75PercentClick?: () => void;
   onAmountChange?: (value: string) => void;
   disabled?: boolean;
   readOnlyAmount?: boolean;
@@ -43,6 +46,9 @@ export default function TokenInput({
   usdValue = "$0",
   onTokenSelect,
   onMaxClick,
+  on30PercentClick,
+  on50PercentClick,
+  on75PercentClick,
   onAmountChange,
   disabled = false,
   readOnlyAmount = false,
@@ -198,7 +204,7 @@ export default function TokenInput({
         </div>
         <div className="flex flex-col items-end justify-center min-w-0 flex-1 max-w-full">
           {isFrom && (
-            <div className="flex items-center gap-1.5 sm:gap-2 mb-1.5 sm:mb-2 w-full justify-end min-w-0">
+            <div className="flex flex-col gap-1.5 mb-1.5 sm:mb-2 w-full items-end min-w-0">
               {balanceLoading ? (
                 <BalanceSkeleton showIcon showMaxButton />
               ) : (
@@ -220,12 +226,32 @@ export default function TokenInput({
                       )}
                     </span>
                   </div>
-                  <button
-                    onClick={onMaxClick}
-                    className="bg-[#1f261e] text-[#b1f128] font-medium text-xs sm:text-sm px-2 sm:px-4 py-1 sm:py-1.5 rounded-full hover:bg-[#2a3229] transition-colors cursor-pointer shrink-0"
-                  >
-                    Max
-                  </button>
+                  <div className="flex items-center gap-1 sm:gap-1.5">
+                    <button
+                      onClick={on30PercentClick}
+                      className="bg-[#1f261e] text-[#b1f128] font-medium text-[10px] sm:text-xs px-1.5 sm:px-2.5 py-1 sm:py-1.5 rounded-full hover:bg-[#2a3229] transition-colors cursor-pointer shrink-0"
+                    >
+                      30%
+                    </button>
+                    <button
+                      onClick={on50PercentClick}
+                      className="bg-[#1f261e] text-[#b1f128] font-medium text-[10px] sm:text-xs px-1.5 sm:px-2.5 py-1 sm:py-1.5 rounded-full hover:bg-[#2a3229] transition-colors cursor-pointer shrink-0"
+                    >
+                      50%
+                    </button>
+                    <button
+                      onClick={on75PercentClick}
+                      className="bg-[#1f261e] text-[#b1f128] font-medium text-[10px] sm:text-xs px-1.5 sm:px-2.5 py-1 sm:py-1.5 rounded-full hover:bg-[#2a3229] transition-colors cursor-pointer shrink-0"
+                    >
+                      75%
+                    </button>
+                    <button
+                      onClick={onMaxClick}
+                      className="bg-[#1f261e] text-[#b1f128] font-medium text-[10px] sm:text-xs px-1.5 sm:px-3 py-1 sm:py-1.5 rounded-full hover:bg-[#2a3229] transition-colors cursor-pointer shrink-0"
+                    >
+                      Max
+                    </button>
+                  </div>
                 </>
               )}
             </div>

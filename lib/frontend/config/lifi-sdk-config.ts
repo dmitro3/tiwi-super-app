@@ -6,54 +6,13 @@
  */
 
 import { createConfig, EVM, Solana, config, ChainType } from '@lifi/sdk';
-import { getWalletClient, switchChain, getAccount } from '@wagmi/core';
-import { createWalletClient, custom, getAddress } from 'viem';
-import { mainnet } from 'viem/chains';
-import { wagmiConfig } from '@/lib/wallet/providers/wagmi-config';
-import { getWalletForChain, type WalletAccount } from '../utils/wallet-detector';
 import { getSolanaWalletAdapterForLiFi } from '../utils/solana-wallet-adapter';
 import { LIFI_SOLANA_CHAIN_ID } from '../utils/bridge-mappers';
+import { getWalletClientForChain } from '../utils/viem-clients';
+import { useWalletStore } from '@/lib/wallet/state/store';
+import { mapWalletIdToProviderId } from '@/lib/wallet/utils/wallet-id-mapper';
 
-import * as allViemChains from 'viem/chains';
-
-const CHAIN_MAP: Record<number, any> = Object.values(allViemChains).reduce((acc, chain: any) => {
-  if (chain && typeof chain.id === 'number') {
-    acc[chain.id] = chain;
-  }
-  return acc;
-}, {} as Record<number, any>);
-
-/**
- * Helper to get wallet client from custom wallet detector (localStorage)
- */
-const getCustomWalletClient = async (chainId?: number): Promise<any | null> => {
-  if (typeof window === 'undefined') return null;
-  
-  try {
-    const stored = localStorage.getItem('lifi_connected_wallet');
-    if (!stored) return null;
-    
-    const connectedWallet: WalletAccount = JSON.parse(stored);
-    if (connectedWallet.chain !== 'ethereum') return null;
-    
-    const provider = await getWalletForChain(connectedWallet.provider, 'ethereum');
-    if (!provider) return null;
-    
-    const targetChain = chainId ? CHAIN_MAP[chainId] : mainnet;
-    if (!targetChain) return null;
-    
-    const walletClient = createWalletClient({
-      chain: targetChain,
-      transport: custom(provider),
-      account: getAddress(connectedWallet.address) as `0x${string}`,
-    });
-    
-    return walletClient;
-  } catch (error) {
-    console.error('[LiFiConfig] Error getting custom wallet client:', error);
-    return null;
-  }
-};
+// No custom wallet client function needed - using PancakeSwap's approach
 
 /**
  * Initialize LiFi SDK configuration
@@ -64,57 +23,64 @@ export function initializeLiFiSDK() {
     providers: [
       EVM({
         getWalletClient: async (chainId?: number) => {
-          // 1. Try custom wallet detector first (highest priority)
+          console.log('[LI.FI] getWalletClient called for chainId:', chainId);
+
+          // Use the same approach as PancakeSwap - get wallet from store and use viem-clients
           try {
-            const customClient = await getCustomWalletClient(chainId);
-            if (customClient) {
-              console.log('[LI.FI] Using custom wallet detector client');
-              return customClient;
+            // Get connected wallet from store
+            const storeState = useWalletStore.getState();
+            const connectedWallet = storeState.primaryWallet;
+
+            console.log('[LI.FI] Connected wallet from store:', {
+              hasWallet: !!connectedWallet,
+              address: connectedWallet?.address,
+              provider: connectedWallet?.provider,
+              chain: connectedWallet?.chain
+            });
+
+            if (!connectedWallet || connectedWallet.chain !== 'ethereum') {
+              throw new Error('No EVM wallet connected');
             }
+
+            // Get provider ID for the connected wallet
+            const providerId = mapWalletIdToProviderId(connectedWallet.provider);
+            console.log('[LI.FI] Using provider ID:', providerId);
+
+            // Use the same function as PancakeSwap to get wallet client
+            const targetChainId = chainId || 56; // Default to BSC if no chain specified
+            const walletClient = await getWalletClientForChain(targetChainId, providerId);
+
+            console.log('[LI.FI] ✅ Successfully got wallet client for chain', targetChainId);
+            return walletClient;
           } catch (error) {
-            console.warn('[LI.FI] Custom detector failed:', error);
+            console.error('[LI.FI] Failed to get wallet client:', error);
+            throw new Error(`No wallet connected for EVM. Please connect your wallet and try again. ${error instanceof Error ? error.message : ''}`);
           }
-          
-          // 2. Fallback to Wagmi
-          try {
-            const account = getAccount(wagmiConfig);
-            if (account?.connector && account?.address) {
-              const targetChainId = chainId || account.chainId;
-              // @ts-ignore
-              const walletClient = await getWalletClient(wagmiConfig, { chainId: targetChainId as any });
-              if (walletClient) return walletClient;
-            }
-          } catch (error) {
-            console.warn('[LI.FI] Wagmi fallback failed:', error);
-          }
-          
-          throw new Error('No wallet connected for EVM');
         },
         switchChain: async (chainId: number) => {
-          // Try switching via custom provider if possible
+          console.log('[LI.FI] switchChain called for chainId:', chainId);
+
           try {
-            const stored = localStorage.getItem('lifi_connected_wallet');
-            if (stored) {
-              const connectedWallet: WalletAccount = JSON.parse(stored);
-              if (connectedWallet.chain === 'ethereum') {
-                const provider = await getWalletForChain(connectedWallet.provider, 'ethereum');
-                if (provider?.request) {
-                  await provider.request({
-                    method: 'wallet_switchEthereumChain',
-                    params: [{ chainId: `0x${chainId.toString(16)}` }],
-                  });
-                  await new Promise(resolve => setTimeout(resolve, 1000));
-                  return await getCustomWalletClient(chainId);
-                }
-              }
+            // Get connected wallet from store
+            const storeState = useWalletStore.getState();
+            const connectedWallet = storeState.primaryWallet;
+
+            if (!connectedWallet || connectedWallet.chain !== 'ethereum') {
+              throw new Error('No EVM wallet connected for chain switch');
             }
+
+            // Get provider ID
+            const providerId = mapWalletIdToProviderId(connectedWallet.provider);
+
+            // Get wallet client for the target chain (this will handle chain switching)
+            const walletClient = await getWalletClientForChain(chainId, providerId);
+
+            console.log('[LI.FI] ✅ Chain switched to', chainId);
+            return walletClient;
           } catch (error) {
-            console.warn('[LI.FI] Custom switchChain failed, trying wagmi:', error);
+            console.error('[LI.FI] Chain switch failed:', error);
+            throw new Error(`Failed to switch to chain ${chainId}. ${error instanceof Error ? error.message : ''}`);
           }
-          
-          // @ts-ignore - bypass strict Wagmi chain ID type check to support dynamic/unlimited chains
-          const chain = await switchChain(wagmiConfig, { chainId: chainId as any });
-          return getWalletClient(wagmiConfig, { chainId: chain.id as any });
         },
       }),
       Solana({
@@ -123,8 +89,8 @@ export function initializeLiFiSDK() {
         },
       }),
     ],
-    preloadChains: false,
+    preloadChains: true,
   });
 
-  console.log('[LiFiSDKConfig] LiFi SDK initialized with robust provider resolution');
+  console.log('[LiFiSDKConfig] LiFi SDK initialized with robust provider resolution and preloaded chains');
 }

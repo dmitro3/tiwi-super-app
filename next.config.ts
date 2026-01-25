@@ -20,7 +20,7 @@ const nextConfig: NextConfig = {
               "style-src 'self' 'unsafe-inline'",
               "img-src 'self' data: https: http:",
               "font-src 'self' data:",
-              "connect-src 'self' https://*.walletconnect.org https://*.walletconnect.com https://*.chainbase.online https://api.1inch.com https://api.dexscreener.com https://api.coingecko.com https://api.mymemory.translated.net https://*.supabase.co https://*.alchemy.com https://*.g.alchemy.com https://mm-sdk-analytics.api.cx.metamask.io https://*.rpc.thirdweb.com wss://*.walletconnect.org wss://*.walletconnect.com",
+              "connect-src 'self' https://*.walletconnect.org https://*.walletconnect.com https://*.chainbase.online https://api.1inch.com https://api.dexscreener.com https://api.coingecko.com https://api.mymemory.translated.net https://*.supabase.co https://*.alchemy.com https://*.g.alchemy.com https://mm-sdk-analytics.api.cx.metamask.io https://*.rpc.thirdweb.com https://li.quest https://*.li.quest https://api.li.fi https://bsc-dataseed.binance.org https://bsc-dataseed1.binance.org https://bsc-dataseed2.binance.org https://rpc.ankr.com https://api.mainnet-beta.solana.com https://*.infura.io https://*.quicknode.pro wss://*.walletconnect.org wss://*.walletconnect.com",
               "frame-src 'self' https://*.walletconnect.org https://*.walletconnect.com",
               "object-src 'none'",
               "base-uri 'self'",

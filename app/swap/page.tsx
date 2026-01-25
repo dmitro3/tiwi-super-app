@@ -298,6 +298,19 @@ export default function SwapPage() {
     }
   };
 
+  const handlePercentageClick = (percentage: number) => {
+    // Set fromAmount to a percentage of the token balance
+    if (fromTokenBalance && !fromTokenBalance.isLoading && fromTokenBalance.balanceFormatted) {
+      const balance = parseNumber(fromTokenBalance.balanceFormatted);
+      const amount = (balance * percentage / 100).toString();
+      setFromAmount(amount);
+    }
+  };
+
+  const handle30PercentClick = () => handlePercentageClick(30);
+  const handle50PercentClick = () => handlePercentageClick(50);
+  const handle75PercentClick = () => handlePercentageClick(75);
+
   // Handle swap tokens button (middle arrow) - swaps tokens, amounts, and addresses
   const handleSwapTokens = () => {
     // Only swap if both tokens are selected
@@ -1073,6 +1086,9 @@ export default function SwapPage() {
               onLimitPriceChange={handleLimitPriceChange}
               onExpiresChange={setExpires}
               onMaxClick={handleMaxClick}
+              on30PercentClick={handle30PercentClick}
+              on50PercentClick={handle50PercentClick}
+              on75PercentClick={handle75PercentClick}
               onSwapClick={handleSwapClick}
               onSwapTokens={handleSwapTokens}
               onConnectClick={handleConnectClick}

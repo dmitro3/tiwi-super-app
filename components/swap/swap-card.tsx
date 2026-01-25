@@ -54,6 +54,9 @@ interface SwapCardProps {
   onLimitPriceChange?: (value: string) => void;
   onExpiresChange?: (value: "never" | "24h" | "7d" | "custom") => void;
   onMaxClick?: () => void;
+  on30PercentClick?: () => void;
+  on50PercentClick?: () => void;
+  on75PercentClick?: () => void;
   onSwapClick?: () => void;
   onSwapTokens?: () => void; // Handler for middle swap arrow button (swaps tokens, amounts, addresses)
   onConnectClick?: () => void;
@@ -91,6 +94,9 @@ export default function SwapCard({
   onLimitPriceChange,
   onExpiresChange,
   onMaxClick,
+  on30PercentClick,
+  on50PercentClick,
+  on75PercentClick,
   onSwapClick,
   onSwapTokens,
   onConnectClick,
@@ -207,6 +213,9 @@ export default function SwapCard({
                 usdValue={fromUsdValue}
                 onTokenSelect={onFromTokenSelect}
                 onMaxClick={onMaxClick}
+                on30PercentClick={on30PercentClick}
+                on50PercentClick={on50PercentClick}
+                on75PercentClick={on75PercentClick}
                 onAmountChange={onFromAmountChange}
                 readOnlyAmount={false}
               walletLabel={fromCompatibleAddress ? undefined : "Select wallet"}

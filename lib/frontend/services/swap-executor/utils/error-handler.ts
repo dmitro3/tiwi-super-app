@@ -26,8 +26,12 @@ export function formatErrorMessage(error: unknown): string {
       return 'Insufficient balance for this transaction.';
     }
     
-    if (message.includes('network') || message.includes('RPC')) {
+    if (message.includes('network') || message.includes('RPC') || message.includes('Failed to fetch') || message.includes('fetch')) {
       return 'Network error. Please check your connection and try again.';
+    }
+
+    if (message.includes('wallet') || message.includes('provider') || message.includes('not connected')) {
+      return 'Wallet connection error. Please ensure your wallet is connected and try again.';
     }
     
     if (message.includes('slippage') || message.includes('SLIPPAGE')) {
