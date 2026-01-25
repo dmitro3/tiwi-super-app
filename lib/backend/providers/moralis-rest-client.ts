@@ -5,7 +5,7 @@
  * Replaces the SDK to support dynamic API key rotation.
  */
 
-import { getCurrentApiKey, getCurrentKeyIndex, markKeyAsExhausted, rotateToNextKey, isRateLimitError } from '@/lib/backend/utils/moralis-key-manager';
+import { getCurrentApiKey, getCurrentKeyIndex, markKeyAsExhausted, rotateToNextKey, isRateLimitError, getTotalKeysCount } from '@/lib/backend/utils/moralis-key-manager';
 
 // ============================================================================
 // Configuration
@@ -315,7 +315,8 @@ const {
 //     }
 //   }
 
-  const maxRetries = 3;
+  // Set maxRetries to the number of available API keys to ensure we try all keys
+  const maxRetries = getTotalKeysCount();
   let lastError: any = null;
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {

@@ -11,6 +11,7 @@ import ComingSoonState from "@/components/earn/coming-soon-state";
 import StakingCardSkeleton from "@/components/earn/staking-card-skeleton";
 import StakingDetailView from "@/components/earn/staking-detail-view";
 import { useWalletConnection } from "@/hooks/useWalletConnection";
+import { useActiveWalletAddress } from "@/lib/wallet/hooks/useActiveWalletAddress";
 import type { StakingPool } from "@/data/mock-staking-pools";
 
 type EarnTab = "Staking" | "Farming" | "Lend & Borrow" | "NFT Staking";
@@ -164,7 +165,8 @@ const getEmptyStateMessages = (button: ActionButton) => {
 };
 
 export default function EarnPage() {
-  const { connectedAddress } = useWalletConnection();
+  // Use active wallet address (single source of truth for wallet address)
+  const activeWalletAddress = useActiveWalletAddress();
   const [activeTab, setActiveTab] = useState<EarnTab>("Staking");
   const [activeButton, setActiveButton] = useState<ActionButton>("Stake");
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -175,21 +177,21 @@ export default function EarnPage() {
   // Fetch pools when active tab, button, or wallet address changes
   useEffect(() => {
     setIsLoading(true);
-    fetchStakingPools(activeTab, activeButton, connectedAddress)
+    fetchStakingPools(activeTab, activeButton, activeWalletAddress)
       .then((data) => {
         setPools(data);
       })
       .finally(() => {
         setIsLoading(false);
       });
-  }, [activeTab, activeButton, connectedAddress]);
+  }, [activeTab, activeButton, activeWalletAddress]);
 
   // Listen for stake updates and refresh pools
   useEffect(() => {
     const handleStakeUpdate = () => {
       console.log('[Earn] Stake updated, refreshing pools...');
       setIsLoading(true);
-      fetchStakingPools(activeTab, activeButton, connectedAddress)
+      fetchStakingPools(activeTab, activeButton, activeWalletAddress)
         .then((data) => {
           setPools(data);
         })
@@ -202,7 +204,7 @@ export default function EarnPage() {
     return () => {
       window.removeEventListener('stake-updated', handleStakeUpdate);
     };
-  }, [activeTab, activeButton, connectedAddress]);
+  }, [activeTab, activeButton, activeWalletAddress]);
 
   const handlePoolClick = (pool: StakingPool) => {
     // Switch to Staking tab if not already on it

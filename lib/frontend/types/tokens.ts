@@ -17,6 +17,7 @@ export interface Token {
   usdValue?: string;
   price?: string;
   chainBadge?: string;
+  verified?: boolean;        // Verification status (true = verified, false = unverified/spam)
   priceChange24h?: number;   // 24h price change percentage (e.g., -12.1)
   volume24h?: number;        // 24h trading volume
   liquidity?: number;        // Liquidity in USD

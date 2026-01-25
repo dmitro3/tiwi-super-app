@@ -6,6 +6,7 @@ import SwapCard from "@/components/swap/swap-card";
 import SwapBackgroundElements from "@/components/swap/swap-background-elements";
 import { useWalletConnection } from "@/hooks/useWalletConnection";
 import { useWallet } from "@/lib/wallet/hooks/useWallet";
+import { useActiveWalletAddress } from "@/lib/wallet/hooks/useActiveWalletAddress";
 import ConnectWalletModal from "@/components/wallet/connect-wallet-modal";
 import WalletExplorerModal from "@/components/wallet/wallet-explorer-modal";
 import ChainSelectionModal from "@/components/wallet/chain-selection-modal";
@@ -114,6 +115,12 @@ export default function SwapPage() {
     clearError: clearWalletError,
   } = useWallet();
 
+  // Get active wallet address (single source of truth)
+  const activeWalletAddress = useActiveWalletAddress();
+
+  // Use activeWalletAddress as primary source, fallback to connectedAddress for UI state
+  const walletAddress = activeWalletAddress || connectedAddress;
+
   // Get wallet icons
   const fromWalletIcon = getWalletIconFromAccount(primaryWallet);
   
@@ -124,7 +131,7 @@ export default function SwapPage() {
   // Recipient wallet state for wallet-to-wallet transfers
   // Use secondary wallet/address if available, otherwise default to primary wallet address
   const [recipientAddress, setRecipientAddress] = useState<string | null>(
-    effectiveRecipientAddress || connectedAddress
+    effectiveRecipientAddress || walletAddress
   );
 
   useEffect(() => {
@@ -152,12 +159,12 @@ export default function SwapPage() {
 
   // Fetch token balances for fromToken and toToken
   const fromTokenBalance = useTokenBalance(
-    connectedAddress,
+    walletAddress,
     fromToken?.address,
     fromToken?.chainId
   );
   const toTokenBalance = useTokenBalance(
-    connectedAddress,
+    walletAddress,
     toToken?.address,
     toToken?.chainId
   );
@@ -299,7 +306,7 @@ export default function SwapPage() {
     }
 
     // Store current values before swap
-    const currentFromAddress = connectedAddress;
+    const currentFromAddress = walletAddress;
     const currentToAddress = recipientAddress;
     const currentFromToken = fromToken;
     const currentToToken = toToken;
@@ -307,7 +314,7 @@ export default function SwapPage() {
     // Swap tokens and amounts in the store
     swapTokens();
 
-    // Swap addresses: fromAddress (connectedAddress) ↔ toAddress (recipientAddress)
+    // Swap addresses: fromAddress (walletAddress) ↔ toAddress (recipientAddress)
     // After swap:
     // - New fromToken (was toToken) needs the address that was previously the toAddress
     // - New toToken (was fromToken) needs the address that was previously the fromAddress
@@ -350,14 +357,14 @@ export default function SwapPage() {
       return;
     }
     
-    const newRecipient = effectiveRecipientAddress || connectedAddress;
+    const newRecipient = effectiveRecipientAddress || walletAddress;
     if (newRecipient !== recipientAddress) {
       // Only update if it's compatible with current toToken
       if (!toToken?.chainId || !newRecipient || isAddressChainCompatible(newRecipient, toToken.chainId)) {
         setRecipientAddress(newRecipient);
       }
     }
-  }, [effectiveRecipientAddress, connectedAddress, toToken?.chainId, recipientAddress]);
+  }, [effectiveRecipientAddress, walletAddress, toToken?.chainId, recipientAddress]);
 
   // Handle recipient change with chain compatibility + user override tracking
   const handleRecipientChange = (address: string | null) => {
@@ -372,7 +379,7 @@ export default function SwapPage() {
     }
 
     // Track if user has manually changed recipient away from primary wallet
-    if (address && connectedAddress && address.toLowerCase() === connectedAddress.toLowerCase()) {
+    if (address && walletAddress && address.toLowerCase() === walletAddress.toLowerCase()) {
       userChangedRecipientRef.current = false;
     } else {
       userChangedRecipientRef.current = true;
@@ -404,10 +411,10 @@ export default function SwapPage() {
   useEffect(() => {
     // Check fromToken compatibility with connected address
     // If incompatible, clear the selection (user needs to connect/paste compatible wallet)
-    if (fromToken?.chainId && connectedAddress) {
-      if (!isAddressChainCompatible(connectedAddress, fromToken.chainId)) {
+    if (fromToken?.chainId && walletAddress) {
+      if (!isAddressChainCompatible(walletAddress, fromToken.chainId)) {
         console.log('[SwapPage] Connected address is incompatible with fromToken chain, clearing selection');
-        // Note: We don't clear connectedAddress itself, just note it's incompatible
+        // Note: We don't clear walletAddress itself, just note it's incompatible
         // The wallet dropdown will hide it, and useSwapQuote won't use it
       }
     }
@@ -420,7 +427,7 @@ export default function SwapPage() {
         setRecipientAddress(null);
       }
     }
-  }, [fromToken, toToken, connectedAddress, recipientAddress]);
+  }, [fromToken, toToken, walletAddress, recipientAddress]);
   const [isExecutingTransfer, setIsExecutingTransfer] = useState(false);
   // Toast state for swap status
   const [toastState, setToastState] = useState<{
@@ -471,18 +478,18 @@ export default function SwapPage() {
       });
     }
   }, [swapError]);
-  const prevConnectedAddressRef = useRef<string | null>(connectedAddress);
+  const prevConnectedAddressRef = useRef<string | null>(walletAddress);
   const userChangedRecipientRef = useRef(false);
 
   // Update recipient address to primary wallet when primary wallet connects or changes
   // Only auto-update if user hasn't manually changed it
   useEffect(() => {
     const prevAddress = prevConnectedAddressRef.current;
-    
+
     // If user hasn't manually changed recipient, auto-update to primary wallet
     if (!userChangedRecipientRef.current) {
-      if (connectedAddress) {
-        setRecipientAddress(connectedAddress);
+      if (walletAddress) {
+        setRecipientAddress(walletAddress);
       } else {
         setRecipientAddress(null);
       }
@@ -491,31 +498,31 @@ export default function SwapPage() {
       // Only update if the recipient was set to the previous primary wallet address
       if (prevAddress && recipientAddress && recipientAddress.toLowerCase() === prevAddress.toLowerCase()) {
         // Recipient was set to old primary wallet, update to new one
-        if (connectedAddress) {
-          setRecipientAddress(connectedAddress);
+        if (walletAddress) {
+          setRecipientAddress(walletAddress);
         } else {
           setRecipientAddress(null);
         }
       }
     }
-    
+
     // Update ref for next comparison
-    prevConnectedAddressRef.current = connectedAddress;
-  }, [connectedAddress, recipientAddress]);
+    prevConnectedAddressRef.current = walletAddress;
+  }, [walletAddress, recipientAddress]);
 
   const handleSwapClick = async () => {
     // Check if this is a wallet-to-wallet transfer (same token, same chain, different recipient)
-    const isSameToken = fromToken && toToken && 
+    const isSameToken = fromToken && toToken &&
       fromToken.address.toLowerCase() === toToken.address.toLowerCase();
     const isSameChain = fromToken?.chainId === toToken?.chainId;
-    const hasRecipient = recipientAddress && recipientAddress.toLowerCase() !== connectedAddress?.toLowerCase();
-    
+    const hasRecipient = recipientAddress && recipientAddress.toLowerCase() !== walletAddress?.toLowerCase();
+
     // Check if it's a wallet-to-wallet transfer
-    if (isSameToken && isSameChain && hasRecipient && connectedAddress) {
+    if (isSameToken && isSameChain && hasRecipient && walletAddress) {
       await executeWalletToWalletTransfer();
       return;
     }
-    
+
     // Execute swap using swap executor
     await executeSwapTransaction();
   };
@@ -525,7 +532,7 @@ export default function SwapPage() {
    */
   const executeSwapTransaction = async () => {
     // Validate prerequisites
-    if (!fromToken || !toToken || !fromAmount || !connectedAddress) {
+    if (!fromToken || !toToken || !fromAmount || !walletAddress) {
       setToastState({
         open: true,
         stage: 'failed',
@@ -575,7 +582,7 @@ export default function SwapPage() {
         fromToken,
         toToken,
         fromAmount,
-        userAddress: connectedAddress,
+        userAddress: walletAddress,
         recipientAddress: recipientAddress || undefined,
         isFeeOnTransfer: true,
       });
@@ -606,7 +613,7 @@ export default function SwapPage() {
   };
 
   const executeWalletToWalletTransfer = async () => {
-    if (!fromToken || !toToken || !fromAmount || !recipientAddress || !connectedAddress) {
+    if (!fromToken || !toToken || !fromAmount || !recipientAddress || !walletAddress) {
       return;
     }
 
@@ -725,7 +732,7 @@ export default function SwapPage() {
   };
 
   const executeEVMTransfer = async () => {
-    if (!fromToken || !fromAmount || !recipientAddress || !connectedAddress) return;
+    if (!fromToken || !fromAmount || !recipientAddress || !walletAddress) return;
     
     if (fromToken.chainId === undefined) {
       throw new Error("Token chain ID not available");
@@ -769,7 +776,7 @@ export default function SwapPage() {
     const walletClient = createWalletClient({
       chain,
       transport: custom(provider),
-      account: connectedAddress as `0x${string}`,
+      account: walletAddress as `0x${string}`,
     });
 
     const { transferNativeToken, transferERC20Token, isNativeToken, toSmallestUnit, getPublicClient } = await import("@/lib/wallet/utils/transfer");
@@ -1051,7 +1058,7 @@ export default function SwapPage() {
               expires={expires}
               recipientAddress={recipientAddress}
               onRecipientChange={handleRecipientChange}
-              connectedAddress={connectedAddress}
+              connectedAddress={walletAddress}
               fromWalletIcon={fromWalletIcon}
               toWalletIcon={toWalletIcon}
               onToWalletClick={() => {
@@ -1070,7 +1077,7 @@ export default function SwapPage() {
               onSwapTokens={handleSwapTokens}
               onConnectClick={handleConnectClick}
               onConnectFromSection={handleConnectFromSection}
-              isConnected={!!connectedAddress}
+              isConnected={!!walletAddress}
               isExecutingTransfer={isExecutingTransfer || isExecutingSwap}
             />
           </div>
@@ -1130,7 +1137,7 @@ export default function SwapPage() {
         onOpenChange={setIsTokenModalOpen}
         onTokenSelect={handleTokenSelect}
         selectedToken={tokenModalType === "from" ? fromToken : toToken}
-        connectedAddress={connectedAddress}
+        connectedAddress={walletAddress}
         recipientAddress={recipientAddress}
         tokenModalType={tokenModalType}
       />
