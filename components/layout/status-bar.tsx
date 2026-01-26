@@ -1,12 +1,16 @@
 "use client";
 
 import Image from "next/image";
+import { useRouter } from "next/navigation";
+import { useState } from "react";
 import { useChains } from "@/hooks/useChains";
 import { useTWCPrice } from "@/hooks/useTWCPrice";
 import { useLocaleStore } from "@/lib/locale/locale-store";
 import { useTranslation } from "@/lib/i18n/useTranslation";
 import Skeleton from "@/components/ui/skeleton";
 import { SubscriptUSDPrice } from "@/components/ui/subscript-usd-price";
+import { ChainsModal } from "./chains-modal";
+import { SmartMarketsModal } from "./smart-markets-modal";
 
 interface StatusBarProps {
   smartMarketsCount?: number;
@@ -15,11 +19,14 @@ interface StatusBarProps {
 export default function StatusBar({
   smartMarketsCount = 20,
 }: StatusBarProps) {
+  const router = useRouter();
   const { t } = useTranslation();
   useLocaleStore((s) => `${s.language}|${s.currency}`); // re-render when locale changes
   const { chains, isLoading: isLoadingChains } = useChains();
   const { data: twcData, isLoading: isLoadingTWC } = useTWCPrice();
   const activeChainsCount = chains.length;
+  const [isChainsModalOpen, setIsChainsModalOpen] = useState(false);
+  const [isSmartMarketsModalOpen, setIsSmartMarketsModalOpen] = useState(false);
   
   // Format TWC price and change
   // Use DexScreener style formatting for price
@@ -30,6 +37,18 @@ export default function StatusBar({
   const twcChangeType = twcData?.changeType || "negative";
   const chainIcons = [1, 2, 3, 4, 5, 6, 7, 8, 9];
   const ammIcons = [1, 2, 3, 4, 5, 6, 7];
+
+  const handleTWCClick = () => {
+    router.push('/market/TWC-USDT');
+  };
+
+  const handleChainsClick = () => {
+    setIsChainsModalOpen(true);
+  };
+
+  const handleSmartMarketsClick = () => {
+    setIsSmartMarketsModalOpen(true);
+  };
 
   // Content component for reuse in mobile animation
   const StatusContent = ({ prefix = "" }: { prefix?: string }) => (
@@ -45,7 +64,10 @@ export default function StatusBar({
         <span className="text-[#b5b5b5] font-medium text-sm">{t("status.active_chains")}</span>
       </div>
       <div className="h-10 w-px bg-[#1f261e]"></div>
-      <div className="flex items-center gap-2">
+      <button
+        onClick={handleTWCClick}
+        className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity"
+      >
         <Image
           src="/assets/logos/twc-token.svg"
           alt="TWC"
@@ -74,9 +96,13 @@ export default function StatusBar({
             </span>
           </>
         )}
-      </div>
+      </button>
       <div className="h-10 w-px bg-[#1f261e]"></div>
-      <div className="flex items-center -space-x-1.5">
+      <button
+        onClick={handleChainsClick}
+        className="flex items-center -space-x-1.5 cursor-pointer hover:opacity-80 transition-opacity"
+        aria-label="View all chains"
+      >
         {chainIcons.map((chainNum) => (
           <Image
             key={`${prefix}-chain-${chainNum}`}
@@ -87,7 +113,7 @@ export default function StatusBar({
             className="rounded-full border-2 border-[#010501] w-5 h-5"
           />
         ))}
-      </div>
+      </button>
       <div className="h-10 w-px bg-[#1f261e]"></div>
       <div className="flex items-center gap-1">
         <span className="text-white font-semibold text-base">
@@ -96,7 +122,11 @@ export default function StatusBar({
         <span className="text-[#b5b5b5] font-medium text-sm">{t("status.smart_markets")}</span>
       </div>
       <div className="h-10 w-px bg-[#1f261e]"></div>
-      <div className="flex items-center -space-x-1.5">
+      <button
+        onClick={handleSmartMarketsClick}
+        className="flex items-center -space-x-1.5 cursor-pointer hover:opacity-80 transition-opacity"
+        aria-label="View all smart markets"
+      >
         {ammIcons.map((ammNum) => (
           <Image
             key={`${prefix}-amm-${ammNum}`}
@@ -107,7 +137,7 @@ export default function StatusBar({
             className="rounded-full border-2 border-[#010501] w-5 h-5"
           />
         ))}
-      </div>
+      </button>
     </div>
   );
 
@@ -132,7 +162,10 @@ export default function StatusBar({
                 </span>
               </div>
               <div className="hidden sm:block h-10 sm:h-11 md:h-12 w-px bg-[#1f261e]"></div>
-              <div className="flex items-center gap-1.5 sm:gap-2">
+              <button
+                onClick={handleTWCClick}
+                className="flex items-center gap-1.5 sm:gap-2 cursor-pointer hover:opacity-80 transition-opacity"
+              >
                 <Image
                   src="/assets/logos/twc-token.svg"
                   alt="TWC"
@@ -163,10 +196,14 @@ export default function StatusBar({
                     </span>
                   </>
                 )}
-              </div>
+              </button>
               <div className="hidden sm:block h-10 sm:h-11 md:h-12 w-px bg-[#1f261e]"></div>
               {/* Chain Icons */}
-              <div className="hidden md:flex items-center -space-x-1.5 lg:-space-x-2">
+              <button
+                onClick={handleChainsClick}
+                className="hidden md:flex items-center -space-x-1.5 lg:-space-x-2 cursor-pointer hover:opacity-80 transition-opacity"
+                aria-label="View all chains"
+              >
                 {chainIcons.map((chainNum) => (
                   <Image
                     key={chainNum}
@@ -177,7 +214,7 @@ export default function StatusBar({
                     className="rounded-full border-2 border-[#010501] w-5 h-5 lg:w-6 lg:h-6"
                   />
                 ))}
-              </div>
+              </button>
             </div>
 
             {/* Smart Markets */}
@@ -192,7 +229,11 @@ export default function StatusBar({
               </div>
               <div className="hidden sm:block h-10 sm:h-11 md:h-12 w-px bg-[#1f261e]"></div>
               {/* Market Icons */}
-              <div className="hidden md:flex items-center -space-x-1.5 lg:-space-x-2">
+              <button
+                onClick={handleSmartMarketsClick}
+                className="hidden md:flex items-center -space-x-1.5 lg:-space-x-2 cursor-pointer hover:opacity-80 transition-opacity"
+                aria-label="View all smart markets"
+              >
                 {ammIcons.map((ammNum) => (
                   <Image
                     key={ammNum}
@@ -203,7 +244,7 @@ export default function StatusBar({
                     className="rounded-full border-2 border-[#010501] w-5 h-5 lg:w-6 lg:h-6"
                   />
                 ))}
-              </div>
+              </button>
             </div>
           </div>
         </div>
@@ -217,6 +258,10 @@ export default function StatusBar({
           <StatusContent prefix="dup2" />
         </div>
       </div>
+
+      {/* Modals */}
+      <ChainsModal isOpen={isChainsModalOpen} onClose={() => setIsChainsModalOpen(false)} />
+      <SmartMarketsModal isOpen={isSmartMarketsModalOpen} onClose={() => setIsSmartMarketsModalOpen(false)} />
     </div>
   );
 }

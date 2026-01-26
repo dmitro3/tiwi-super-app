@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import { useEffect, useState, useCallback, useRef, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import { fetchTokens } from "@/lib/frontend/api/tokens";
 import type { Token } from "@/lib/frontend/types/tokens";
 import { TokenIcon } from "@/components/portfolio/token-icon";
@@ -39,6 +40,7 @@ interface SpotlightItem {
 }
 
 export function SpotlightCarousel() {
+  const router = useRouter();
   const [activePage, setActivePage] = useState(0);
   const [itemsPerPage, setItemsPerPage] = useState(3);
   const [spotlightTokens, setSpotlightTokens] = useState<SpotlightToken[]>([]);
@@ -46,12 +48,12 @@ export function SpotlightCarousel() {
   const [isLoading, setIsLoading] = useState(true);
   const touchStartXRef = useRef<number | null>(null);
 
-  // Fetch spotlight tokens and their real-time data
+  // Fetch spotlight tokens and their real-time data - OPTIMIZED for speed
   useEffect(() => {
     const fetchData = async () => {
       setIsLoading(true);
       try {
-        // Fetch spotlight tokens
+        // Fetch spotlight tokens from database (fast)
         const spotlightResponse = await fetch("/api/v1/token-spotlight?activeOnly=true");
         if (!spotlightResponse.ok) {
           throw new Error("Failed to fetch spotlight tokens");
@@ -65,66 +67,64 @@ export function SpotlightCarousel() {
           .sort((a: SpotlightToken, b: SpotlightToken) => a.rank - b.rank);
         
         setSpotlightTokens(activeTokens);
-
-        // Fetch real-time data for each spotlight token individually
-        // This ensures we get the most accurate volume and price change data
-        const tokenDataPromises = activeTokens.map(async (spotlightToken: SpotlightToken) => {
-          try {
-            // Try to fetch by address first (most accurate)
-            if (spotlightToken.address) {
-              const tokens = await fetchTokens({ address: spotlightToken.address, limit: 10 });
-              if (tokens.length > 0) {
-                // Find exact match by address
-                const exactMatch = tokens.find(
-                  t => t.address.toLowerCase() === spotlightToken.address?.toLowerCase()
-                );
-                if (exactMatch) return exactMatch;
-              }
-            }
-            
-            // Fallback: search by symbol
-            if (spotlightToken.symbol) {
-              const tokens = await fetchTokens({ query: spotlightToken.symbol, limit: 20 });
-              if (tokens.length > 0) {
-                // Find best match by symbol (case-insensitive)
-                const symbolMatch = tokens.find(
-                  t => t.symbol.toUpperCase() === spotlightToken.symbol.toUpperCase()
-                );
-                if (symbolMatch) return symbolMatch;
-                
-                // If no exact match, prefer token with volume/price data
-                const withData = tokens.find(t => t.volume24h || t.priceChange24h !== undefined);
-                if (withData) return withData;
-              }
-            }
-            
-            return null;
-          } catch (error) {
-            console.error(`Error fetching data for token ${spotlightToken.symbol}:`, error);
-            return null;
-          }
-        });
-
-        // Wait for all token data to be fetched
-        const tokenDataResults = await Promise.all(tokenDataPromises);
         
-        // Create a map of spotlight token symbol/address to token data
-        const tokenMap = new Map<string, Token>();
-        activeTokens.forEach((spotlightToken: SpotlightToken, index: number) => {
-          const tokenData = tokenDataResults[index];
-          if (tokenData) {
-            // Use address as key if available, otherwise use symbol
-            const key = spotlightToken.address?.toLowerCase() || spotlightToken.symbol.toUpperCase();
-            tokenMap.set(key, tokenData);
+        // Show tokens immediately with database data (fast display)
+        // Then enrich with real-time data in background
+        setIsLoading(false);
+
+        // Fetch real-time data in parallel batches for speed
+        // Batch by address first (most accurate), then fallback to symbol
+        const addressTokens = activeTokens.filter(t => t.address);
+        const symbolTokens = activeTokens.filter(t => !t.address && t.symbol);
+        
+        // Batch fetch by addresses (parallel)
+        const addressPromises = addressTokens.map(async (spotlightToken: SpotlightToken) => {
+          try {
+            const tokens = await fetchTokens({ address: spotlightToken.address!, limit: 10 });
+            const exactMatch = tokens.find(
+              t => t.address.toLowerCase() === spotlightToken.address?.toLowerCase()
+            );
+            return exactMatch || null;
+          } catch (error) {
+            console.error(`Error fetching token ${spotlightToken.symbol} by address:`, error);
+            return null;
           }
         });
-
-        // Store all fetched tokens for matching
-        const allFetchedTokens = tokenDataResults.filter((t): t is Token => t !== null);
+        
+        // Batch fetch by symbols (parallel)
+        const symbolPromises = symbolTokens.map(async (spotlightToken: SpotlightToken) => {
+          try {
+            const tokens = await fetchTokens({ query: spotlightToken.symbol!, limit: 20 });
+            const symbolMatch = tokens.find(
+              t => t.symbol.toUpperCase() === spotlightToken.symbol.toUpperCase()
+            );
+            return symbolMatch || null;
+          } catch (error) {
+            console.error(`Error fetching token ${spotlightToken.symbol} by symbol:`, error);
+            return null;
+          }
+        });
+        
+        // Wait for all batches in parallel
+        const [addressResults, symbolResults] = await Promise.allSettled([
+          Promise.all(addressPromises),
+          Promise.all(symbolPromises)
+        ]);
+        
+        // Combine results
+        const allResults: (Token | null)[] = [];
+        if (addressResults.status === 'fulfilled') {
+          allResults.push(...addressResults.value);
+        }
+        if (symbolResults.status === 'fulfilled') {
+          allResults.push(...symbolResults.value);
+        }
+        
+        // Store fetched tokens
+        const allFetchedTokens = allResults.filter((t): t is Token => t !== null);
         setAllTokens(allFetchedTokens);
       } catch (error) {
         console.error("Error fetching spotlight data:", error);
-      } finally {
         setIsLoading(false);
       }
     };
@@ -155,24 +155,13 @@ export function SpotlightCarousel() {
       // Strategy 2: Match by symbol (case-insensitive, exact match preferred)
       if (!matchedToken && spotlightToken.symbol) {
         const normalizedSymbol = spotlightToken.symbol.toUpperCase().trim();
-        // First try exact symbol match
         matchedToken = allTokens.find(
           (t) => t.symbol.toUpperCase().trim() === normalizedSymbol
         );
-        
-        // If multiple matches, prefer tokens with volume/price data
-        if (!matchedToken) {
-          const candidates = allTokens.filter(
-            (t) => t.symbol.toUpperCase().trim() === normalizedSymbol
-          );
-          // Prefer token with volume or price change data
-          matchedToken = candidates.find(t => t.volume24h || t.priceChange24h !== undefined) 
-            || candidates[0];
-        }
       }
 
-      // Get icon - use stored logo first, then token logo, then fallback
-      const icon = spotlightToken.logo || matchedToken?.logo || getTokenFallbackIcon(spotlightToken.symbol);
+      // Get icon - prioritize spotlight logo from database (fastest), then matched token logo, then fallback
+      const icon = spotlightToken.logo || matchedToken?.logo || matchedToken?.logoURI || getTokenFallbackIcon(spotlightToken.symbol);
 
       // Format volume helper - volume24h is in USD
       const formatVolume = (vol: number | undefined): string => {
@@ -324,7 +313,8 @@ export function SpotlightCarousel() {
               currentPageItems.map((item) => (
                 <div
                   key={`${item.rank}-${activePage}`}
-                  className="flex items-center justify-between px-6 lg:px-7 xl:px-8 2xl:px-10 py-2 border-b border-[#1f261e]/30 last:border-b-0"
+                  onClick={() => router.push(`/market/${item.symbol}-USDT`)}
+                  className="flex items-center justify-between px-6 lg:px-7 xl:px-8 2xl:px-10 py-2 border-b border-[#1f261e]/30 last:border-b-0 cursor-pointer hover:bg-[#0b0f0a] transition-colors"
                 >
                   <div className="flex items-center gap-2">
                     <span className="text-[#7c7c7c] text-xs lg:text-xs xl:text-sm font-semibold w-5 lg:w-6 xl:w-7 text-left">
