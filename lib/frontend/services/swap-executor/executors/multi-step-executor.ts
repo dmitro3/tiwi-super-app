@@ -28,9 +28,10 @@ export class MultiStepExecutor implements SwapRouterExecutor {
    * Check if this executor can handle the given route
    */
   canHandle(route: RouterRoute): boolean {
-    // Handle universal routes, multi-hop routes, or routes with multiple steps
+    // Handle universal routes, multi-hop routes, cross-chain multi-hop routes, or routes with multiple steps
     return route.router === 'universal' ||
            route.router === 'multi-hop' ||
+           route.router === 'multi-hop-bridge' ||
            (route.steps && Array.isArray(route.steps) && route.steps.length > 1);
   }
   
