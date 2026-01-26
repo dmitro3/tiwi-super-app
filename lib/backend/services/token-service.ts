@@ -135,21 +135,768 @@ export class TokenService {
    */
   async getTokensByCategory(
     category: 'hot' | 'new' | 'gainers' | 'losers',
-    limit: number = 30
+    limit: number = 30,
+    chainIds?: number[]
   ): Promise<NormalizedToken[]> {
     try {
-      // Primary path: CoinGecko onchain pools via PoolMarketService
-      const tokens = await this.poolMarketService.getTokensByCategory(category, limit);
+      // Use CoinGecko for token discovery and market data (prices, market cap, volume, etc.)
+      // CoinGecko has perfect market data, but liquidity is exchange-level, not pool-level
+      // getTokensByCategoryFromCoinGecko already enriches with DexScreener liquidity/holders
+      console.log(`[TokenService] Fetching ${category} tokens from CoinGecko (market data + DexScreener liquidity/holders)${chainIds ? ` filtered by chains: ${chainIds.join(',')}` : ''}`);
+      const tokens = await this.getTokensByCategoryFromCoinGecko(category, limit, chainIds);
+      
       if (tokens.length > 0) {
-        return tokens;
+        console.log(`[TokenService] ✅ Got ${tokens.length} tokens from CoinGecko (already enriched with DexScreener)`);
+        return tokens; // Already enriched with DexScreener liquidity/holders
       }
 
-      // Fallback 1: existing DexScreener category logic (legacy)
+      // Fallback: DexScreener-only if CoinGecko fails
+      console.warn(`[TokenService] ⚠️ CoinGecko returned 0 tokens, falling back to DexScreener`);
       return this.getTokensByCategoryFromDexScreener(category, limit);
     } catch (error: any) {
       console.error('[TokenService] Error fetching tokens by category:', error);
-      // Fallback 2: DexScreener-only implementation as last resort
+      // Last resort: Try DexScreener
+      console.warn(`[TokenService] ⚠️ Error with CoinGecko, trying DexScreener fallback`);
       return this.getTokensByCategoryFromDexScreener(category, limit);
+    }
+  }
+
+  /**
+   * Enrich CoinGecko tokens with DexScreener liquidity and holders
+   * Keeps CoinGecko market data (price, market cap, volume) but adds accurate DEX pool liquidity
+   */
+  private async enrichTokensWithDexScreenerLiquidity(
+    tokens: NormalizedToken[]
+  ): Promise<NormalizedToken[]> {
+    console.log(`[TokenService] Enriching ${tokens.length} tokens with DexScreener liquidity/holders`);
+    
+    const enrichedPromises = tokens.map(async (token) => {
+      // Skip if no address or address is coin ID (native coins)
+      if (!token.address || token.address === token.symbol.toLowerCase()) {
+        return token;
+      }
+
+      try {
+        const chain = getCanonicalChain(token.chainId);
+        if (!chain) return token;
+
+        const dexChainId = chain.providerIds.dexscreener;
+        if (!dexChainId) {
+          console.log(`[DEBUG] ⏭️ No DexScreener support for ${chain.name}, skipping enrichment`);
+          return token;
+        }
+
+        // Fetch DexScreener data for this token
+        const dexUrl = `https://api.dexscreener.com/latest/dex/tokens/${token.address}`;
+        const dexResponse = await fetch(dexUrl, { 
+          signal: AbortSignal.timeout(10000)
+        });
+
+        if (!dexResponse.ok) {
+          return token; // Return original token if DexScreener fails
+        }
+
+        const dexData = await dexResponse.json() as {
+          pairs?: Array<{
+            chainId?: string;
+            baseToken?: { address?: string; symbol?: string };
+            quoteToken?: { address?: string; symbol?: string };
+            liquidity?: { usd?: number };
+          }>;
+        };
+
+        if (!dexData.pairs || dexData.pairs.length === 0) {
+          return token; // No pairs found, return original
+        }
+
+        // CRITICAL: Token → Pairs → Pool Reserves → USD value
+        // Sum liquidity from ALL pairs where token appears (base OR quote)
+        // FIX: DexScreener uses string chain slugs ("ethereum", "bsc"), not numeric IDs
+        const addressLower = token.address.toLowerCase();
+        const dexChainSlug = String(dexChainId).toLowerCase(); // Already a string like "ethereum"
+        
+        // Debug: Log what we're comparing
+        console.log(`[DEBUG] 🔍 ${token.symbol}: Comparing chain "${dexChainSlug}" with pairs:`, 
+          dexData.pairs.slice(0, 3).map(p => p.chainId));
+        
+        const relevantPairs = dexData.pairs.filter(pair => {
+          // DexScreener chainId is already a string slug like "ethereum", "bsc", "polygon"
+          const pairChainSlug = pair.chainId?.toLowerCase();
+          const chainMatch = pairChainSlug === dexChainSlug;
+          
+          // Token must be in baseToken OR quoteToken position
+          const isBaseToken = pair.baseToken?.address?.toLowerCase() === addressLower;
+          const isQuoteToken = pair.quoteToken?.address?.toLowerCase() === addressLower;
+          
+          if (chainMatch && (isBaseToken || isQuoteToken)) {
+            console.log(`[DEBUG] ✅ Match: ${token.symbol} pair ${pair.baseToken?.symbol}/${pair.quoteToken?.symbol} on ${pairChainSlug}, liquidity: $${pair.liquidity?.usd || 0}`);
+          }
+          
+          return chainMatch && (isBaseToken || isQuoteToken);
+        });
+        
+        console.log(`[DEBUG] Found ${relevantPairs.length} relevant pairs for ${token.symbol} on chain ${dexChainSlug}`);
+
+        // Sum liquidity from all valid pairs (filter dead pools)
+        const validPairs = relevantPairs.filter(pair => 
+          pair.liquidity?.usd && pair.liquidity.usd > 0
+        );
+
+        let totalLiquidity = validPairs.reduce((sum, pair) => 
+          sum + (pair.liquidity?.usd || 0), 0
+        );
+        
+        // FALLBACK: If no pairs matched (chain filter too strict), try without chain filter
+        // DexScreener already scopes by token address, so this is safe
+        if (totalLiquidity === 0 && relevantPairs.length === 0 && dexData.pairs.length > 0) {
+          console.log(`[DEBUG] ⚠️ No pairs matched with chain filter, trying without chain filter for ${token.symbol}`);
+          const allRelevantPairs = dexData.pairs.filter(pair => {
+            const isBaseToken = pair.baseToken?.address?.toLowerCase() === addressLower;
+            const isQuoteToken = pair.quoteToken?.address?.toLowerCase() === addressLower;
+            return isBaseToken || isQuoteToken;
+          });
+          
+          const allValidPairs = allRelevantPairs.filter(pair => 
+            pair.liquidity?.usd && pair.liquidity.usd > 0
+          );
+          
+          totalLiquidity = allValidPairs.reduce((sum, pair) => 
+            sum + (pair.liquidity?.usd || 0), 0
+          );
+          
+          if (totalLiquidity > 0) {
+            console.log(`[DEBUG] ✅ Found ${allValidPairs.length} pairs without chain filter, liquidity: $${totalLiquidity.toLocaleString()}`);
+          }
+        }
+
+        // Get holders from ChainBase (if we have chainId and address)
+        // FIX: Better error handling - log why holders fail
+        let holders = token.holders;
+        if (token.chainId && token.address) {
+          try {
+            const { getTokenHoldersCount } = await import('@/lib/backend/utils/chainbase-client');
+            const chain = getCanonicalChain(token.chainId);
+            
+            // ChainBase only supports EVM chains
+            if (chain && chain.type === 'EVM') {
+              console.log(`[DEBUG] 👥 Fetching holders for ${token.symbol} on ${chain.name} (chainId: ${token.chainId}, address: ${token.address})`);
+              const holderCount = await getTokenHoldersCount(token.chainId, token.address);
+              
+              if (holderCount !== null && holderCount > 0) {
+                holders = holderCount;
+                console.log(`[DEBUG] ✅ Got ${holders} holders for ${token.symbol}`);
+              } else {
+                console.warn(`[DEBUG] ⚠️ ChainBase returned ${holderCount} for ${token.symbol} (chainId: ${token.chainId})`);
+              }
+            } else {
+              console.log(`[DEBUG] ⏭️ Skipping ChainBase for ${token.symbol} - ${chain?.type || 'unknown'} chain not supported (ChainBase is EVM-only)`);
+            }
+          } catch (error: any) {
+            console.error(`[DEBUG] ❌ ChainBase error for ${token.symbol}:`, error.message || error);
+            // Keep existing holders on error
+          }
+        } else {
+          console.log(`[DEBUG] ⏭️ Skipping ChainBase for ${token.symbol} - missing chainId or address`);
+        }
+
+        // Return enriched token (keep CoinGecko data, add DexScreener liquidity/holders)
+        return {
+          ...token,
+          liquidity: totalLiquidity > 0 ? totalLiquidity : token.liquidity, // Use DexScreener if available
+          holders: holders || token.holders, // Use ChainBase if available
+        };
+      } catch (error) {
+        console.error(`[TokenService] Error enriching ${token.symbol} with DexScreener:`, error);
+        return token; // Return original on error
+      }
+    });
+
+    return Promise.all(enrichedPromises);
+  }
+
+  /**
+   * Get individual tokens by category from CoinGecko coins markets API
+   * This returns actual tokens with accurate market data
+   * NOTE: Liquidity will be enriched with DexScreener in getTokensByCategory
+   */
+  private async getTokensByCategoryFromCoinGecko(
+    category: 'hot' | 'new' | 'gainers' | 'losers',
+    limit: number = 30,
+    chainIds?: number[]
+  ): Promise<NormalizedToken[]> {
+    try {
+      const apiKey =
+        process.env.COINGECKO_API_KEY ||
+        process.env.COINGECKO_DEMO_API_KEY ||
+        process.env.NEXT_PUBLIC_COINGECKO_API_KEY;
+
+      const headers: Record<string, string> = {};
+      if (apiKey) {
+        headers['x-cg-demo-api-key'] = apiKey;
+      }
+
+      // Determine order parameter based on category
+      let order: string;
+      switch (category) {
+        case 'hot':
+          order = 'volume_desc'; // Sort by 24h volume descending
+          break;
+        case 'gainers':
+          order = 'price_change_percentage_24h_desc'; // Sort by 24h price change descending
+          break;
+        case 'losers':
+          order = 'price_change_percentage_24h_asc'; // Sort by 24h price change ascending
+          break;
+        case 'new':
+          order = 'id_asc'; // Sort by ID (newer coins have higher IDs) - or use gecko_asc for newest
+          break;
+        default:
+          order = 'market_cap_desc';
+      }
+
+      // Fetch coins with proper ordering and all necessary fields
+      const coinsUrl = `https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=${order}&per_page=${limit * 2}&page=1&sparkline=false&price_change_percentage=24h&locale=en`;
+      const coinsResponse = await fetch(coinsUrl, { headers });
+      
+      if (!coinsResponse.ok) {
+        console.warn('[TokenService] CoinGecko markets API failed:', coinsResponse.status);
+        return [];
+      }
+
+      const coinsData = await coinsResponse.json() as Array<{
+        id: string;
+        symbol: string;
+        name: string;
+        image: string;
+        current_price: number;
+        market_cap: number;
+        market_cap_rank: number | null; // CoinGecko can return null for unranked tokens
+        fully_diluted_valuation?: number;
+        total_volume: number;
+        high_24h?: number;
+        low_24h?: number;
+        price_change_24h?: number;
+        price_change_percentage_24h?: number;
+        market_cap_change_24h?: number;
+        market_cap_change_percentage_24h?: number;
+        circulating_supply?: number | null; // CoinGecko can return null
+        total_supply?: number | null;
+        max_supply?: number | null;
+        ath?: number;
+        ath_change_percentage?: number;
+        ath_date?: string;
+        atl?: number;
+        atl_change_percentage?: number;
+        atl_date?: string;
+        last_updated?: string;
+        roi?: {
+          times: number;
+          currency: string;
+          percentage: number;
+        };
+      }>;
+
+      // Filter gainers/losers if needed
+      let filteredCoins = coinsData;
+      if (category === 'gainers') {
+        filteredCoins = coinsData.filter(c => (c.price_change_percentage_24h || 0) > 0);
+      } else if (category === 'losers') {
+        filteredCoins = coinsData.filter(c => (c.price_change_percentage_24h || 0) < 0);
+      }
+
+      // Limit results
+      const limitedCoins = filteredCoins.slice(0, limit);
+
+      // Fetch detailed coin data for liquidity and holders (batch request)
+      const coinIds = limitedCoins.map(c => c.id).join(',');
+      const detailsUrl = `https://api.coingecko.com/api/v3/coins?ids=${coinIds}&localization=false&tickers=false&market_data=true&community_data=true&developer_data=false&sparkline=false`;
+      const detailsResponse = await fetch(detailsUrl, { headers });
+      
+      let detailsMap = new Map<string, any>();
+      if (detailsResponse.ok) {
+        const detailsData = await detailsResponse.json() as Array<{
+          id: string;
+          market_data?: {
+            total_value_locked?: { usd?: number };
+            liquidity_score?: number;
+          };
+          community_data?: {
+            facebook_likes?: number;
+            twitter_followers?: number;
+            reddit_subscribers?: number;
+            telegram_channel_user_count?: number;
+          };
+          platforms?: Record<string, string>;
+        }>;
+        detailsData.forEach(coin => {
+          detailsMap.set(coin.id, coin);
+        });
+      }
+
+      // Map to NormalizedToken format and enrich with liquidity/holders like pairs did
+      const tokens: NormalizedToken[] = [];
+      const { getTokenHoldersCount } = await import('@/lib/backend/utils/chainbase-client');
+
+      // Prepare token data first
+      // CRITICAL: Extract ALL chains a token exists on (for multi-chain liquidity aggregation)
+      const tokenDataPromises = limitedCoins.map(async (coin) => {
+        const details = detailsMap.get(coin.id);
+        
+        // Map platform keys to chain IDs (for multi-chain support)
+        const platformToChainId: Record<string, number> = {
+          'ethereum': 1,
+          'binance-smart-chain': 56,
+          'bsc': 56,
+          'polygon-pos': 137,
+          'polygon': 137,
+          'arbitrum-one': 42161,
+          'arbitrum': 42161,
+          'base': 8453,
+          'optimistic-ethereum': 10,
+          'optimism': 10,
+          'avalanche': 43114,
+          'solana': 7565164,
+        };
+        
+        // Extract ALL chains and addresses this token exists on
+        const tokenChains: Array<{ chainId: number; address: string; platform: string }> = [];
+        
+        if (details?.platforms) {
+          for (const [platform, addr] of Object.entries(details.platforms)) {
+            if (addr && typeof addr === 'string' && addr.trim()) {
+              // Try to find chain ID for this platform
+              const chainId = platformToChainId[platform.toLowerCase()] || 
+                             platformToChainId[platform.toLowerCase().replace(/-/g, '')];
+              
+              if (chainId) {
+                tokenChains.push({
+                  chainId,
+                  address: addr.trim(),
+                  platform
+                });
+              }
+            }
+          }
+        }
+        
+        // Priority order: Ethereum > BSC > Polygon > Arbitrum > Base > Optimism > Others
+        // Sort by priority for primary chain selection
+        const priorityOrder = [1, 56, 137, 42161, 8453, 10, 43114, 7565164];
+        tokenChains.sort((a, b) => {
+          const aPriority = priorityOrder.indexOf(a.chainId);
+          const bPriority = priorityOrder.indexOf(b.chainId);
+          return (aPriority === -1 ? 999 : aPriority) - (bPriority === -1 ? 999 : bPriority);
+        });
+        
+        // Primary chain (for display/fallback)
+        const primaryChain = tokenChains[0];
+        
+        // Handle native coins (no contract addresses)
+        // Check if this is a Solana native token (SOL or other Solana-native tokens)
+        let chainId = primaryChain?.chainId || 1; // Default to Ethereum
+        let address = primaryChain?.address || null;
+        
+        // If no platforms found, check if it's a Solana native token
+        if (tokenChains.length === 0) {
+          // Check CoinGecko coin ID or symbol for Solana tokens
+          const coinIdLower = coin.id.toLowerCase();
+          const symbolLower = coin.symbol.toLowerCase();
+          
+          // Common Solana native tokens
+          if (coinIdLower.includes('solana') || 
+              symbolLower === 'sol' || 
+              coinIdLower === 'solana' ||
+              (details?.platforms && 'solana' in details.platforms)) {
+            chainId = 7565164; // Solana chain ID
+            address = coin.id; // Use coin ID as address for native tokens
+            console.log(`[DEBUG] 🌐 Identified ${coin.symbol} as Solana native token`);
+          }
+        }
+        
+        if (tokenChains.length > 0) {
+          console.log(`[DEBUG] ${coin.symbol} exists on ${tokenChains.length} chains:`, 
+            tokenChains.map(tc => `${tc.platform} (${tc.chainId})`).join(', '));
+        } else {
+          console.log(`[DEBUG] ⚠️ ${coin.symbol} has no contract addresses (likely native coin), assigned chainId: ${chainId}`);
+        }
+
+        const chain = getCanonicalChain(chainId);
+        if (!chain) return null;
+
+        // Return all chains for multi-chain liquidity aggregation
+        return { coin, chainId, address: address || coin.id, chain, allChains: tokenChains };
+      });
+
+      const tokenDataResults = await Promise.all(tokenDataPromises);
+      const validTokenData = tokenDataResults.filter((td): td is NonNullable<typeof td> => td !== null);
+
+      // Enrich with liquidity from DexScreener (Token → Pairs → Pool Reserves → USD value)
+      // CRITICAL: Sum liquidity from ALL chains the token exists on (multi-chain aggregation)
+      // and holders from ChainBase (same approach as pairs)
+      const enrichmentPromises = validTokenData.map(async ({ coin, chainId, address, chain, allChains = [] }) => {
+        let liquidity: number | undefined;
+        let holders: number | undefined;
+        
+        // Get liquidity from DexScreener (Token → Pairs → Pool Reserves → USD value)
+        // CRITICAL: DexScreener is the best source for DEX pool liquidity (per tip)
+        // Sum liquidity from ALL chains the token exists on (multi-chain aggregation)
+        console.log(`[DEBUG] 🔍 Processing ${coin.symbol}: ${allChains.length} chains found`);
+        
+        // Fetch liquidity from ALL chains (multi-chain tokens like USDT exist on many chains)
+        const liquidityPromises = allChains.map(async ({ chainId: tokenChainId, address: tokenAddress, platform }) => {
+          // Skip if no valid address
+          if (!tokenAddress || tokenAddress === coin.id) {
+            return 0;
+          }
+          
+          try {
+            const tokenChain = getCanonicalChain(tokenChainId);
+            if (!tokenChain) {
+              console.log(`[DEBUG] ⏭️ No chain registry for ${platform} (chainId: ${tokenChainId})`);
+              return 0;
+            }
+            
+            const dexChainId = tokenChain.providerIds.dexscreener;
+            if (!dexChainId) {
+              console.log(`[DEBUG] ⏭️ No DexScreener support for ${tokenChain.name}`);
+              return 0;
+            }
+            
+            // Search DexScreener by token address
+            const dexUrl = `https://api.dexscreener.com/latest/dex/tokens/${tokenAddress}`;
+            console.log(`[DEBUG] 📡 Fetching DexScreener for ${coin.symbol} on ${platform}: ${dexUrl}`);
+            
+            const dexResponse = await fetch(dexUrl, { 
+              signal: AbortSignal.timeout(10000) // 10 second timeout
+            });
+            
+            if (!dexResponse.ok) {
+              console.warn(`[DEBUG] ⚠️ DexScreener failed for ${coin.symbol} on ${platform}: ${dexResponse.status}`);
+              return 0;
+            }
+            
+            const dexData = await dexResponse.json() as {
+              pairs?: Array<{
+                chainId?: string;
+                baseToken?: {
+                  address?: string;
+                  symbol?: string;
+                };
+                quoteToken?: {
+                  address?: string;
+                  symbol?: string;
+                };
+                liquidity?: {
+                  usd?: number;
+                };
+              }>;
+            };
+            
+            if (!dexData.pairs || dexData.pairs.length === 0) {
+              console.log(`[DEBUG] ⚠️ No pairs found for ${coin.symbol} on ${platform}`);
+              return 0;
+            }
+            
+            // CRITICAL: Token → Pairs → Pool Reserves → USD value
+            // Find ALL pairs where token appears (as base OR quote token) on this chain
+            // FIX: DexScreener uses string chain slugs ("ethereum", "bsc"), not numeric IDs
+            const addressLower = tokenAddress.toLowerCase();
+            const dexChainSlug = String(dexChainId).toLowerCase(); // Already a string like "ethereum"
+            
+            // Debug: Log chain comparison
+            const sampleChainIds = dexData.pairs.slice(0, 3).map(p => p.chainId);
+            console.log(`[DEBUG] 🔍 ${coin.symbol} on ${platform}: Comparing "${dexChainSlug}" with sample pairs:`, sampleChainIds);
+            
+            const relevantPairs = dexData.pairs.filter(pair => {
+              // DexScreener chainId is already a string slug like "ethereum", "bsc", "polygon"
+              const pairChainSlug = pair.chainId?.toLowerCase();
+              const chainMatch = pairChainSlug === dexChainSlug;
+              
+              // Token must be in baseToken OR quoteToken position
+              const isBaseToken = pair.baseToken?.address?.toLowerCase() === addressLower;
+              const isQuoteToken = pair.quoteToken?.address?.toLowerCase() === addressLower;
+              
+              if (chainMatch && (isBaseToken || isQuoteToken)) {
+                console.log(`[DEBUG] ✅ Match: ${coin.symbol} pair ${pair.baseToken?.symbol}/${pair.quoteToken?.symbol} on ${pairChainSlug}, liquidity: $${pair.liquidity?.usd || 0}`);
+              }
+              
+              return chainMatch && (isBaseToken || isQuoteToken);
+            });
+            
+            console.log(`[DEBUG] Found ${relevantPairs.length} relevant pairs for ${coin.symbol} on ${platform} (chain: ${dexChainSlug})`);
+            
+            // Sum liquidity from ALL pairs (filter out dead pools)
+            const validPairs = relevantPairs.filter(pair => 
+              pair.liquidity?.usd && pair.liquidity.usd > 0
+            );
+            
+            let chainLiquidity = validPairs.reduce((sum, pair) => {
+              return sum + (pair.liquidity?.usd || 0);
+            }, 0);
+            
+            // FALLBACK: If no pairs matched (chain filter too strict), try without chain filter
+            // DexScreener already scopes by token address, so this is safe
+            if (chainLiquidity === 0 && relevantPairs.length === 0 && dexData.pairs.length > 0) {
+              console.log(`[DEBUG] ⚠️ No pairs matched with chain filter for ${coin.symbol} on ${platform}, trying without chain filter`);
+              const allRelevantPairs = dexData.pairs.filter(pair => {
+                const isBaseToken = pair.baseToken?.address?.toLowerCase() === addressLower;
+                const isQuoteToken = pair.quoteToken?.address?.toLowerCase() === addressLower;
+                return isBaseToken || isQuoteToken;
+              });
+              
+              const allValidPairs = allRelevantPairs.filter(pair => 
+                pair.liquidity?.usd && pair.liquidity.usd > 0
+              );
+              
+              chainLiquidity = allValidPairs.reduce((sum, pair) => {
+                return sum + (pair.liquidity?.usd || 0);
+              }, 0);
+              
+              if (chainLiquidity > 0) {
+                console.log(`[DEBUG] ✅ Found ${allValidPairs.length} pairs without chain filter, liquidity: $${chainLiquidity.toLocaleString()}`);
+              }
+            }
+            
+            if (chainLiquidity > 0) {
+              console.log(`[DEBUG] 💰 ${coin.symbol} on ${platform}: $${chainLiquidity.toLocaleString()} (${validPairs.length} pairs)`);
+            }
+            
+            return chainLiquidity;
+          } catch (error) {
+            console.error(`[DEBUG] ❌ Error fetching DexScreener for ${coin.symbol} on ${platform}:`, error);
+            return 0;
+          }
+        });
+        
+        // Sum liquidity from ALL chains
+        const chainLiquidities = await Promise.all(liquidityPromises);
+        liquidity = chainLiquidities.reduce((sum, chainLiq) => sum + chainLiq, 0);
+        
+        console.log(`[DEBUG] 💰 Total liquidity for ${coin.symbol} across all chains: $${liquidity.toLocaleString()}`);
+
+        // Get holders from ChainBase (use primary chain address)
+        // FIX: Better error handling - ChainBase only supports EVM chains
+        console.log(`[DEBUG] 👥 Fetching holders for ${coin.symbol} on primary chain (${chain.name}, type: ${chain.type}): address=${address}`);
+        if (address && address !== coin.id && chainId) {
+          // ChainBase only supports EVM chains
+          if (chain.type === 'EVM') {
+            try {
+              const holderCount = await getTokenHoldersCount(chainId, address);
+              console.log(`[DEBUG] ChainBase response for ${coin.symbol}: ${holderCount}`);
+              if (holderCount !== null && holderCount > 0) {
+                holders = holderCount;
+                console.log(`[DEBUG] ✅ Set holders to ${holders} for ${coin.symbol}`);
+              } else {
+                console.warn(`[DEBUG] ⚠️ ChainBase returned ${holderCount} for ${coin.symbol} (chainId: ${chainId}, address: ${address})`);
+              }
+            } catch (error: any) {
+              console.error(`[DEBUG] ❌ ChainBase error for ${coin.symbol}:`, error.message || error);
+            }
+          } else {
+            console.log(`[DEBUG] ⏭️ Skipping ChainBase for ${coin.symbol} - ${chain.type} chain not supported (ChainBase is EVM-only)`);
+          }
+        } else {
+          console.log(`[DEBUG] ⏭️ Skipping holders: address=${address}, coin.id=${coin.id}, chainId=${chainId}`);
+        }
+
+        console.log(`[DEBUG] 📦 Final: ${coin.symbol} - liquidity=${liquidity || 'undefined'}, holders=${holders || 'undefined'}`);
+        console.log(`[DEBUG] ─────────────────────────────────────────────────────────`);
+
+        return { coin, chainId, address, chain, liquidity, holders };
+      });
+
+      const enrichedData = await Promise.all(enrichmentPromises);
+
+      // Build final token array
+      console.log(`[DEBUG] 🏗️ Building final token array. Total tokens: ${enrichedData.length}`);
+      for (const { coin, chainId, address, chain, liquidity, holders } of enrichedData) {
+        console.log(`[DEBUG] 📝 Creating token: ${coin.symbol}`);
+        console.log(`[DEBUG]   - liquidity: ${liquidity} (${typeof liquidity})`);
+        console.log(`[DEBUG]   - holders: ${holders} (${typeof holders})`);
+        
+        const token: NormalizedToken = {
+          chainId,
+          address,
+          symbol: coin.symbol.toUpperCase(),
+          name: coin.name,
+          decimals: undefined,
+          logoURI: coin.image || '',
+          priceUSD: coin.current_price?.toString() || '0',
+          providers: ['coingecko'],
+          verified: true,
+          vmType: chain.type === 'EVM' ? 'evm' : chain.type.toLowerCase(),
+          chainBadge: chain.name.toLowerCase(),
+          chainName: chain.name,
+          volume24h: coin.total_volume || 0,
+          marketCap: coin.market_cap || 0,
+          priceChange24h: coin.price_change_percentage_24h || 0,
+          // Replace liquidity/holders with accessible metrics from CoinGecko
+          // Market Cap Rank: Shows token popularity (lower = better, e.g., #1 Bitcoin)
+          // Circulating Supply: Shows how many tokens are in circulation
+          // Handle null values from CoinGecko (some tokens may not have rank/supply)
+          marketCapRank: (coin.market_cap_rank != null && coin.market_cap_rank > 0) ? coin.market_cap_rank : undefined,
+          circulatingSupply: (coin.circulating_supply != null && coin.circulating_supply > 0) ? coin.circulating_supply : undefined,
+        };
+
+        console.log(`[DEBUG] 📝 Token ${coin.symbol}: marketCapRank=${token.marketCapRank}, circulatingSupply=${token.circulatingSupply}`);
+        
+        tokens.push(token);
+      }
+      
+      console.log(`[DEBUG] ✅ Built ${tokens.length} tokens. Sample liquidity values:`, 
+        tokens.slice(0, 5).map(t => `${t.symbol}: ${t.liquidity || 'undefined'}`).join(', '));
+      console.log(`[DEBUG] Sample holder values:`, 
+        tokens.slice(0, 5).map(t => `${t.symbol}: ${t.holders || 'undefined'}`).join(', '));
+
+      // Filter by chain IDs if specified (before TWC enrichment and sorting)
+      let filteredTokens = tokens;
+      if (chainIds && chainIds.length > 0) {
+        filteredTokens = tokens.filter(token => {
+          // Check if token's chainId matches any of the requested chainIds
+          const matches = chainIds.includes(token.chainId);
+          if (!matches) {
+            console.log(`[DEBUG] ⏭️ Filtered out ${token.symbol} (chainId: ${token.chainId}, not in requested: ${chainIds.join(',')})`);
+          }
+          return matches;
+        });
+        console.log(`[DEBUG] 🔍 Filtered ${tokens.length} tokens to ${filteredTokens.length} tokens for chains: ${chainIds.join(',')}`);
+      }
+
+      // CRITICAL: Ensure TWC token is fetched with rank and supply for "hot" category
+      const TWC_ADDRESS = '0xDA1060158F7D593667cCE0a15DB346BB3FfB3596';
+      const TWC_CHAIN_ID = 56; // BNB Chain
+      
+      // For "hot" category, ensure TWC is fetched with full data (rank and supply)
+      // Only if TWC's chain is in the requested chains (or no chain filter)
+      if (category === 'hot' && (!chainIds || chainIds.length === 0 || chainIds.includes(TWC_CHAIN_ID))) {
+        const hasTWC = filteredTokens.some(t => 
+          t.address.toLowerCase() === TWC_ADDRESS.toLowerCase() && t.chainId === TWC_CHAIN_ID
+        );
+        
+        // If TWC is missing or missing rank/supply, fetch it separately from CoinGecko
+        if (!hasTWC || !filteredTokens.find(t => 
+          t.address.toLowerCase() === TWC_ADDRESS.toLowerCase() && t.chainId === TWC_CHAIN_ID
+        )?.marketCapRank) {
+          try {
+            // Fetch TWC by contract address from CoinGecko
+            const twcContractUrl = `https://api.coingecko.com/api/v3/coins/binance-smart-chain/contract/${TWC_ADDRESS}?localization=false&tickers=false&market_data=true&community_data=false&developer_data=false&sparkline=false`;
+            const twcResponse = await fetch(twcContractUrl, { headers });
+            
+            if (twcResponse.ok) {
+              const twcData = await twcResponse.json() as {
+                id: string;
+                symbol: string;
+                name: string;
+                image?: { large?: string; small?: string; thumb?: string };
+                market_data?: {
+                  current_price?: { usd?: number };
+                  market_cap?: { usd?: number };
+                  market_cap_rank?: number | null;
+                  total_volume?: { usd?: number };
+                  price_change_percentage_24h?: number;
+                  circulating_supply?: number | null;
+                  total_supply?: number | null;
+                };
+              };
+              
+              if (twcData && twcData.market_data) {
+                const chain = getCanonicalChain(TWC_CHAIN_ID);
+                if (chain) {
+                  const twcToken: NormalizedToken = {
+                    chainId: TWC_CHAIN_ID,
+                    address: TWC_ADDRESS,
+                    symbol: twcData.symbol.toUpperCase(),
+                    name: twcData.name,
+                    decimals: undefined,
+                    logoURI: twcData.image?.large || twcData.image?.small || twcData.image?.thumb || '',
+                    priceUSD: twcData.market_data.current_price?.usd?.toString() || '0',
+                    providers: ['coingecko'],
+                    verified: true,
+                    vmType: 'evm',
+                    chainBadge: chain.name.toLowerCase(),
+                    chainName: chain.name,
+                    volume24h: twcData.market_data.total_volume?.usd || 0,
+                    marketCap: twcData.market_data.market_cap?.usd || 0,
+                    priceChange24h: twcData.market_data.price_change_percentage_24h || 0,
+                    marketCapRank: (twcData.market_data.market_cap_rank != null && twcData.market_data.market_cap_rank > 0) 
+                      ? twcData.market_data.market_cap_rank 
+                      : undefined,
+                    circulatingSupply: (twcData.market_data.circulating_supply != null && twcData.market_data.circulating_supply > 0) 
+                      ? twcData.market_data.circulating_supply 
+                      : undefined,
+                  };
+                  
+                  // Remove existing TWC if present (to replace with full data)
+                  const existingTWCIndex = filteredTokens.findIndex(t => 
+                    t.address.toLowerCase() === TWC_ADDRESS.toLowerCase() && t.chainId === TWC_CHAIN_ID
+                  );
+                  if (existingTWCIndex >= 0) {
+                    filteredTokens[existingTWCIndex] = twcToken;
+                  } else {
+                    filteredTokens.push(twcToken);
+                  }
+                  
+                  console.log(`[TokenService] ✅ Fetched TWC with rank=${twcToken.marketCapRank}, supply=${twcToken.circulatingSupply}`);
+                }
+              }
+            } else {
+              console.warn(`[TokenService] Failed to fetch TWC from CoinGecko contract API: ${twcResponse.status}`);
+            }
+          } catch (error) {
+            console.warn('[TokenService] Error fetching TWC token:', error);
+          }
+        }
+      }
+      
+      // Final sort based on category (in case API ordering wasn't perfect)
+      // CRITICAL: TWC token should always be first in "hot" category
+      let sortedTokens = [...filteredTokens];
+      switch (category) {
+        case 'hot':
+          // Sort by volume, but ensure TWC is always first
+          sortedTokens.sort((a, b) => {
+            // TWC always goes first
+            const aIsTWC = a.address.toLowerCase() === TWC_ADDRESS.toLowerCase() && a.chainId === TWC_CHAIN_ID;
+            const bIsTWC = b.address.toLowerCase() === TWC_ADDRESS.toLowerCase() && b.chainId === TWC_CHAIN_ID;
+            
+            if (aIsTWC && !bIsTWC) return -1; // TWC first
+            if (!aIsTWC && bIsTWC) return 1;  // TWC first
+            if (aIsTWC && bIsTWC) return 0;   // Both TWC, keep order
+            
+            // Otherwise sort by volume
+            return (b.volume24h || 0) - (a.volume24h || 0);
+          });
+          
+          // Ensure TWC is at the front (in case it wasn't sorted correctly)
+          const twcIndex = sortedTokens.findIndex(t => 
+            t.address.toLowerCase() === TWC_ADDRESS.toLowerCase() && t.chainId === TWC_CHAIN_ID
+          );
+          if (twcIndex > 0) {
+            const [twcToken] = sortedTokens.splice(twcIndex, 1);
+            sortedTokens.unshift(twcToken);
+          }
+          break;
+        case 'gainers':
+          sortedTokens = sortedTokens.filter(t => (t.priceChange24h || 0) > 0);
+          sortedTokens.sort((a, b) => (b.priceChange24h || 0) - (a.priceChange24h || 0));
+          break;
+        case 'losers':
+          sortedTokens = sortedTokens.filter(t => (t.priceChange24h || 0) < 0);
+          sortedTokens.sort((a, b) => (a.priceChange24h || 0) - (b.priceChange24h || 0));
+          break;
+        case 'new':
+          // Sort by market cap rank (lower rank = newer/higher)
+          sortedTokens.sort((a, b) => {
+            // Use volume as proxy for newness if we don't have creation date
+            return (b.volume24h || 0) - (a.volume24h || 0);
+          });
+          break;
+      }
+
+      return sortedTokens.slice(0, limit);
+    } catch (error: any) {
+      console.error('[TokenService] Error fetching tokens from CoinGecko:', error);
+      return [];
     }
   }
 
@@ -284,56 +1031,110 @@ export class TokenService {
           break;
       }
 
-      // Extract tokens from pairs and normalize
-      const tokens: NormalizedToken[] = [];
-      const seenTokens = new Set<string>();
+      // CRITICAL: Token → Pairs → Pool Reserves → USD value
+      // Aggregate tokens from pairs, summing liquidity from ALL pairs per token
+      const tokenMap = new Map<string, {
+        chainId: number;
+        address: string;
+        symbol: string;
+        name: string;
+        logoURI: string;
+        priceUSD: string;
+        liquidity: number;
+        volume24h: number;
+        priceChange24h: number;
+        marketCap: number;
+        holders: number;
+        pairCount: number;
+      }>();
 
-      for (const { pair, chainId } of sortedPairs.slice(0, limit * 2)) {
-        // Use txns.h24 (buys + sells) as number of traders
-        const traders = pair.txns?.h24 ? (pair.txns.h24.buys + pair.txns.h24.sells) : undefined;
+      // Process pairs and aggregate by token
+      for (const { pair, chainId } of sortedPairs.slice(0, limit * 3)) {
+        // Process base token
+        const baseKey = `${chainId}:${pair.baseToken.address.toLowerCase()}`;
+        const baseLiquidity = pair.liquidity?.usd || 0;
+        const baseVolume = pair.volume?.h24 || 0;
+        const basePriceChange = pair.priceChange?.h24 || 0;
+        const traders = pair.txns?.h24 ? (pair.txns.h24.buys + pair.txns.h24.sells) : 0;
         
-        // Extract base token - CRITICAL: Prioritize DexScreener image URL from info.imageUrl
-        // DexScreener returns image URLs in pair.info.imageUrl - this is the most reliable source
-        const dexImageUrl = pair.info?.imageUrl;
-        console.log("🚀 ~ TokenService ~ getTokensByCategoryFromDexScreener ~ dexImageUrl:", {[pair.baseToken.symbol]: {dexImageUrl, }})
-        const baseToken = {
-          chainId,
-          address: pair.baseToken.address,
-          symbol: pair.baseToken.symbol,
-          name: pair.baseToken.name,
-          decimals: undefined,
-          // CRITICAL: Always use DexScreener image URL if available - it's the most reliable source
-          logoURI: dexImageUrl || '',
-          priceUSD: pair.priceUsd || '0',
-          liquidity: pair.liquidity?.usd,
-          volume24h: pair.volume?.h24,
-          priceChange24h: pair.priceChange?.h24,
-          marketCap: pair.fdv,
-          holders: traders,
-        };
-
-        const key = `${chainId}:${baseToken.address.toLowerCase()}`;
-        if (!seenTokens.has(key) && baseToken.symbol && baseToken.address) {
-          seenTokens.add(key);
-          
-          const chain = getCanonicalChain(chainId);
-          if (chain) {
-            const normalized = dexscreenerProvider.normalizeToken(baseToken as any, chain);
-            // Add additional fields - CRITICAL: Preserve DexScreener image URL
-            normalized.volume24h = baseToken.volume24h;
-            normalized.priceChange24h = baseToken.priceChange24h;
-            normalized.holders = baseToken.holders;
-            // CRITICAL: Ensure DexScreener image URL is preserved - it's already in baseToken.logoURI
-            // This ensures the image URL from pair.info.imageUrl is used
-            normalized.logoURI = baseToken.logoURI || normalized.logoURI || '';
-            tokens.push(normalized);
+        if (baseLiquidity > 0 && pair.baseToken.address && pair.baseToken.symbol) {
+          const existing = tokenMap.get(baseKey);
+          if (existing) {
+            // Aggregate: Sum liquidity from ALL pairs (Token → Pairs → Pool Reserves → USD value)
+            existing.liquidity += baseLiquidity;
+            existing.volume24h += baseVolume;
+            existing.holders = Math.max(existing.holders, traders); // Use max traders as proxy for holders
+            existing.pairCount += 1;
+            // Use most recent price change
+            if (Math.abs(basePriceChange) > Math.abs(existing.priceChange24h)) {
+              existing.priceChange24h = basePriceChange;
+            }
+          } else {
+            tokenMap.set(baseKey, {
+              chainId,
+              address: pair.baseToken.address,
+              symbol: pair.baseToken.symbol,
+              name: pair.baseToken.name,
+              logoURI: pair.info?.imageUrl || '',
+              priceUSD: pair.priceUsd || '0',
+              liquidity: baseLiquidity,
+              volume24h: baseVolume,
+              priceChange24h: basePriceChange,
+              marketCap: pair.fdv || 0,
+              holders: traders,
+              pairCount: 1,
+            });
           }
         }
-
-        if (tokens.length >= limit) break;
       }
 
-      return tokens.slice(0, limit);
+      // Convert to NormalizedToken array
+      const tokens: NormalizedToken[] = [];
+      const sortedTokens = Array.from(tokenMap.values())
+        .sort((a, b) => {
+          // Sort by category criteria
+          switch (category) {
+            case 'hot':
+              return b.volume24h - a.volume24h;
+            case 'gainers':
+              return b.priceChange24h - a.priceChange24h;
+            case 'losers':
+              return a.priceChange24h - b.priceChange24h;
+            case 'new':
+              return b.pairCount - a.pairCount; // More pairs = newer/more active
+            default:
+              return b.liquidity - a.liquidity;
+          }
+        });
+
+      for (const tokenData of sortedTokens.slice(0, limit)) {
+        const chain = getCanonicalChain(tokenData.chainId);
+        if (!chain) continue;
+
+        const normalized = dexscreenerProvider.normalizeToken({
+          chainId: tokenData.chainId,
+          address: tokenData.address,
+          symbol: tokenData.symbol,
+          name: tokenData.name,
+          decimals: undefined,
+          logoURI: tokenData.logoURI,
+        } as any, chain);
+
+        // Add aggregated fields
+        normalized.priceUSD = tokenData.priceUSD;
+        normalized.liquidity = tokenData.liquidity;
+        normalized.volume24h = tokenData.volume24h;
+        normalized.priceChange24h = tokenData.priceChange24h;
+        normalized.marketCap = tokenData.marketCap;
+        normalized.holders = tokenData.holders;
+        normalized.logoURI = tokenData.logoURI || normalized.logoURI || '';
+
+        console.log(`[DEBUG] Token ${tokenData.symbol}: liquidity=$${tokenData.liquidity.toLocaleString()}, pairs=${tokenData.pairCount}, volume=$${tokenData.volume24h.toLocaleString()}`);
+
+        tokens.push(normalized);
+      }
+
+      return tokens;
     } catch (error: any) {
       console.error('[TokenService] Error fetching tokens by category from DexScreener:', error);
       return [];

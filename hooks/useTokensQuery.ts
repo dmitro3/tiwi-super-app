@@ -18,7 +18,7 @@ import type { Token } from '@/lib/frontend/types/tokens';
  * Ensures consistent cache keys across the app
  */
 export function getTokensQueryKey(params: FetchTokensParams = {}): readonly unknown[] {
-  const { chains, query, limit, address, category, source } = params;
+  const { chains, query, limit, address, category, source, marketType } = params;
   
   // Normalize chains array for consistent keys (sort to avoid order issues)
   const normalizedChains =
@@ -34,6 +34,7 @@ export function getTokensQueryKey(params: FetchTokensParams = {}): readonly unkn
       address: address?.trim() || '',
       category: category || '',
       source: source || 'default',
+      marketType: marketType || '',
       limit,
     },
   ] as const;

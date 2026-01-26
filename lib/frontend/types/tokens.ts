@@ -24,6 +24,9 @@ export interface Token {
   marketCap?: number;        // Market capitalization
   holders?: number;          // Number of token holders (from Chainbase or fallback)
   transactionCount?: number; // 24h transaction count
+  // Accessible metrics from CoinGecko
+  marketCapRank?: number;   // Market cap rank (lower = better, e.g., #1 Bitcoin)
+  circulatingSupply?: number; // Circulating supply (number of tokens in circulation)
   // Market pair metadata (for pairs from market-pairs endpoint)
   baseToken?: any;           // Full baseToken details (for routing to swap/market pages)
   quoteToken?: any;          // Full quoteToken details (for routing to swap/market pages)

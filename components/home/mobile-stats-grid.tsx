@@ -129,7 +129,7 @@ export function MobileStatsGrid() {
         </div>
       </div>
 
-      {/* Bottom Row - 3 columns */}
+      {/* Bottom Row - 2 columns (removed Trans. Count) */}
       <div className="flex gap-2 items-start w-full">
         {/* Trading Volume */}
         <div className="bg-[#121712] flex flex-[1_0_0] items-center min-w-0 min-h-0 overflow-hidden p-3 rounded-2xl">
@@ -144,23 +144,6 @@ export function MobileStatsGrid() {
             <div className="flex flex-col gap-0.5 items-start leading-normal shrink-0">
               <p className="text-white text-base font-semibold">$1.4M</p>
               <p className="text-[#b5b5b5] text-xs font-medium">Trading Volume</p>
-            </div>
-          </div>
-        </div>
-
-        {/* Trans. Count */}
-        <div className="bg-[#121712] flex flex-[1_0_0] items-center min-w-0 min-h-0 overflow-hidden p-3 rounded-2xl">
-          <div className="flex flex-col gap-2.5 items-start justify-center shrink-0">
-            <Image
-              src="/assets/icons/home/coins-02.svg"
-              alt="Transaction Count"
-              width={20}
-              height={20}
-              className="w-5 h-5"
-            />
-            <div className="flex flex-col gap-0.5 items-start leading-normal shrink-0">
-              <p className="text-white text-base font-semibold">12,500</p>
-              <p className="text-[#b5b5b5] text-xs font-medium">Trans. Count</p>
             </div>
           </div>
         </div>

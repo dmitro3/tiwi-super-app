@@ -235,7 +235,9 @@ export class PoolMarketService {
       const chainId = CHAIN_BY_COINGECKO_NETWORK[network];
       if (!chainId) continue;
 
-      const pools = await this.fetchPoolsForNetwork(network, category);
+      const poolsResponse = await this.fetchPoolsForNetworkWithIncluded(network, category);
+      const pools = poolsResponse.pools;
+      const included = poolsResponse.included;
 
       // Derive gainers/losers from trending pools by sorting
       const sortedPools =
@@ -257,7 +259,8 @@ export class PoolMarketService {
       const tokensForNetwork = this.normalizePoolsToTokens(
         limitedPools,
         chainId,
-        network
+        network,
+        included
       );
 
       allTokens.push(...tokensForNetwork);
@@ -633,6 +636,56 @@ export class PoolMarketService {
   // Legacy helpers (for getTokensByCategory backward compatibility)
   // ============================================================================
 
+  private async fetchPoolsForNetworkWithIncluded(
+    network: string,
+    category: Category
+  ): Promise<{ pools: CoingeckoPool[]; included?: CoingeckoIncludedItem[] }> {
+    const cacheKey = `cg:pools:${network}:${category}`;
+    const cached = this.cache.get<{ pools: CoingeckoPool[]; included?: CoingeckoIncludedItem[] }>(cacheKey);
+    if (cached) return cached;
+
+    const apiKey =
+      process.env.COINGECKO_API_KEY ||
+      process.env.COINGECKO_DEMO_API_KEY ||
+      process.env.NEXT_PUBLIC_COINGECKO_API_KEY;
+
+    const headers: Record<string, string> = {};
+    if (apiKey) {
+      headers['x-cg-demo-api-key'] = apiKey;
+    }
+
+    const endpoint =
+      category === 'new'
+        ? `${COINGECKO_ONCHAIN_BASE}/networks/${network}/new_pools?include=base_token`
+        : `${COINGECKO_ONCHAIN_BASE}/networks/${network}/trending_pools?include=base_token`;
+
+    try {
+      const res = await fetch(endpoint, { headers });
+      if (!res.ok) {
+        console.warn(
+          `[PoolMarketService] CoinGecko ${category} pools failed for ${network}:`,
+          res.status,
+          res.statusText
+        );
+        return { pools: [] };
+      }
+
+      const json = (await res.json()) as CoingeckoPoolsResponse;
+      const pools = Array.isArray(json.data) ? json.data : [];
+      const included = json.included;
+
+      const result = { pools, included };
+      this.cache.set(cacheKey, result, PoolMarketService.CACHE_TTL_MS);
+      return result;
+    } catch (error) {
+      console.error(
+        `[PoolMarketService] Error fetching CoinGecko pools for ${network} (${category}):`,
+        error
+      );
+      return { pools: [] };
+    }
+  }
+
   private async fetchPoolsForNetwork(
     network: string,
     category: Category
@@ -691,12 +744,23 @@ export class PoolMarketService {
   private normalizePoolsToTokens(
     pools: CoingeckoPool[],
     chainId: number,
-    network: string
+    network: string,
+    included?: CoingeckoIncludedItem[]
   ): NormalizedToken[] {
     const tokens: NormalizedToken[] = [];
 
     const canonicalChain = getCanonicalChain(chainId);
     if (!canonicalChain) return tokens;
+
+    // Build token attributes map from included array
+    const tokensMap = new Map<string, CoingeckoTokenAttributes>();
+    if (included) {
+      for (const item of included) {
+        if (item.type === 'token') {
+          tokensMap.set(item.id, item.attributes as CoingeckoTokenAttributes);
+        }
+      }
+    }
 
     for (const pool of pools) {
       const attrs = pool.attributes;
@@ -714,22 +778,28 @@ export class PoolMarketService {
       const baseRel = pool.relationships.base_token?.data;
       const baseId = baseRel?.id || '';
 
+      // Get base token attributes from included array
+      const baseTokenAttrs = tokensMap.get(baseId);
+
       // Fallback: derive address from id like "eth_0x..." or "solana_<mint>"
       const [, derivedAddress] = baseId.split('_');
-      const address = derivedAddress || attrs.address;
+      const address = baseTokenAttrs?.address || derivedAddress || attrs.address;
 
       if (!address) continue;
 
-      // Basic symbol/name are taken from pool.name when token info is missing.
-      const symbolGuess = this.deriveSymbolFromPoolName(attrs.name);
+      // Use base token symbol/name from included array, NOT pool name
+      // Pool name is like "PENGUIN / SOL", but we want just "SOL" (or "PENGUIN" if it's the base)
+      const tokenSymbol = baseTokenAttrs?.symbol || this.deriveSymbolFromPoolName(attrs.name);
+      const tokenName = baseTokenAttrs?.name || tokenSymbol;
+      const tokenLogoURI = baseTokenAttrs?.image_url || '';
 
       const token: NormalizedToken = {
         chainId,
         address,
-        symbol: attrs.name,
-        name: attrs.name || symbolGuess,
-        decimals: undefined, // can be enriched on demand
-        logoURI: '', // CoinGecko base_token image can be wired later if needed
+        symbol: tokenSymbol, // Use actual token symbol, not pool name
+        name: tokenName, // Use actual token name, not pool name
+        decimals: baseTokenAttrs?.decimals, // Use decimals from token attributes if available
+        logoURI: tokenLogoURI, // Use token logo from included array
         priceUSD: priceUSD.toString(),
         providers: ['coingecko'],
         verified: false,
