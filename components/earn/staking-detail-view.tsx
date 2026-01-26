@@ -191,7 +191,7 @@ export default function StakingDetailView({ pool, onBack }: StakingDetailViewPro
             }
 
             // If no pools, log and return early
-            if (factoryStakingForDiscovery.allPoolIds.length === 0) {
+            if (!factoryStakingForDiscovery.allPoolIds || factoryStakingForDiscovery.allPoolIds.length === 0) {
               console.warn('[Staking] Factory has 0 pools. Cannot discover poolId.');
               return;
             }
@@ -219,7 +219,7 @@ export default function StakingDetailView({ pool, onBack }: StakingDetailViewPro
                 });
 
                 // poolInfo[0] is the config, poolInfo[0].stakingToken is the token address
-                const config = poolInfo[0] as any;
+                const config = (poolInfo as any)[0] as any;
                 const stakingTokenAddress = config?.stakingToken?.toLowerCase();
 
                 console.log('[Staking] Pool', poolIdNum, 'stakingToken:', stakingTokenAddress, 'target:', targetTokenAddress);
@@ -268,7 +268,7 @@ export default function StakingDetailView({ pool, onBack }: StakingDetailViewPro
     contractAddress: isValidContractAddress ? (pool.contractAddress as Address) : undefined,
     stakingTokenAddress: pool.tokenAddress as Address | undefined,
     decimals: decimals,
-    enabled: isValidContractAddress && !!pool.tokenAddress && !effectivePoolId && !isValidFactoryAddress,
+    enabled: Boolean(isValidContractAddress && !!pool.tokenAddress && !effectivePoolId && !isValidFactoryAddress),
     walletAddress: activeAddress as Address | undefined, // Pass activeAddress to hook
   });
 
@@ -330,7 +330,7 @@ export default function StakingDetailView({ pool, onBack }: StakingDetailViewPro
   // CRITICAL: needsApproval requires poolId as first parameter
   // Ensure amount is a string
   const needsApproval = effectivePoolId && pool.tokenAddress && amount
-    ? staking.needsApproval(effectivePoolId, String(amount))
+    ? staking.needsApproval(String(amount))
     : false;
 
   // Use contract transaction hash if available, otherwise fall back to local state
@@ -602,9 +602,10 @@ export default function StakingDetailView({ pool, onBack }: StakingDetailViewPro
       }
     } else {
       // Single contract - check if contract address is available
+      const effectivePoolIdNum = effectivePoolId;
       if (!isValidContractAddress || !pool.tokenAddress) {
         console.error('[Staking] Invalid pool configuration:', {
-          poolId,
+          poolId: effectivePoolIdNum,
           factoryAddress,
           contractAddress: pool.contractAddress,
           isValidContractAddress,
@@ -694,7 +695,7 @@ export default function StakingDetailView({ pool, onBack }: StakingDetailViewPro
           // CRITICAL FIX: approve() requires poolId as first parameter
           // This will trigger the wallet prompt automatically for approval transaction
           // Ensure amount is a string
-          const approveTxHash = await staking.approve(effectivePoolId, String(amount));
+          const approveTxHash = await staking.approve(String(amount));
           console.log('[Staking] Approval transaction hash received:', approveTxHash);
 
           // Wait for approval transaction to be confirmed
@@ -800,10 +801,11 @@ export default function StakingDetailView({ pool, onBack }: StakingDetailViewPro
           // This will trigger the wallet prompt automatically for deposit transaction
           // The promise resolves with transaction hash when user confirms in wallet
           // Ensure amount is a string
-          const depositTxHash = await staking.deposit(effectivePoolId, String(amount));
+          await staking.deposit(String(amount));
+          const depositTxHash = staking.depositTxHash;
           console.log('[Staking] Deposit transaction hash received:', depositTxHash);
 
-          if (!depositTxHash) {
+          if (depositTxHash === undefined || depositTxHash === null) {
             console.error('[Staking] No transaction hash returned from deposit', {
               depositTxHash,
               stakingDepositTxHash: staking.depositTxHash,
@@ -905,7 +907,7 @@ export default function StakingDetailView({ pool, onBack }: StakingDetailViewPro
 
           // Check if transaction was successful
           if (staking.isError) {
-            const errorMsg = staking.error?.message || staking.error?.shortMessage || "Transaction failed";
+            const errorMsg = staking.error?.message || (staking.error as any)?.shortMessage || "Transaction failed";
             
             // Provide more helpful error messages for common revert reasons
             let userFriendlyError = errorMsg;
@@ -937,15 +939,14 @@ export default function StakingDetailView({ pool, onBack }: StakingDetailViewPro
               transactionHash: txHash,
               pool: {
                 id: pool.id,
-                minStakingPeriod: pool.minStakingPeriod,
               },
             });
 
             // Get lock period from pool (if configured)
             let lockPeriodDays: number | undefined = undefined;
-            if (pool.minStakingPeriod) {
+            if ((pool as any).minStakingPeriod) {
               // Try to parse lock period (could be "30 days", "30", etc.)
-              const match = pool.minStakingPeriod.match(/\d+/);
+              const match = (pool as any).minStakingPeriod.match(/\d+/);
               if (match) {
                 lockPeriodDays = parseInt(match[0]);
               }
@@ -1669,7 +1670,7 @@ export default function StakingDetailView({ pool, onBack }: StakingDetailViewPro
       </div>
 
       {/* Pending Rewards Display - if user has staked */}
-      {staking.userInfo && staking.userInfo.amount > 0n && (
+      {staking.userInfo && staking.userInfo.amount > BigInt(0) && (
         <div className="bg-[#0b0f0a] border-[#273024] border-[0.5px] border-solid flex flex-col items-start overflow-clip p-4 relative rounded-xl shrink-0 w-full">
           <div className="flex justify-between items-center w-full mb-2">
             <p className="text-[#7c7c7c] text-xs">Pending Rewards</p>

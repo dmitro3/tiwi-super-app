@@ -30,8 +30,8 @@ function getClientIP(req: NextRequest): string {
     return forwarded.split(',')[0].trim();
   }
 
-  // Fallback: try to get from connection
-  return req.ip || 'Unknown';
+  // Fallback
+  return 'Unknown';
 }
 
 /**
