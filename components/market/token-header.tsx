@@ -41,13 +41,22 @@ export default function TokenHeader({ token, stats }: TokenHeaderProps) {
               <path d="M5 7.5L2.5 5L5 2.5" stroke="#b5b5b5" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
           </button>
-          <Image
-            src={token.icon}
-            alt={token.symbol}
-            width={32}
-            height={32}
-            className="w-8 h-8 lg:w-6 lg:h-6 xl:w-7 xl:h-7 2xl:w-8 2xl:h-8 shrink-0"
-          />
+          {token.icon ? (
+            <Image
+              src={token.icon}
+              alt={token.symbol}
+              width={32}
+              height={32}
+              className="w-8 h-8 lg:w-6 lg:h-6 xl:w-7 xl:h-7 2xl:w-8 2xl:h-8 shrink-0 rounded-full"
+              onError={(e) => {
+                (e.target as HTMLImageElement).src = "/assets/icons/tokens/tiwicat.svg";
+              }}
+            />
+          ) : (
+            <div className="w-8 h-8 lg:w-6 lg:h-6 xl:w-7 xl:h-7 2xl:w-8 2xl:h-8 shrink-0 rounded-full bg-[#1f261e] flex items-center justify-center text-white text-xs font-bold">
+              {token.symbol?.charAt(0) || '?'}
+            </div>
+          )}
           <p className="text-white text-lg lg:text-sm xl:text-base 2xl:text-lg font-semibold leading-normal whitespace-nowrap">
             {token.symbol}<span className="text-[#b5b5b5]">/{token.pair.split("/")[1]}</span>
           </p>

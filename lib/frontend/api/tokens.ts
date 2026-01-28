@@ -65,7 +65,6 @@ export async function fetchTokens(params: FetchTokensParams = {}): Promise<Token
   
   try {
     const response = await fetch(url.toString());
-    console.log("🚀 ~ fetchTokens ~ url:", url)
     
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));

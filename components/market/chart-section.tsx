@@ -10,6 +10,7 @@ import { ResolutionString } from "@/public/charts/charting_library/datafeed-api"
 
 interface ChartSectionProps {
   pair: string; // e.g., "BTC/USDT" or "WBNB/USDT"
+  tokenData?: any; // Enriched token data from API
 }
 
 type ChartTab = "Chart" | "Overview";
@@ -19,7 +20,7 @@ type TimePeriod = "15m" | "1h" | "4h" | "6h" | "1D" | "3D" | "More";
  * Chart Section Component
  * Displays trading chart with TradingView Advanced Charts (using our custom datafeed)
  */
-export default function ChartSection({ pair }: ChartSectionProps) {
+export default function ChartSection({ pair, tokenData }: ChartSectionProps) {
   const [activeTab, setActiveTab] = useState<ChartTab>("Chart");
   const [activeTimePeriod, setActiveTimePeriod] = useState<TimePeriod>("1D");
   const [baseToken, setBaseToken] = useState<Token | null>(null);
@@ -215,7 +216,7 @@ export default function ChartSection({ pair }: ChartSectionProps) {
             )}
           </>
         ) : (
-          <OverviewSection pair={pair} />
+          <OverviewSection pair={pair} tokenData={tokenData} />
         )}
       </div>
     </div>

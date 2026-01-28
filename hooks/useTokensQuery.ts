@@ -59,11 +59,12 @@ export interface UseTokensQueryOptions
  */
 export function useTokensQuery(options: UseTokensQueryOptions = {}) {
   const { params = {}, ...queryOptions } = options;
-  console.log("🚀 ~ useTokensQuery ~ params:", params)
   
   return useQuery<Token[], Error>({
     queryKey: getTokensQueryKey(params),
     queryFn: () => fetchTokens(params),
+    staleTime: 60_000, // 1 minute - avoid refetching on every mount
+    gcTime: 5 * 60_000, // 5 minutes - keep in cache
     ...queryOptions,
   });
 }

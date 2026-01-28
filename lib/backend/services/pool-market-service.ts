@@ -390,7 +390,6 @@ export class PoolMarketService {
       }
 
       const json = (await res.json()) as CoingeckoPoolsResponse;
-      console.log("json is json", json)
       const pairs = await this.parsePoolsToMarketPairs(json);
 
       this.cache.set(cacheKey, pairs, PoolMarketService.CACHE_TTL_MS);
@@ -565,8 +564,12 @@ export class PoolMarketService {
       pairs.push(pair);
     }
 
-    // Enrich holder counts from Chainbase (with fallback to transaction count)
-    await this.enrichHolderCountsFromChainbase(pairs);
+    // Use transaction count as holder proxy (skip Chainbase API calls for speed)
+    for (const pair of pairs) {
+      if (!pair.holders && pair.transactionCount) {
+        pair.holders = pair.transactionCount;
+      }
+    }
 
     return pairs;
   }

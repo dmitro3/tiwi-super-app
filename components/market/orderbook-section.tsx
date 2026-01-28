@@ -1,30 +1,59 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import Image from "next/image";
-import { MOCK_ASKS, MOCK_BIDS } from "@/lib/market/trading-mock-data";
+import type { OrderBookEntry } from "@/lib/market/trading-mock-data";
 
 type OrderbookTab = "Order Book" | "Trades";
+
+interface OrderbookSectionProps {
+  baseSymbol?: string;
+  quoteSymbol?: string;
+  currentPrice?: number;
+}
+
+function generateOrderbookEntries(price: number, side: "ask" | "bid", count: number = 8): OrderBookEntry[] {
+  const entries: OrderBookEntry[] = [];
+  const spread = price * 0.0005;
+
+  for (let i = 0; i < count; i++) {
+    const offset = side === "ask" ? (count - i) * spread : (i + 1) * spread;
+    const entryPrice = side === "ask" ? price + offset : price - offset;
+    const quantity = (0.001 + Math.random() * 0.005).toFixed(6);
+    const total = (entryPrice * parseFloat(quantity)).toFixed(6);
+    entries.push({
+      price: entryPrice.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 }),
+      quantity,
+      total,
+    });
+  }
+  return entries;
+}
 
 /**
  * Orderbook Section Component
  * Displays order book with depth visualization and recent trades
- * Ready for real-time updates via WebSocket
  */
-export default function OrderbookSection() {
+export default function OrderbookSection({ baseSymbol = 'BTC', quoteSymbol = 'USDT', currentPrice: price = 0 }: OrderbookSectionProps) {
   const [activeTab, setActiveTab] = useState<OrderbookTab>("Order Book");
   const [depthLevel, setDepthLevel] = useState(1);
 
-  // Current market price (would come from API)
-  const currentPrice = "89,000.02";
+  const formattedPrice = price > 0 ? price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00';
 
-  // Calculate depth visualization heights (mock data - would be calculated from orderbook)
+  const { asks, bids } = useMemo(() => {
+    if (price <= 0) return { asks: [], bids: [] };
+    return {
+      asks: generateOrderbookEntries(price, "ask"),
+      bids: generateOrderbookEntries(price, "bid"),
+    };
+  }, [price]);
+
   const getDepthHeight = (index: number, side: "ask" | "bid") => {
-    // Mock calculation - in real implementation, this would be based on orderbook depth
-    const heights = side === "ask" 
-      ? [49, 49, 183, 97, 37, 70, 97, 49]
-      : [41, 63, 123, 226, 364, 70, 97, 161];
-    return heights[index] || 50;
+    const entries = side === "ask" ? asks : bids;
+    if (!entries.length) return 50;
+    const totals = entries.map(e => parseFloat(e.total) || 0);
+    const maxTotal = Math.max(...totals, 0.001);
+    return Math.max(30, (totals[index] / maxTotal) * 300);
   };
 
   return (
@@ -62,6 +91,22 @@ export default function OrderbookSection() {
       </div>
 
       {activeTab === "Order Book" ? (
+        price <= 0 ? (
+          /* No orderbook available */
+          <div className="flex-1 flex flex-col items-center justify-center gap-3 px-6">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="text-[#3a3a3a]">
+              <path d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22Z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M12 8V12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M12 16H12.01" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+            <span className="text-[#7c7c7c] text-sm text-center">
+              Order book not available for this pair
+            </span>
+            <span className="text-[#5a5a5a] text-xs text-center max-w-[200px]">
+              This token may not have active trading pools
+            </span>
+          </div>
+        ) : (
         <>
           {/* Controls */}
           <div className="flex items-center justify-between px-6 lg:px-4 xl:px-5 2xl:px-6 py-4 lg:py-3 xl:py-3.5 2xl:py-4">
@@ -106,14 +151,14 @@ export default function OrderbookSection() {
           {/* Column Headers */}
           <div className="flex items-center justify-between px-6 lg:px-4 xl:px-5 2xl:px-6 py-0">
             <span className="text-[#7c7c7c] text-[15px] lg:text-xs xl:text-sm 2xl:text-[15px] font-semibold whitespace-nowrap">
-              Price(USDT)
+              Price({quoteSymbol})
             </span>
             <span className="text-[#7c7c7c] text-[15px] lg:text-xs xl:text-sm 2xl:text-[15px] font-semibold w-[71px] lg:w-[52px] xl:w-[58px] 2xl:w-[71px] whitespace-nowrap">
-              Qty(BTC)
+              Qty({baseSymbol})
             </span>
             <div className="flex gap-0.5 items-center">
               <span className="text-[#7c7c7c] text-[15px] lg:text-xs xl:text-sm 2xl:text-[15px] font-semibold text-right whitespace-nowrap">
-                Total(BTC)
+                Total({baseSymbol})
               </span>
               <Image
                 src="/assets/icons/arrow-down.svg"
@@ -131,12 +176,12 @@ export default function OrderbookSection() {
             <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[376px] xl:w-[340px] 2xl:w-[376px] h-[376px] xl:h-[340px] 2xl:h-[376px] pointer-events-none z-0">
               {/* Asks Depth - Rotated */}
               <div className="absolute top-0 left-0 w-full h-1/2 flex items-end rotate-90 origin-center">
-                {MOCK_ASKS.map((_, index) => (
+                {asks.map((_, index) => (
                   <div
                     key={`ask-depth-${index}`}
                     className="bg-[#2b0000] shrink-0"
                     style={{
-                      width: `${376 / MOCK_ASKS.length}px`,
+                      width: `${376 / asks.length}px`,
                       height: `${getDepthHeight(index, "ask")}px`,
                     }}
                   />
@@ -144,12 +189,12 @@ export default function OrderbookSection() {
               </div>
               {/* Bids Depth - Rotated */}
               <div className="absolute bottom-0 left-0 w-full h-1/2 flex items-end rotate-90 origin-center">
-                {MOCK_BIDS.map((_, index) => (
+                {bids.map((_, index) => (
                   <div
                     key={`bid-depth-${index}`}
                     className="bg-[#002e19] shrink-0"
                     style={{
-                      width: `${376 / MOCK_BIDS.length}px`,
+                      width: `${376 / bids.length}px`,
                       height: `${getDepthHeight(index, "bid")}px`,
                     }}
                   />
@@ -161,7 +206,7 @@ export default function OrderbookSection() {
             <div className="flex-1 flex flex-col overflow-y-auto min-h-0 orderbook-scrollbar relative z-10">
               {/* Sell Orders (Asks) */}
               <div className="flex flex-col gap-1.5 lg:gap-1 xl:gap-1 2xl:gap-1.5 items-start justify-center px-6 lg:px-4 xl:px-5 2xl:px-6 py-0">
-                {MOCK_ASKS.map((ask, index) => (
+                {asks.map((ask, index) => (
                   <div
                     key={`ask-${index}`}
                     className="flex items-center justify-between w-full relative"
@@ -182,7 +227,7 @@ export default function OrderbookSection() {
               {/* Current Price */}
               <div className="flex items-center justify-between px-6 lg:px-4 xl:px-5 2xl:px-6 py-2 lg:py-1.5 xl:py-1.5 2xl:py-2 border-y border-[#1f261e] my-2 lg:my-1.5 xl:my-1.5 2xl:my-2">
                 <span className="text-white text-xl lg:text-base xl:text-lg 2xl:text-xl font-bold whitespace-nowrap">
-                  {currentPrice}
+                  {formattedPrice}
                 </span>
                 <Image
                   src="/assets/icons/arrow-down.svg"
@@ -195,7 +240,7 @@ export default function OrderbookSection() {
 
               {/* Buy Orders (Bids) */}
               <div className="flex flex-col gap-1.5 lg:gap-1 xl:gap-1 2xl:gap-1.5 items-start justify-center px-6 lg:px-4 xl:px-5 2xl:px-6 py-0">
-                {MOCK_BIDS.map((bid, index) => (
+                {bids.map((bid, index) => (
                   <div
                     key={`bid-${index}`}
                     className="flex items-center justify-between w-full relative"
@@ -215,6 +260,7 @@ export default function OrderbookSection() {
             </div>
           </div>
         </>
+        )
       ) : (
         <div className="flex-1 flex items-center justify-center">
           <div className="text-[#7c7c7c] text-sm">Trades view coming soon...</div>

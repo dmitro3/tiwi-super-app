@@ -20,6 +20,10 @@ const RATE_LIMIT_DELAY = COINGECKO_API_KEY ? 60 : 1200; // ms between requests
 let lastRequestTime = 0;
 const requestQueue: Array<() => Promise<void>> = [];
 
+// In-memory price cache (30s TTL) to avoid redundant API calls
+const priceCache = new Map<string, { price: TokenPrice; expiry: number }>();
+const PRICE_CACHE_TTL = 30_000; // 30 seconds
+
 // ============================================================================
 // Chain ID to CoinGecko Platform Mapping
 // ============================================================================
@@ -410,29 +414,32 @@ export async function getTokenPrice(
   chainId: number,
   symbol?: string
 ): Promise<TokenPrice | null> {
-  // Try CoinGecko first
-  let price = await getPriceFromCoinGecko(address, chainId, symbol);
-  if (price) {
-    return price;
+  // Check cache first
+  const cacheKey = `${chainId}:${address.toLowerCase()}`;
+  const cached = priceCache.get(cacheKey);
+  if (cached && cached.expiry > Date.now()) {
+    return cached.price;
   }
 
+  // Try CoinGecko first
+  let price = await getPriceFromCoinGecko(address, chainId, symbol);
+
   // Fallback to DexScreener for EVM chains
-  if (chainId !== 7565164) {
+  if (!price && chainId !== 7565164) {
     price = await getPriceFromDexScreener(address, chainId, symbol);
-    if (price) {
-      return price;
-    }
   }
 
   // Fallback to Jupiter for Solana
-  if (chainId === 7565164) {
+  if (!price && chainId === 7565164) {
     price = await getPriceFromJupiter(address, symbol);
-    if (price) {
-      return price;
-    }
   }
 
-  return null;
+  // Cache the result
+  if (price) {
+    priceCache.set(cacheKey, { price, expiry: Date.now() + PRICE_CACHE_TTL });
+  }
+
+  return price;
 }
 
 /**

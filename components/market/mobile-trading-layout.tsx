@@ -86,12 +86,19 @@ export default function MobileTradingLayout({
         )}
         {activeView === "orderbook" && (
           <div className="p-0">
-            <OrderbookSection />
+            <OrderbookSection
+              baseSymbol={tokenData?.symbol}
+              quoteSymbol={tokenData?.quoteSymbol || 'USDT'}
+              currentPrice={tokenData?.currentPrice || 0}
+            />
           </div>
         )}
         {activeView === "orders" && (
           <div className="p-4">
-            <OrdersTable />
+            <OrdersTable
+              baseSymbol={tokenData?.symbol}
+              quoteSymbol={tokenData?.quoteSymbol || 'USDT'}
+            />
           </div>
         )}
       </div>
@@ -118,7 +125,12 @@ export default function MobileTradingLayout({
               Perp
             </button>
           </div>
-          <TradingForm marketType={activeMarketTab.toLowerCase() as "spot" | "perp"} />
+          <TradingForm
+            marketType={activeMarketTab.toLowerCase() as "spot" | "perp"}
+            baseSymbol={tokenData?.symbol || ''}
+            quoteSymbol={tokenData?.quoteSymbol || 'USDT'}
+            currentPrice={tokenData?.currentPrice || 0}
+          />
         </div>
       </div>
     </div>
