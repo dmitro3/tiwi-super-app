@@ -66,12 +66,12 @@ export function initializeBackendLiFiSDK() {
   createConfig({
     integrator: 'TIWI-Protocol',
     rpcUrls,
-    // Backend doesn't need to preload chains - will fetch as needed
-    preloadChains: false,
+    // Preload chains to ensure chain metadata is available for routing
+    preloadChains: true,
     // No providers needed - backend doesn't execute routes
   });
 
   isInitialized = true;
-  console.log('[BackendLiFiSDKConfig] LiFi SDK initialized for backend');
+  console.log('[BackendLiFiSDKConfig] LiFi SDK initialized for backend with preloaded chains');
 }
 

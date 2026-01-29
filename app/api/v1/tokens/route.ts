@@ -10,6 +10,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getTokenService } from '@/lib/backend/services/token-service';
 import type { TokensAPIResponse } from '@/lib/shared/types/api';
+import type { NormalizedToken } from '@/lib/backend/types/backend-tokens';
+import { getCanonicalChain } from '@/lib/backend/registry/chains';
 
 // ============================================================================
 // Request Types
@@ -21,6 +23,7 @@ interface TokenRequestQuery {
   limit?: string;             // Result limit (GET query param)
   address?: string;           // Token contract address (GET query param) - for specific token lookup
   category?: string;          // Token category: 'hot', 'new', 'gainers', 'losers' (GET query param)
+  marketType?: string;        // Market type: 'spot' or 'perp' (GET query param)
 }
 
 interface TokenRequestBody {
@@ -43,6 +46,7 @@ export async function GET(req: NextRequest) {
     const limitParam = searchParams.get('limit');
     const addressParam = searchParams.get('address'); // Token contract address
     const categoryParam = searchParams.get('category'); // Token category
+    const marketTypeParam = searchParams.get('marketType'); // Market type: 'spot' or 'perp'
     
     // Parse chain IDs from 'chains' parameter
     // Supports both numeric IDs (1, 56) and string IDs (solana-mainnet-beta, cosmoshub-4)
@@ -108,8 +112,13 @@ export async function GET(req: NextRequest) {
       ? categoryParam.toLowerCase() as 'hot' | 'new' | 'gainers' | 'losers'
       : undefined;
     
+    // Validate marketType if provided
+    const marketType = marketTypeParam && (marketTypeParam === 'spot' || marketTypeParam === 'perp')
+      ? marketTypeParam as 'spot' | 'perp'
+      : undefined;
+    
     // Handle request
-    return await handleTokenRequest({ chainIds, query, limit, address: addressParam || undefined, category });
+    return await handleTokenRequest({ chainIds, query, limit, address: addressParam || undefined, category, marketType });
   } catch (error: any) {
     console.error('[API] /api/v1/tokens GET error:', error);
     
@@ -179,8 +188,9 @@ async function handleTokenRequest(params: {
   limit?: number;
   address?: string;
   category?: 'hot' | 'new' | 'gainers' | 'losers';
+  marketType?: 'spot' | 'perp';
 }): Promise<NextResponse<TokensAPIResponse>> {
-  const { chainIds, query = '', limit, address, category } = params;
+  const { chainIds, query = '', limit, address, category, marketType } = params;
   const tokenService = getTokenService();
   
   // Default limit: 30 if not specified
@@ -190,7 +200,7 @@ async function handleTokenRequest(params: {
   
   // Priority 0: If category is provided, fetch tokens by category
   if (category) {
-    tokens = await tokenService.getTokensByCategory(category, effectiveLimit);
+    tokens = await tokenService.getTokensByCategory(category, effectiveLimit, chainIds);
   } else if (address && address.trim()) {
   // Priority 1: If address is provided, search by address (most specific)
     // Search by address - use address as query, filter by chainIds if provided
@@ -204,6 +214,14 @@ async function handleTokenRequest(params: {
     tokens = tokens.filter(token => 
       token.address.toLowerCase() === address.trim().toLowerCase()
     );
+    
+    // CRITICAL: Enrich TWC token with CoinGecko rank and supply data
+    const TWC_ADDRESS = '0xDA1060158F7D593667cCE0a15DB346BB3FfB3596';
+    const TWC_CHAIN_ID = 56;
+    
+    if (address.toLowerCase() === TWC_ADDRESS.toLowerCase()) {
+      tokens = await enrichTWCWithCoinGeckoData(tokens, TWC_ADDRESS, TWC_CHAIN_ID);
+    }
   } else if (query) {
     // Priority 2: Search tokens by query
     if (chainIds && chainIds.length > 0) {
@@ -235,6 +253,116 @@ async function handleTokenRequest(params: {
     limit: effectiveLimit,
   };
   
-  return NextResponse.json(response);
+  return NextResponse.json(response, {
+    headers: {
+      'Cache-Control': 'public, s-maxage=30, stale-while-revalidate=60',
+    },
+  });
+}
+
+/**
+ * Enrich TWC token with CoinGecko market data (rank and supply)
+ * This ensures TWC has complete data when fetched by address (e.g., for favorites)
+ */
+async function enrichTWCWithCoinGeckoData(
+  tokens: NormalizedToken[],
+  twcAddress: string,
+  twcChainId: number
+): Promise<NormalizedToken[]> {
+  const TWC_ADDRESS = twcAddress.toLowerCase();
+  
+  // Find TWC token in results
+  const twcIndex = tokens.findIndex(t => 
+    t.address.toLowerCase() === TWC_ADDRESS && t.chainId === twcChainId
+  );
+  
+  // If TWC not found, return as-is
+  if (twcIndex === -1) {
+    return tokens;
+  }
+  
+  // Always enrich TWC with CoinGecko data if price is missing/zero or rank/supply missing
+  const twcToken = tokens[twcIndex];
+  const needsEnrichment = 
+    !twcToken.priceUSD || 
+    twcToken.priceUSD === '0' || 
+    parseFloat(twcToken.priceUSD) === 0 ||
+    !twcToken.marketCapRank || 
+    !twcToken.circulatingSupply;
+  
+  if (!needsEnrichment) {
+    return tokens;
+  }
+  
+  try {
+    const apiKey =
+      process.env.COINGECKO_API_KEY ||
+      process.env.COINGECKO_DEMO_API_KEY ||
+      process.env.NEXT_PUBLIC_COINGECKO_API_KEY;
+
+    const headers: Record<string, string> = {};
+    if (apiKey) {
+      headers['x-cg-demo-api-key'] = apiKey;
+    }
+    
+    // Fetch TWC by contract address from CoinGecko
+    const twcContractUrl = `https://api.coingecko.com/api/v3/coins/binance-smart-chain/contract/${twcAddress}?localization=false&tickers=false&market_data=true&community_data=false&developer_data=false&sparkline=false`;
+    const twcResponse = await fetch(twcContractUrl, { headers });
+    
+    if (twcResponse.ok) {
+      const twcData = await twcResponse.json() as {
+        id: string;
+        symbol: string;
+        name: string;
+        image?: { large?: string; small?: string; thumb?: string };
+        market_data?: {
+          current_price?: { usd?: number };
+          market_cap?: { usd?: number };
+          market_cap_rank?: number | null;
+          total_volume?: { usd?: number };
+          price_change_percentage_24h?: number;
+          circulating_supply?: number | null;
+          total_supply?: number | null;
+        };
+      };
+      
+      if (twcData && twcData.market_data) {
+        const chain = getCanonicalChain(twcChainId);
+        if (chain) {
+          // Update TWC token with CoinGecko data
+          const enrichedToken: NormalizedToken = {
+            ...tokens[twcIndex],
+            symbol: twcData.symbol.toUpperCase(),
+            name: twcData.name,
+            logoURI: twcData.image?.large || twcData.image?.small || twcData.image?.thumb || tokens[twcIndex].logoURI,
+            priceUSD: twcData.market_data.current_price?.usd?.toString() || tokens[twcIndex].priceUSD || '0',
+            volume24h: twcData.market_data.total_volume?.usd || tokens[twcIndex].volume24h,
+            marketCap: twcData.market_data.market_cap?.usd || tokens[twcIndex].marketCap,
+            priceChange24h: twcData.market_data.price_change_percentage_24h || tokens[twcIndex].priceChange24h,
+            marketCapRank: (twcData.market_data.market_cap_rank != null && twcData.market_data.market_cap_rank > 0) 
+              ? twcData.market_data.market_cap_rank 
+              : tokens[twcIndex].marketCapRank,
+            circulatingSupply: (twcData.market_data.circulating_supply != null && twcData.market_data.circulating_supply > 0) 
+              ? twcData.market_data.circulating_supply 
+              : tokens[twcIndex].circulatingSupply,
+          };
+          
+          // Replace TWC token with enriched version
+          const updatedTokens = [...tokens];
+          updatedTokens[twcIndex] = enrichedToken;
+          
+          console.log(`[API] ✅ Enriched TWC with price=${enrichedToken.priceUSD}, rank=${enrichedToken.marketCapRank}, supply=${enrichedToken.circulatingSupply}`);
+          return updatedTokens;
+        }
+      }
+    } else {
+      console.warn(`[API] Failed to fetch TWC from CoinGecko contract API: ${twcResponse.status}`);
+    }
+  } catch (error) {
+    console.warn('[API] Error enriching TWC with CoinGecko data:', error);
+  }
+  
+  // Return original tokens if enrichment failed
+  return tokens;
 }
 

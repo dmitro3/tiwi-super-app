@@ -67,6 +67,10 @@ class ClientCache {
 
 const clientCache = new ClientCache();
 
+// Symbol resolution cache (avoids repeated /symbols API calls)
+const symbolCache = new Map<string, { data: any; timestamp: number }>();
+const SYMBOL_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
+
 // ============================================================================
 // Custom Datafeed Implementation
 // ============================================================================
@@ -79,21 +83,15 @@ export class TradingViewDatafeed implements IExternalDatafeed, IDatafeedChartApi
    * Returns chart configuration
    */
   onReady(callback: OnReadyCallback): void {
-    fetch(`${API_BASE}/config`)
-      .then((response) => response.json())
-      .then((config) => {
-        callback(config);
-      })
-      .catch((error) => {
-        console.error('[TradingViewDatafeed] Error fetching config:', error);
-        // Return default config on error
-        callback({
-          supported_resolutions: ['1', '5', '15', '30', '60', '1D', '1W', '1M'] as ResolutionString[],
-          supports_marks: false,
-          supports_time: true,
-          supports_timescale_marks: false,
-        });
+    // Return static config immediately - no network request needed
+    setTimeout(() => {
+      callback({
+        supported_resolutions: ['1', '5', '15', '30', '60', '1D', '1W', '1M'] as ResolutionString[],
+        supports_marks: false,
+        supports_time: true,
+        supports_timescale_marks: false,
       });
+    }, 0);
   }
 
   /**
@@ -136,6 +134,35 @@ export class TradingViewDatafeed implements IExternalDatafeed, IDatafeedChartApi
       params.append('unitId', extension.unitId);
     }
 
+    // Check symbol cache first
+    const cachedSymbol = symbolCache.get(symbolName);
+    if (cachedSymbol && Date.now() - cachedSymbol.timestamp < SYMBOL_CACHE_TTL) {
+      console.log(`[TradingViewDatafeed] Returning cached symbol for ${symbolName}`);
+      const data = cachedSymbol.data;
+      const symbolInfo: LibrarySymbolInfo = {
+        ...data,
+        name: data.name || symbolName,
+        ticker: data.ticker || symbolName,
+        description: data.description || symbolName,
+        type: data.type || 'crypto',
+        session: data.session || '24x7',
+        timezone: data.timezone || 'Etc/UTC',
+        exchange: data.exchange || '',
+        listed_exchange: data.listed_exchange || data.exchange || '',
+        minmov: data.minmov || 1,
+        pricescale: data.pricescale || 1000000000,
+        has_intraday: data.has_intraday ?? true,
+        has_daily: data.has_daily ?? true,
+        has_weekly_and_monthly: data.has_weekly_and_monthly ?? false,
+        supported_resolutions: data.supported_resolutions || ['1', '5', '15', '30', '60', '1D', '1W', '1M'],
+        intraday_multipliers: data.intraday_multipliers || ['1', '5', '15', '30', '60'],
+        volume_precision: data.volume_precision || 2,
+        data_status: data.data_status || 'endofday',
+      };
+      onResolve(symbolInfo);
+      return;
+    }
+
     fetch(`${API_BASE}/symbols?${params.toString()}`)
       .then((response) => response.json())
       .then((data) => {
@@ -166,6 +193,9 @@ export class TradingViewDatafeed implements IExternalDatafeed, IDatafeedChartApi
           volume_precision: data.volume_precision || 2,
           data_status: data.data_status || 'endofday', // Use 'endofday' for historical data to prevent continuous fetching
         };
+
+        // Cache the resolved symbol data
+        symbolCache.set(symbolName, { data, timestamp: Date.now() });
 
         onResolve(symbolInfo);
       })

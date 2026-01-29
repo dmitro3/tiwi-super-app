@@ -209,12 +209,16 @@ export class QuoteAggregator {
       console.log(`[QuoteAggregator] 📍 STEP 1: Getting token symbols from DexScreener...`);
       const { getTokenPairs } = await import('../dexscreener-client');
       
-      console.log(`[QuoteAggregator]   Fetching pairs for fromToken: ${fromToken}`);
+      // CRITICAL FIX: For cross-chain swaps, toToken is on destination chain, not source chain
+      const toTokenChainId = options.toChainId || chainId;
+      const isCrossChain = toTokenChainId !== chainId;
+
+      console.log(`[QuoteAggregator]   Fetching pairs for fromToken: ${fromToken} on chain ${chainId}`);
       const fromPairs = await getTokenPairs(fromToken, chainId);
       console.log(`[QuoteAggregator]   Found ${fromPairs.length} pairs for fromToken`);
-      
-      console.log(`[QuoteAggregator]   Fetching pairs for toToken: ${toToken}`);
-      const toPairs = await getTokenPairs(toToken, chainId);
+
+      console.log(`[QuoteAggregator]   Fetching pairs for toToken: ${toToken} on chain ${toTokenChainId}${isCrossChain ? ' (CROSS-CHAIN)' : ''}`);
+      const toPairs = await getTokenPairs(toToken, toTokenChainId);
       console.log(`[QuoteAggregator]   Found ${toPairs.length} pairs for toToken`);
       
       // Extract symbol from pairs (find the token in the pair)
@@ -251,39 +255,45 @@ export class QuoteAggregator {
       }
       
       console.log(`[QuoteAggregator]   Final symbols: ${fromTokenSymbol || 'unknown'} → ${toTokenSymbol || 'unknown'}\n`);
-      
-      // Check if this is a cross-chain swap
-      // Note: toChainId is passed as optional parameter to aggregateQuotes
-      // For now, we'll try same-chain first, then cross-chain if needed
-      
-      // Try same-chain route finder first (works for both same-chain and cross-chain initial step)
-      console.log(`[QuoteAggregator] 📍 STEP 2: Finding route...`);
-      console.log(`[QuoteAggregator]   Parameters:`);
-      console.log(`[QuoteAggregator]     fromToken: ${fromToken}`);
-      console.log(`[QuoteAggregator]     toToken: ${toToken}`);
-      console.log(`[QuoteAggregator]     chainId: ${chainId}`);
-      console.log(`[QuoteAggregator]     toChainId: ${options.toChainId || 'NOT PROVIDED (assuming same-chain)'}`);
-      console.log(`[QuoteAggregator]     amountIn: ${amountIn.toString()}`);
-      console.log(`[QuoteAggregator]     fromTokenSymbol: ${fromTokenSymbol || 'unknown'}`);
-      console.log(`[QuoteAggregator]     toTokenSymbol: ${toTokenSymbol || 'unknown'}`);
-      console.log(`[QuoteAggregator]     minLiquidityUSD: ${options.minLiquidityUSD}`);
-      console.log(`[QuoteAggregator]     recipient: ${options.recipient || 'NOT PROVIDED ⚠️'}`);
-      console.log(`[QuoteAggregator]     fromAddress: ${options.fromAddress || 'NOT PROVIDED ⚠️'}`);
-      
-      const { getSameChainRouteFinder } = await import('../same-chain-finder');
-      const sameChainFinder = getSameChainRouteFinder();
-      
-      const sameChainRoute = await sameChainFinder.findRoute(
-        fromToken,
-        toToken,
-        chainId,
-        amountIn,
-        fromTokenSymbol,
-        toTokenSymbol,
-        options.minLiquidityUSD
-      );
-      
-      if (sameChainRoute) {
+
+      console.log(`[QuoteAggregator] 📍 STEP 2: Determining routing strategy...`);
+      console.log(`[QuoteAggregator]   From Chain: ${chainId}`);
+      console.log(`[QuoteAggregator]   To Chain: ${toTokenChainId}`);
+      console.log(`[QuoteAggregator]   Is Cross-Chain: ${isCrossChain}`);
+
+      // CRITICAL: Skip same-chain finder for cross-chain swaps
+      // For cross-chain, we need to use either:
+      // 1. Cross-chain finder (direct bridge)
+      // 2. Multi-hop router (swap + bridge + swap)
+      if (isCrossChain) {
+        console.log(`[QuoteAggregator] ⚡ Cross-chain swap detected, skipping same-chain finder`);
+        console.log(`[QuoteAggregator] Will try: cross-chain finder → multi-hop router`);
+      } else {
+        // Try same-chain route finder (only for same-chain swaps)
+        console.log(`[QuoteAggregator] 📍 STEP 2a: Trying same-chain route finder...`);
+        console.log(`[QuoteAggregator]   Parameters:`);
+        console.log(`[QuoteAggregator]     fromToken: ${fromToken}`);
+        console.log(`[QuoteAggregator]     toToken: ${toToken}`);
+        console.log(`[QuoteAggregator]     chainId: ${chainId}`);
+        console.log(`[QuoteAggregator]     amountIn: ${amountIn.toString()}`);
+        console.log(`[QuoteAggregator]     fromTokenSymbol: ${fromTokenSymbol || 'unknown'}`);
+        console.log(`[QuoteAggregator]     toTokenSymbol: ${toTokenSymbol || 'unknown'}`);
+        console.log(`[QuoteAggregator]     minLiquidityUSD: ${options.minLiquidityUSD}`);
+
+        const { getSameChainRouteFinder } = await import('../same-chain-finder');
+        const sameChainFinder = getSameChainRouteFinder();
+
+        const sameChainRoute = await sameChainFinder.findRoute(
+          fromToken,
+          toToken,
+          chainId,
+          amountIn,
+          fromTokenSymbol,
+          toTokenSymbol,
+          options.minLiquidityUSD
+        );
+
+        if (sameChainRoute) {
         console.log(`[QuoteAggregator] ✅ Route found!`);
         console.log(`[QuoteAggregator]   Path: ${sameChainRoute.path.map(p => p.slice(0, 10) + '...').join(' → ')}`);
         console.log(`[QuoteAggregator]   Output: ${sameChainRoute.outputAmount.toString()}`);
@@ -314,35 +324,36 @@ export class QuoteAggregator {
         console.log(`[QuoteAggregator]   Score: ${quote.score}`);
         console.log(`[QuoteAggregator]   Output Amount: ${quote.outputAmount}`);
         console.log(`[QuoteAggregator] ========================================\n`);
-        
+
         return [quote];
-      }
-      
-      // If same-chain route not found and this is cross-chain, try cross-chain finder
-      if (options.toChainId && options.toChainId !== chainId) {
+        }
+      } // End of same-chain-only block
+
+      // If cross-chain, try cross-chain finder
+      if (isCrossChain) {
         console.log(`[QuoteAggregator] 📍 STEP 2b: Same-chain route not found, trying cross-chain finder...`);
         console.log(`[QuoteAggregator]   From Chain: ${chainId}`);
         console.log(`[QuoteAggregator]   To Chain: ${options.toChainId}`);
         console.log(`[QuoteAggregator]   Recipient: ${options.recipient || 'NOT PROVIDED ⚠️'}`);
         console.log(`[QuoteAggregator]   FromAddress: ${options.fromAddress || 'NOT PROVIDED ⚠️'}`);
-        
+
         const { getCrossChainRouteFinder } = await import('../cross-chain-finder');
         const crossChainFinder = getCrossChainRouteFinder();
-        
+
         const crossChainRoute = await crossChainFinder.findRoute(
           fromToken,
           toToken,
           chainId,
-          options.toChainId,
+          toTokenChainId, // Use toTokenChainId instead of options.toChainId
           amountIn,
           options.recipient,
           options.fromAddress // Pass fromAddress to cross-chain finder
         );
-        
+
         if (crossChainRoute) {
           console.log(`[QuoteAggregator] ✅ Cross-chain route found!`);
           console.log(`[QuoteAggregator]   Total Output: ${crossChainRoute.totalOutput.toString()}`);
-          
+
           // Convert to RouterRoute
           console.log(`[QuoteAggregator] 📍 STEP 3: Converting cross-chain route to RouterRoute format...`);
           const { convertCrossChainRouteToRouterRoute } = await import('../route-converter');
@@ -354,7 +365,7 @@ export class QuoteAggregator {
             options.recipient
           );
           console.log(`[QuoteAggregator]   ✅ Route converted\n`);
-          
+
           // Convert to AggregatedQuote
           console.log(`[QuoteAggregator] 📍 STEP 4: Converting to AggregatedQuote...`);
           const quote = this.convertRouterRouteToQuote(
@@ -367,14 +378,73 @@ export class QuoteAggregator {
           console.log(`[QuoteAggregator]   Score: ${quote.score}`);
           console.log(`[QuoteAggregator]   Output Amount: ${quote.outputAmount}`);
           console.log(`[QuoteAggregator] ========================================\n`);
-          
+
           return [quote];
         } else {
           console.log(`[QuoteAggregator] ❌ Cross-chain route not found`);
         }
       }
-      
-      console.log(`[QuoteAggregator] ❌ No route found`);
+
+      // If no direct route found, try multi-hop routing
+      // Note: isCrossChain and toTokenChainId already declared above
+
+      console.log(`[QuoteAggregator] 📍 STEP 2c: No direct route found, trying multi-hop routing...`);
+      console.log(`[QuoteAggregator]   Type: ${isCrossChain ? 'CROSS-CHAIN' : 'SAME-CHAIN'} multi-hop`);
+      console.log(`[QuoteAggregator]   From Chain: ${chainId}`);
+      console.log(`[QuoteAggregator]   To Chain: ${toTokenChainId}`);
+      console.log(`[QuoteAggregator]   This will find routes through intermediate tokens (USDT, USDC, WBNB, etc.)`);
+
+      try {
+        const { getMultiHopRouter } = await import('../multi-hop-router');
+        const multiHopRouter = getMultiHopRouter();
+
+        const multiHopRoute = await multiHopRouter.findMultiHopRoute(
+          fromToken,
+          toToken,
+          chainId,
+          toTokenChainId,
+          amountIn.toString(),
+          options.fromAddress
+        );
+
+        if (multiHopRoute) {
+          console.log(`[QuoteAggregator] ✅ Multi-hop route found!`);
+          if (multiHopRoute.bridgeRoute) {
+            console.log(`[QuoteAggregator]   Type: CROSS-CHAIN multi-hop with bridge`);
+            console.log(`[QuoteAggregator]   Hop 1 (source chain): ${multiHopRoute.hop1.router}`);
+            console.log(`[QuoteAggregator]   Bridge: ${multiHopRoute.bridgeRoute.router}`);
+            console.log(`[QuoteAggregator]   Hop 2 (dest chain): ${multiHopRoute.hop2.router}`);
+          } else {
+            console.log(`[QuoteAggregator]   Type: SAME-CHAIN multi-hop`);
+            console.log(`[QuoteAggregator]   Path: ${fromToken.slice(0, 10)}... → ${multiHopRoute.intermediateToken.slice(0, 10)}... → ${toToken.slice(0, 10)}...`);
+            console.log(`[QuoteAggregator]   Hop 1: ${multiHopRoute.hop1.router}`);
+            console.log(`[QuoteAggregator]   Hop 2: ${multiHopRoute.hop2.router}`);
+          }
+          console.log(`[QuoteAggregator]   Total Output: ${multiHopRoute.totalOutputAmount}`);
+
+          // Use the combined route (already in RouterRoute format)
+          const quote = this.convertRouterRouteToQuote(
+            multiHopRoute.combinedRoute,
+            options.gasPrice,
+            options.inputTokenPriceUSD,
+            options.outputTokenPriceUSD
+          );
+
+          console.log(`[QuoteAggregator]   ✅ Multi-hop quote created`);
+          console.log(`[QuoteAggregator]   Score: ${quote.score}`);
+          console.log(`[QuoteAggregator]   Output Amount: ${quote.outputAmount}`);
+          console.log(`[QuoteAggregator] ========================================\n`);
+
+          return [quote];
+        } else {
+          console.log(`[QuoteAggregator] ❌ Multi-hop route not found`);
+        }
+      } catch (error) {
+        console.error('[QuoteAggregator] ❌ Multi-hop routing error:', error);
+        console.error('[QuoteAggregator] Error details:', error instanceof Error ? error.stack : String(error));
+      }
+
+      console.log(`[QuoteAggregator] ❌ No route found (tried same-chain, cross-chain, and multi-hop)`);
       console.log(`[QuoteAggregator] ========================================\n`);
       return [];
     } catch (error) {

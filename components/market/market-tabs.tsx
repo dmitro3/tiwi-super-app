@@ -11,7 +11,7 @@ const tabs: MarketTab[] = ["Spot", "Perp"];
 
 export default function MarketTabs({ activeTab, onTabChange }: MarketTabsProps) {
   return (
-    <div className="flex items-center gap-4 lg:gap-5 xl:gap-6 2xl:gap-6">
+    <div className="flex items-center gap-4 lg:gap-5 xl:gap-6 2xl:gap-6 relative">
       {tabs.map((tab) => {
         const isActive = activeTab === tab;
         return (
@@ -25,9 +25,10 @@ export default function MarketTabs({ activeTab, onTabChange }: MarketTabsProps) 
             }`}>
               {tab}
             </span>
-            {isActive && (
-              <div className="h-[1px] lg:h-[1.5px] xl:h-[1.5px] 2xl:h-[1.5px] w-full bg-[#b1f128]"></div>
-            )}
+            {/* Underline that moves */}
+            <div className={`absolute bottom-0 h-[1px] lg:h-[1.5px] xl:h-[1.5px] 2xl:h-[1.5px] bg-[#b1f128] transition-all duration-300 ${
+              isActive ? "w-full opacity-100" : "w-0 opacity-0"
+            }`}></div>
           </button>
         );
       })}

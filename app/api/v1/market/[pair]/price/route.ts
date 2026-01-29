@@ -46,10 +46,12 @@ export async function GET(
       );
     }
     
-    // Fetch tokens by symbol
+    // Fetch tokens by symbol in parallel
     const tokenService = getTokenService();
-    const baseTokens = await tokenService.searchTokens(baseSymbol, undefined, [chainId], 5);
-    const quoteTokens = await tokenService.searchTokens(quoteSymbol, undefined, [chainId], 5);
+    const [baseTokens, quoteTokens] = await Promise.all([
+      tokenService.searchTokens(baseSymbol, undefined, [chainId], 5),
+      tokenService.searchTokens(quoteSymbol, undefined, [chainId], 5),
+    ]);
     
     // Find exact symbol match
     const baseToken = baseTokens.find(t => t.symbol.toUpperCase() === baseSymbol.toUpperCase());
@@ -74,97 +76,104 @@ export async function GET(
       chainId
     );
     
-    // Get current prices
-    const basePrice = await getTokenPrice(baseAddress, chainId, baseToken.symbol);
-    const quotePrice = await getTokenPrice(quoteAddress, chainId, quoteToken.symbol);
-    
-    if (!basePrice || !quotePrice) {
-      return NextResponse.json(
-        { error: 'Price data unavailable' },
-        { status: 503 }
-      );
-    }
-    
-    // Get 24h stats from chart data FIRST (this ensures price matches chart)
+    // Fetch prices AND chart bars ALL in parallel (major speed optimization)
     const chartService = getChartDataService();
     const now = Math.floor(Date.now() / 1000);
     const yesterday = now - 24 * 60 * 60;
-    
-    // Fetch last 24h of 15-minute bars
-    const bars = await chartService.getHistoricalBars({
-      baseToken: baseAddress,
-      quoteToken: quoteAddress,
-      chainId,
-      baseChainId: chainId,
-      quoteChainId: chainId,
-      resolution: '15' as any,
-      from: yesterday,
-      to: now,
-      countback: 96, // 24 hours * 4 (15-min bars per hour)
-    });
-    
-    // Get current price from chart's latest bar (ensures header matches chart)
+
+    const [basePrice, quotePrice, bars] = await Promise.all([
+      getTokenPrice(baseAddress, chainId, baseToken.symbol).catch(() => null),
+      getTokenPrice(quoteAddress, chainId, quoteToken.symbol).catch(() => null),
+      chartService.getHistoricalBars({
+        baseToken: baseAddress,
+        quoteToken: quoteAddress,
+        chainId,
+        baseChainId: chainId,
+        quoteChainId: chainId,
+        resolution: '15' as any,
+        from: yesterday,
+        to: now,
+        countback: 96,
+      }).catch(() => [] as any[]),
+    ]);
+
+    // Use prices from getTokenPrice, or fall back to searchTokens priceUSD
+    const basePriceUSD = basePrice
+      ? parseFloat(basePrice.priceUSD)
+      : parseFloat(baseToken.priceUSD || '0');
+    const quotePriceUSD = quotePrice
+      ? parseFloat(quotePrice.priceUSD)
+      : parseFloat(quoteToken.priceUSD || '0');
+
     let currentPrice = 0;
     let high24h = 0;
     let low24h = 0;
     let volume24h = 0;
     let priceChange24h = 0;
-    
+
     if (bars.length > 0) {
-      // Use the latest bar's close price as current price (matches chart display)
       const latestBar = bars[bars.length - 1];
       currentPrice = latestBar.close;
-      
-      // Get first bar's open price (24h ago)
+
       const firstBar = bars[0];
       const price24hAgo = firstBar.open;
-      
-      // Calculate price change
+
       if (price24hAgo > 0) {
         priceChange24h = ((currentPrice - price24hAgo) / price24hAgo) * 100;
       }
-      
-      // Find high and low
-      high24h = Math.max(...bars.map(b => b.high));
-      low24h = Math.min(...bars.map(b => b.low));
-      
-      // Sum volume
-      volume24h = bars.reduce((sum, b) => sum + (b.volume || 0), 0);
-    } else {
-      // Fallback: calculate pair price from token prices if no chart data
-      const basePriceUSD = parseFloat(basePrice.priceUSD);
-      const quotePriceUSD = parseFloat(quotePrice.priceUSD);
-      
-      if (quotePriceUSD === 0) {
-        return NextResponse.json(
-          { error: 'Invalid quote price' },
-          { status: 503 }
-        );
-      }
-      
+
+      high24h = Math.max(...bars.map((b: any) => b.high));
+      low24h = Math.min(...bars.map((b: any) => b.low));
+      volume24h = bars.reduce((sum: number, b: any) => sum + (b.volume || 0), 0);
+    } else if (basePriceUSD > 0 && quotePriceUSD > 0) {
       currentPrice = basePriceUSD / quotePriceUSD;
       high24h = currentPrice;
       low24h = currentPrice;
+    } else if (basePriceUSD > 0) {
+      // If only base price available, use it as USD price
+      currentPrice = basePriceUSD;
+      high24h = currentPrice;
+      low24h = currentPrice;
     }
-    
-    // Format response
+
+    // Use priceChange from baseToken if available and no chart data
+    if (priceChange24h === 0 && baseToken.priceChange24h) {
+      priceChange24h = baseToken.priceChange24h;
+    }
+    if (volume24h === 0 && baseToken.volume24h) {
+      volume24h = baseToken.volume24h;
+    }
+
     return NextResponse.json({
       pair: `${baseToken.symbol}/${quoteToken.symbol}`,
-      price: currentPrice, // Current pair price from chart (matches chart display)
-      priceUSD: currentPrice, // Same as price (pair price)
+      price: currentPrice,
+      priceUSD: currentPrice,
       priceChange24h,
       high24h,
       low24h,
       volume24h,
       baseToken: {
         symbol: baseToken.symbol,
+        name: baseToken.name || baseToken.symbol,
         address: baseAddress,
-        priceUSD: parseFloat(basePrice.priceUSD),
+        chainId,
+        priceUSD: basePriceUSD,
+        logo: baseToken.logoURI || '',
+        marketCap: baseToken.marketCap ?? null,
+        liquidity: baseToken.liquidity ?? null,
+        circulatingSupply: baseToken.circulatingSupply ?? null,
       },
       quoteToken: {
         symbol: quoteToken.symbol,
+        name: quoteToken.name || quoteToken.symbol,
         address: quoteAddress,
-        priceUSD: parseFloat(quotePrice.priceUSD),
+        chainId,
+        priceUSD: quotePriceUSD,
+        logo: quoteToken.logoURI || '',
+      },
+    }, {
+      headers: {
+        'Cache-Control': 'public, s-maxage=15, stale-while-revalidate=30',
       },
     });
   } catch (error: any) {

@@ -255,32 +255,27 @@ export class ChartDataService {
     const { baseToken } = convertPairToWrapped(baseAddress, '0x0000000000000000000000000000000000000000', baseChainId);
     const { baseToken: quoteToken } = convertPairToWrapped(quoteAddress, '0x0000000000000000000000000000000000000000', quoteChainId);
 
-    // Fetch token symbols from token service
+    // Fetch token symbols in parallel for speed
     const tokenService = getTokenService();
     let baseSymbol = 'UNKNOWN';
     let quoteSymbol = 'UNKNOWN';
-    
-    try {
-      // Fetch base token metadata
-      const baseTokens = await tokenService.searchTokens(baseToken, undefined, [baseChainId], 1);
-      if (baseTokens.length > 0 && baseTokens[0].symbol) {
-        baseSymbol = baseTokens[0].symbol;
-      }
-    } catch (error) {
-      console.warn(`[ChartDataService] Failed to fetch base token symbol for ${baseToken} on chain ${baseChainId}:`, error);
-      // Fallback to truncated address
+
+    const [baseResult, quoteResult] = await Promise.allSettled([
+      tokenService.searchTokens(baseToken, undefined, [baseChainId], 1),
+      tokenService.searchTokens(quoteToken, undefined, [quoteChainId], 1),
+    ]);
+
+    if (baseResult.status === 'fulfilled' && baseResult.value.length > 0 && baseResult.value[0].symbol) {
+      baseSymbol = baseResult.value[0].symbol;
+    } else if (baseResult.status === 'rejected') {
+      console.warn(`[ChartDataService] Failed to fetch base token symbol for ${baseToken} on chain ${baseChainId}:`, baseResult.reason);
       baseSymbol = baseToken.slice(0, 6) + '...' + baseToken.slice(-4);
     }
-    
-    try {
-      // Fetch quote token metadata
-      const quoteTokens = await tokenService.searchTokens(quoteToken, undefined, [quoteChainId], 1);
-      if (quoteTokens.length > 0 && quoteTokens[0].symbol) {
-        quoteSymbol = quoteTokens[0].symbol;
-      }
-    } catch (error) {
-      console.warn(`[ChartDataService] Failed to fetch quote token symbol for ${quoteToken} on chain ${quoteChainId}:`, error);
-      // Fallback to truncated address
+
+    if (quoteResult.status === 'fulfilled' && quoteResult.value.length > 0 && quoteResult.value[0].symbol) {
+      quoteSymbol = quoteResult.value[0].symbol;
+    } else if (quoteResult.status === 'rejected') {
+      console.warn(`[ChartDataService] Failed to fetch quote token symbol for ${quoteToken} on chain ${quoteChainId}:`, quoteResult.reason);
       quoteSymbol = quoteToken.slice(0, 6) + '...' + quoteToken.slice(-4);
     }
 

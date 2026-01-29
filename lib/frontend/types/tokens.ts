@@ -17,12 +17,16 @@ export interface Token {
   usdValue?: string;
   price?: string;
   chainBadge?: string;
+  verified?: boolean;        // Verification status (true = verified, false = unverified/spam)
   priceChange24h?: number;   // 24h price change percentage (e.g., -12.1)
   volume24h?: number;        // 24h trading volume
   liquidity?: number;        // Liquidity in USD
   marketCap?: number;        // Market capitalization
   holders?: number;          // Number of token holders (from Chainbase or fallback)
   transactionCount?: number; // 24h transaction count
+  // Accessible metrics from CoinGecko
+  marketCapRank?: number;   // Market cap rank (lower = better, e.g., #1 Bitcoin)
+  circulatingSupply?: number; // Circulating supply (number of tokens in circulation)
   // Market pair metadata (for pairs from market-pairs endpoint)
   baseToken?: any;           // Full baseToken details (for routing to swap/market pages)
   quoteToken?: any;          // Full quoteToken details (for routing to swap/market pages)

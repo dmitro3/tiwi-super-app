@@ -54,6 +54,17 @@ export class LiFiExecutor implements SwapRouterExecutor {
 
       onStatusUpdate?.({ stage: 'preparing', message: 'Preparing LiFi swap...' });
 
+      console.log('[LiFiExecutor] Executing route:', {
+        fromChain: lifiRoute.fromChainId,
+        toChain: lifiRoute.toChainId,
+        fromToken: lifiRoute.fromToken?.symbol,
+        toToken: lifiRoute.toToken?.symbol,
+        fromAmount: lifiRoute.fromAmount,
+        fromAddress: lifiRoute.fromAddress,
+        toAddress: lifiRoute.toAddress,
+        steps: lifiRoute.steps?.length || 0,
+      });
+
       const executedRoute = await executeRoute(lifiRoute, {
         updateRouteHook: (updatedRoute: RouteExtended) => {
           const latestStep = updatedRoute.steps[0];
@@ -101,6 +112,14 @@ export class LiFiExecutor implements SwapRouterExecutor {
         receipt: executedRoute,
       };
     } catch (error) {
+      console.error('[LiFiExecutor] Execution error:', error);
+      console.error('[LiFiExecutor] Error details:', {
+        name: (error as any)?.name,
+        message: (error as any)?.message,
+        code: (error as any)?.code,
+        stack: (error as any)?.stack,
+      });
+
       const swapError = createSwapError(error, SwapErrorCode.TRANSACTION_FAILED, 'lifi');
       onStatusUpdate?.({ stage: 'failed', message: formatErrorMessage(swapError), error: swapError });
       throw swapError;

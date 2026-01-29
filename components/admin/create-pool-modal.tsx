@@ -297,8 +297,8 @@ export default function CreatePoolModal({
         // Parse reward configuration (required for on-chain creation)
         const maxTvlValue = parseSafeNumber(maxTvl, 0);
         const poolRewardValue = parseSafeNumber(poolReward, 0);
-        const rewardDurationSecondsValue = rewardDurationDays !== "" && typeof rewardDurationDays === 'number' 
-          ? rewardDurationDays * 24 * 60 * 60 
+        const rewardDurationSecondsValue = typeof rewardDurationDays === 'number'
+          ? rewardDurationDays * 24 * 60 * 60
           : undefined;
 
         if (!maxTvlValue || !poolRewardValue || !rewardDurationSecondsValue) {
@@ -309,8 +309,15 @@ export default function CreatePoolModal({
         const rewardTokenAddress = selectedToken.address as Address; // TODO: Allow admin to select reward token separately
         
         // Step 1: Create pool on-chain via factory contract
-        console.log("Creating pool on-chain...");
-        const poolId = await factoryStaking.createPool(
+        console.log("Creating pool on-chain...", {
+          stakingToken: selectedToken.address,
+          rewardToken: rewardTokenAddress,
+          poolReward: poolRewardValue.toString(),
+          rewardDurationSeconds: rewardDurationSecondsValue,
+          maxTvl: maxTvlValue.toString(),
+        });
+        
+        const createdPoolId = await factoryStaking.createPool(
           selectedToken.address as Address,
           rewardTokenAddress,
           poolRewardValue.toString(),
@@ -318,56 +325,112 @@ export default function CreatePoolModal({
           maxTvlValue.toString()
         );
 
-        // Wait for transaction to complete
-        if (factoryStaking.createPoolTxHash) {
-          // Transaction submitted, wait for confirmation
-          // Note: poolId might be null initially, we'll get it from the transaction receipt
-          console.log("Pool creation transaction submitted:", factoryStaking.createPoolTxHash);
+        console.log("Pool created on-chain. Received poolId:", createdPoolId, typeof createdPoolId);
+
+        // Validate poolId was returned
+        if (createdPoolId === null || createdPoolId === undefined) {
+          throw new Error("Failed to create pool on-chain. Pool ID was not returned. Please check the transaction on the block explorer and manually add the poolId to the database.");
         }
 
+        // Convert BigInt to number for database storage
+        const poolIdNumber = Number(createdPoolId);
+
+        // Validate poolId is a valid number
+        if (isNaN(poolIdNumber) || poolIdNumber < 0) {
+          throw new Error(`Invalid pool ID received: ${createdPoolId}. Expected a valid number >= 0.`);
+        }
+
+        console.log("Pool created successfully with poolId:", poolIdNumber);
+
         // Step 2: Get factory contract address for this chain
-        // For now, we'll get it from the factory staking hook
-        // TODO: Get actual factory address from chain configuration
+        const FACTORY_ADDRESSES: Record<number, string> = {
+          1: process.env.NEXT_PUBLIC_FACTORY_ADDRESS_MAINNET || '',
+          56: process.env.NEXT_PUBLIC_FACTORY_ADDRESS_BSC || '0x9178044f7cC0DD0dB121E7fCD4b068a0d1B76b07',
+          137: process.env.NEXT_PUBLIC_FACTORY_ADDRESS_POLYGON || '',
+          42161: process.env.NEXT_PUBLIC_FACTORY_ADDRESS_ARBITRUM || '',
+          8453: process.env.NEXT_PUBLIC_FACTORY_ADDRESS_BASE || '',
+          10: process.env.NEXT_PUBLIC_FACTORY_ADDRESS_OPTIMISM || '',
+          43114: process.env.NEXT_PUBLIC_FACTORY_ADDRESS_AVALANCHE || '',
+        };
+
+        const factoryAddress = FACTORY_ADDRESSES[selectedChain.id] || '';
+
+        if (!factoryAddress || !factoryAddress.startsWith('0x')) {
+          throw new Error(`Factory address not configured for chain ${selectedChain.name} (chainId: ${selectedChain.id}). Please add NEXT_PUBLIC_FACTORY_ADDRESS_${selectedChain.name.toUpperCase()} to your environment variables.`);
+        }
+
+        console.log("Using factory address:", factoryAddress, "for chain:", selectedChain.name);
         
+        console.log("Saving pool to database...", {
+          poolId: poolIdNumber,
+          factoryAddress: factoryAddress,
+          chainId: selectedChain.id,
+          tokenAddress: selectedToken.address,
+        });
+
         // Step 3: Save pool to database with on-chain data
+        const poolData = {
+          chainId: selectedChain.id,
+          chainName: selectedChain.name,
+          tokenAddress: selectedToken.address,
+          tokenSymbol: selectedToken.symbol,
+          tokenName: selectedToken.name,
+          tokenLogo: selectedToken.logo,
+          minStakingPeriod: minStakingPeriod !== "" && typeof minStakingPeriod === 'number' ? `${minStakingPeriod} days` : undefined,
+          minStakeAmount: minStakeAmountValue,
+          maxStakeAmount: maxStakeAmountValue,
+          stakeModificationFee: stakeModificationFee,
+          timeBoost: timeBoost,
+          timeBoostConfig: timeBoost ? {} : undefined,
+          country: country || undefined,
+          stakePoolCreationFee: stakePoolCreationFeeValue,
+          rewardPoolCreationFee: rewardPoolCreationFee || undefined,
+          apy: undefined, // Will be calculated from pool config
+          // Reward configuration
+          maxTvl: maxTvlValue,
+          poolReward: poolRewardValue,
+          rewardDurationSeconds: rewardDurationSecondsValue,
+          // On-chain data - CRITICAL: These fields are required for staking to work
+          poolId: poolIdNumber,
+          factoryAddress: factoryAddress,
+          contractAddress: undefined, // Not used for factory-based pools (use factoryAddress instead)
+          status: "active" as const,
+        };
+
+        console.log("Pool data to be saved:", JSON.stringify(poolData, null, 2));
+
         const response = await fetch("/api/v1/staking-pools", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({
-            chainId: selectedChain.id,
-            chainName: selectedChain.name,
-            tokenAddress: selectedToken.address,
-            tokenSymbol: selectedToken.symbol,
-            tokenName: selectedToken.name,
-            tokenLogo: selectedToken.logo,
-            minStakingPeriod: minStakingPeriod !== "" ? `${minStakingPeriod} days` : undefined,
-            minStakeAmount: minStakeAmountValue,
-            maxStakeAmount: maxStakeAmountValue,
-            stakeModificationFee: stakeModificationFee,
-            timeBoost: timeBoost,
-            timeBoostConfig: timeBoost ? {} : undefined,
-            country: country || undefined,
-            stakePoolCreationFee: stakePoolCreationFeeValue,
-            rewardPoolCreationFee: rewardPoolCreationFee || undefined,
-            apy: undefined,
-            // Reward configuration
-            maxTvl: maxTvlValue,
-            poolReward: poolRewardValue,
-            rewardDurationSeconds: rewardDurationSecondsValue,
-            // On-chain data
-            contractAddress: "FACTORY_CONTRACT", // TODO: Get actual factory address
-            status: "active",
-            // Owner address from connected wallet
-            ownerAddress: connectedAddress,
-          }),
+          body: JSON.stringify(poolData),
         });
+
+        console.log("API Response status:", response.status, response.statusText);
 
         if (!response.ok) {
           const errorData = await response.json().catch(() => ({ error: "Unknown error" }));
           console.error("API Error Response:", errorData);
-          throw new Error(errorData.error || "Failed to save staking pool to database");
+
+          // Provide detailed error message
+          let errorMsg = `Failed to save staking pool to database (HTTP ${response.status}).\n\n`;
+          errorMsg += errorData.error || 'Unknown error';
+          errorMsg += `\n\nThe pool was created on-chain (poolId: ${poolIdNumber}) but could not be saved to the database. `;
+          errorMsg += `You can manually add it using the poolId: ${poolIdNumber} and factory address: ${factoryAddress}`;
+
+          throw new Error(errorMsg);
+        }
+
+        const responseData = await response.json();
+        console.log("Pool saved successfully to database:", responseData);
+
+        // Verify poolId was saved correctly
+        if (responseData.pool && responseData.pool.poolId !== poolIdNumber) {
+          console.warn('Warning: Saved poolId does not match created poolId', {
+            created: poolIdNumber,
+            saved: responseData.pool.poolId
+          });
         }
 
         // Show success modal and refresh pools

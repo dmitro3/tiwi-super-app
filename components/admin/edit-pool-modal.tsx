@@ -51,7 +51,7 @@ export default function EditPoolModal({
       if (poolData.chain && chains.length > 0) {
         const chain = chains.find(c => c.name === poolData.chain || c.id === poolData.chainId);
         if (chain) {
-          setSelectedChain({ id: chain.id, name: chain.name });
+          setSelectedChain({ id: Number(chain.id), name: chain.name });
         }
       }
       
@@ -197,7 +197,7 @@ export default function EditPoolModal({
                   <button
                     key={chain.id}
                     onClick={() => {
-                      setSelectedChain({ id: chain.id, name: chain.name });
+                      setSelectedChain({ id: Number(chain.id), name: chain.name });
                       setShowChainDropdown(false);
                     }}
                     className="w-full text-left px-4 py-2 text-white hover:bg-[#121712] transition-colors flex items-center gap-2"

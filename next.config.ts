@@ -5,6 +5,53 @@ const nextConfig: NextConfig = {
     ignoreBuildErrors: true,
   },
   /* config options here */
+  
+  // SECURITY FIX: Add Content Security Policy headers to prevent XSS attacks
+  async headers() {
+    return [
+      {
+        source: '/:path*',
+        headers: [
+          {
+            key: 'Content-Security-Policy',
+            value: [
+              "default-src 'self'",
+              "script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://*.walletconnect.org https://*.walletconnect.com", // WalletConnect requires unsafe-eval, blob: needed for TradingView charting library
+              "style-src 'self' 'unsafe-inline'",
+              "img-src 'self' data: blob: https: http:",
+              "font-src 'self' data:",
+              "connect-src 'self' https://*.walletconnect.org https://*.walletconnect.com https://*.chainbase.online https://api.1inch.com https://api.dexscreener.com https://api.coingecko.com https://api.mymemory.translated.net https://*.supabase.co https://*.alchemy.com https://*.g.alchemy.com https://mm-sdk-analytics.api.cx.metamask.io https://*.rpc.thirdweb.com https://li.quest https://*.li.quest https://api.li.fi https://bsc-dataseed.binance.org https://bsc-dataseed1.binance.org https://bsc-dataseed2.binance.org https://rpc.ankr.com https://api.mainnet-beta.solana.com https://*.infura.io https://*.quicknode.pro wss://*.walletconnect.org wss://*.walletconnect.com",
+              "frame-src 'self' blob: https://*.walletconnect.org https://*.walletconnect.com",
+              "worker-src 'self' blob:",
+              "child-src 'self' blob:",
+              "object-src 'none'",
+              "base-uri 'self'",
+              "form-action 'self'",
+              "frame-ancestors 'self'",
+              "upgrade-insecure-requests",
+            ].join('; '),
+          },
+          {
+            key: 'X-Content-Type-Options',
+            value: 'nosniff',
+          },
+          {
+            key: 'X-Frame-Options',
+            value: 'SAMEORIGIN',
+          },
+          {
+            key: 'X-XSS-Protection',
+            value: '1; mode=block',
+          },
+          {
+            key: 'Referrer-Policy',
+            value: 'strict-origin-when-cross-origin',
+          },
+        ],
+      },
+    ];
+  },
+  
   images: {
     // domains: ['www.rz2.com', 'example.com', 'cdn.dexscreener.com', 'static.debank.com', 'storage.googleapis.com', 'assets.coingecko.com', 'raw.githubusercontent.com'],
     remotePatterns: [

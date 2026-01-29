@@ -151,19 +151,6 @@ export async function GET(req: NextRequest) {
       countback,
     });
 
-    // CRITICAL: Update the last candle with the current price FIRST
-    // This ensures we use the correct price before filling data
-    // The price calculation matches the header: basePriceUSD / quotePriceUSD
-    if (bars.length > 0) {
-      bars = await updateLastCandleWithCurrentPrice(
-        bars,
-        baseToken,
-        quoteToken,
-        baseChainId || chainId!,
-        quoteChainId || chainId!
-      );
-    }
-
     // Fill sparse data to ensure we always have enough bars for chart display
     // This ensures candlesticks are always visible even with limited data
     // NOTE: fillChartData will use the updated last candle price for synthetic bars
@@ -173,8 +160,8 @@ export async function GET(req: NextRequest) {
     
     bars = fillChartData(bars, fromMs, toMs, resolution, minBars);
 
-    // CRITICAL: Update the last candle AGAIN after filling (in case a new bar was added)
-    // This ensures the final last candle always has the correct current price
+    // Update the last candle with the current price after filling
+    // This ensures the chart displays the most accurate current price
     if (bars.length > 0) {
       bars = await updateLastCandleWithCurrentPrice(
         bars,

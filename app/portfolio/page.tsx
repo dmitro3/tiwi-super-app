@@ -39,6 +39,7 @@ import { createLocalWalletClient } from "@/lib/frontend/utils/viem-clients";
 import { getCanonicalChain, CHAIN_REGISTRY } from "@/lib/backend/registry/chains";
 import { useTokensQuery } from "@/hooks/useTokensQuery";
 import type { Token } from "@/lib/frontend/types/tokens";
+import SecurePasswordModal from "@/components/wallet/secure-password-modal";
 // Option A: Token Selector Modal (prepared but disabled)
 // import TokenSelectorModal from "@/components/swap/token-selector-modal";
 // import type { Token } from "@/lib/frontend/types/tokens";
@@ -322,6 +323,8 @@ function WalletPageDesktop() {
   const [sendError, setSendError] = useState<string | null>(null);
   const [txHash, setTxHash] = useState<string | null>(null);
   const [estimatedGasFee, setEstimatedGasFee] = useState<{ native: string; usd: string; symbol: string } | null>(null);
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
   
   // Receive token selection state
   const [selectedReceiveToken, setSelectedReceiveToken] = useState<WalletToken | null>(null);
@@ -851,12 +854,118 @@ function WalletPageDesktop() {
     setSendStep('confirm');
   }, [recipientAddress, sendAmount, displayToken]);
 
+  // SECURITY FIX: Handle password confirmation for local wallet transactions
+  const handlePasswordConfirm = useCallback(async (password: string) => {
+    if (!displayToken || !recipientAddress || !sendAmount || !activeAddress) {
+      setPasswordError('Missing required information');
+      return;
+    }
+
+    setIsSending(true);
+    setPasswordError(null);
+    setShowPasswordModal(false);
+
+    try {
+      const decimals = displayToken.decimals || 18;
+      const amount = parseUnits(sendAmount, decimals);
+      const isNative = isNativeToken(displayToken.address);
+
+      // Get encrypted private key
+      const encrypted = getEncryptedPrivateKey(activeAddress);
+      if (!encrypted) {
+        setSendError('This local wallet is not fully set up on this device.');
+        setIsSending(false);
+        return;
+      }
+
+      // Decrypt private key with password
+      let privateKey: `0x${string}`;
+      try {
+        const decrypted = await decryptWalletData(encrypted, password);
+        privateKey = decrypted as `0x${string}`;
+      } catch (e: any) {
+        console.error('[Send] Failed to decrypt local wallet key:', e);
+        setPasswordError('Incorrect password. Please try again.');
+        setIsSending(false);
+        setShowPasswordModal(true); // Reopen modal for retry
+        return;
+      }
+
+      // Create account and client
+      try {
+        const account = privateKeyToAccount(privateKey);
+        if (!account) {
+          throw new Error('Local account could not be created');
+        }
+        const clientToUse = createLocalWalletClient(chainId, account);
+
+        // Execute transaction
+        let hash: `0x${string}`;
+        if (isNative) {
+          hash = await transferNativeToken(clientToUse, recipientAddress.trim(), amount);
+        } else {
+          hash = await transferERC20Token(clientToUse, displayToken.address, recipientAddress.trim(), amount);
+        }
+
+        setTxHash(hash);
+        if (publicClient) {
+          await publicClient.waitForTransactionReceipt({ hash });
+        }
+
+        setTimeout(() => {
+          setSendStep('form');
+          setSendAmount('');
+          setRecipientAddress('');
+          setTxHash(null);
+          setIsSending(false);
+        }, 2000);
+      } catch (e: any) {
+        console.error('[Send] Failed to create local signer:', e);
+        setSendError('Failed to create local signer for this wallet.');
+        setIsSending(false);
+      }
+    } catch (error: any) {
+      console.error('Error sending transaction:', error);
+      setSendError(error?.message || 'Failed to send transaction');
+      setIsSending(false);
+    }
+  }, [
+    displayToken,
+    recipientAddress,
+    sendAmount,
+    activeAddress,
+    chainId,
+    publicClient,
+  ]);
+
   const handleConfirmSend = useCallback(async () => {
     if (!displayToken || !recipientAddress || !sendAmount) {
       setSendError('Missing required information');
       return;
     }
 
+    setSendError(null);
+
+    // If active wallet is local, show password modal instead of using window.prompt()
+    if (isLocalActiveWallet) {
+      if (!activeAddress) {
+        setSendError('Active wallet address not available');
+        return;
+      }
+
+      const encrypted = getEncryptedPrivateKey(activeAddress);
+      if (!encrypted) {
+        setSendError('This local wallet is not fully set up on this device.');
+        return;
+      }
+
+      // SECURITY FIX: Show secure password modal instead of window.prompt()
+      setShowPasswordModal(true);
+      setPasswordError(null);
+      return; // Exit early, will continue after password is confirmed
+    }
+
+    // For external wallets, proceed normally
     setIsSending(true);
     setSendError(null);
 
@@ -865,59 +974,7 @@ function WalletPageDesktop() {
       const amount = parseUnits(sendAmount, decimals);
       const isNative = isNativeToken(displayToken.address);
 
-      let clientToUse = walletClient;
-
-      // If active wallet is local, use local signer instead of external wallet
-      if (isLocalActiveWallet) {
-        if (!activeAddress) {
-          setSendError('Active wallet address not available');
-          setIsSending(false);
-          return;
-        }
-
-        const encrypted = getEncryptedPrivateKey(activeAddress);
-        if (!encrypted) {
-          setSendError('This local wallet is not fully set up on this device.');
-          setIsSending(false);
-          return;
-        }
-
-        const password = typeof window !== 'undefined'
-          ? window.prompt('Enter your TIWI wallet password to sign this transaction')
-          : null;
-        if (!password) {
-          setSendError('Password is required to sign the transaction.');
-          setIsSending(false);
-          return;
-        }
-
-        let privateKey: `0x${string}`;
-        try {
-          const decrypted = await decryptWalletData(encrypted, password);
-          privateKey = decrypted as `0x${string}`;
-        } catch (e: any) {
-          console.error('[Send] Failed to decrypt local wallet key:', e);
-          setSendError('Incorrect password or corrupted wallet data.');
-          setIsSending(false);
-          return;
-        }
-
-        try {
-          const account = privateKeyToAccount(privateKey);
-          // Ensure account is defined before creating client
-          if (!account) {
-            throw new Error('Local account could not be created');
-          }
-          clientToUse = createLocalWalletClient(chainId, account);
-        } catch (e: any) {
-          console.error('[Send] Failed to create local signer:', e);
-          setSendError('Failed to create local signer for this wallet.');
-          setIsSending(false);
-          return;
-        }
-      }
-
-      if (!clientToUse) {
+      if (!walletClient) {
         setSendError('No wallet client available. Please connect a wallet.');
         setIsSending(false);
         return;
@@ -925,9 +982,9 @@ function WalletPageDesktop() {
 
       let hash: `0x${string}`;
       if (isNative) {
-        hash = await transferNativeToken(clientToUse, recipientAddress.trim(), amount);
+        hash = await transferNativeToken(walletClient, recipientAddress.trim(), amount);
       } else {
-        hash = await transferERC20Token(clientToUse, displayToken.address, recipientAddress.trim(), amount);
+        hash = await transferERC20Token(walletClient, displayToken.address, recipientAddress.trim(), amount);
       }
 
       setTxHash(hash);
@@ -2206,11 +2263,34 @@ function WalletPageMobile() {
   // Send token selection state
   const [selectedSendToken, setSelectedSendToken] = useState<WalletToken | null>(null);
   const [sendAmount, setSendAmount] = useState<string>('');
+  const [recipientAddress, setRecipientAddress] = useState<string>('');
+  const [isSending, setIsSending] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
+  const [txHash, setTxHash] = useState<string | null>(null);
+  const [estimatedGasFee, setEstimatedGasFee] = useState<{ native: string; usd: string; symbol: string } | null>(null);
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
   
   // Receive token selection state
   const [selectedReceiveToken, setSelectedReceiveToken] = useState<WalletToken | null>(null);
   const [receiveTokenSearchQuery, setReceiveTokenSearchQuery] = useState<string>('');
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
+  
+  // Wagmi hooks for wallet interaction (external wallets)
+  const { data: walletClient } = useWalletClient();
+  const publicClient = usePublicClient();
+  const { address: wagmiAddress } = useAccount();
+  const chainId = useChainId();
+
+  // Active wallet (local or external)
+  const activeAddress = useActiveWalletAddress();
+  const activeWalletId = useWalletManagerStore((s) => s.activeWalletId);
+  const managedWallets = useWalletManagerStore((s) => s.wallets);
+  const activeManagedWallet = useMemo(
+    () => managedWallets.find((w) => w.id === activeWalletId) || null,
+    [managedWallets, activeWalletId]
+  );
+  const isLocalActiveWallet = !!activeManagedWallet?.isLocal;
   
   // Get wallet info for chain detection
   const wallet = useWallet();
@@ -2618,6 +2698,90 @@ function WalletPageMobile() {
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   };
+
+  // SECURITY FIX: Handle password confirmation for local wallet transactions
+  const handlePasswordConfirm = useCallback(async (password: string) => {
+    if (!displayToken || !recipientAddress || !sendAmount || !activeAddress) {
+      setPasswordError('Missing required information');
+      return;
+    }
+
+    setIsSending(true);
+    setPasswordError(null);
+    setShowPasswordModal(false);
+
+    try {
+      const decimals = displayToken.decimals || 18;
+      const amount = parseUnits(sendAmount, decimals);
+      const isNative = isNativeToken(displayToken.address);
+
+      // Get encrypted private key
+      const encrypted = getEncryptedPrivateKey(activeAddress);
+      if (!encrypted) {
+        setSendError('This local wallet is not fully set up on this device.');
+        setIsSending(false);
+        return;
+      }
+
+      // Decrypt private key with password
+      let privateKey: `0x${string}`;
+      try {
+        const decrypted = await decryptWalletData(encrypted, password);
+        privateKey = decrypted as `0x${string}`;
+      } catch (e: any) {
+        console.error('[Send] Failed to decrypt local wallet key:', e);
+        setPasswordError('Incorrect password. Please try again.');
+        setIsSending(false);
+        setShowPasswordModal(true); // Reopen modal for retry
+        return;
+      }
+
+      // Create account and client
+      try {
+        const account = privateKeyToAccount(privateKey);
+        if (!account) {
+          throw new Error('Local account could not be created');
+        }
+        const clientToUse = createLocalWalletClient(chainId, account);
+
+        // Execute transaction
+        let hash: `0x${string}`;
+        if (isNative) {
+          hash = await transferNativeToken(clientToUse, recipientAddress.trim(), amount);
+        } else {
+          hash = await transferERC20Token(clientToUse, displayToken.address, recipientAddress.trim(), amount);
+        }
+
+        setTxHash(hash);
+        if (publicClient) {
+          await publicClient.waitForTransactionReceipt({ hash });
+        }
+
+        setTimeout(() => {
+          setSendStep('form');
+          setSendAmount('');
+          setRecipientAddress('');
+          setTxHash(null);
+          setIsSending(false);
+        }, 2000);
+      } catch (e: any) {
+        console.error('[Send] Failed to create local signer:', e);
+        setSendError('Failed to create local signer for this wallet.');
+        setIsSending(false);
+      }
+    } catch (error: any) {
+      console.error('Error sending transaction:', error);
+      setSendError(error?.message || 'Failed to send transaction');
+      setIsSending(false);
+    }
+  }, [
+    displayToken,
+    recipientAddress,
+    sendAmount,
+    activeAddress,
+    chainId,
+    publicClient,
+  ]);
 
   return (
     <div className="min-h-screen bg-[#050505] font-manrope text-white pb-10">
@@ -3545,6 +3709,22 @@ function WalletPageMobile() {
               </div>
         )}
       </div>
+
+      {/* SECURITY FIX: Secure Password Modal - Replaces window.prompt() */}
+      <SecurePasswordModal
+        open={showPasswordModal}
+        onOpenChange={(open) => {
+          setShowPasswordModal(open);
+          if (!open) {
+            setPasswordError(null);
+          }
+        }}
+        onConfirm={handlePasswordConfirm}
+        title="Enter Wallet Password"
+        description="Enter your TIWI wallet password to sign this transaction."
+        error={passwordError}
+        isLoading={isSending}
+      />
 
       {/* Share Wallet Modal */}
       <ShareWalletModal

@@ -2170,7 +2170,7 @@ function SettingsPageContent() {
 
 export default function SettingsPage() {
   return (
-    <Suspense fallback={null}>
+    <Suspense fallback={<div className="min-h-screen bg-transparent text-white font-manrope flex items-center justify-center">Loading...</div>}>
       <SettingsPageContent />
     </Suspense>
   );

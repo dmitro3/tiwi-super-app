@@ -48,7 +48,8 @@ export class OneInchProvider extends BaseTokenProvider {
   name = '1inch';
   
   private readonly API_BASE = 'https://api.1inch.com/token/v1.2';
-  private readonly API_KEY = process.env.ONEINCH_API_KEY || 'hAJRuIVFRN3zmTAQQXaLl49ZHFVRfX00';
+  // SECURITY FIX: Remove hardcoded API key - use environment variable only
+  private readonly API_KEY = process.env.ONEINCH_API_KEY;
 
   getChainId(canonicalChain: CanonicalChain): string | number | null {
     // 1inch uses numeric chain IDs
@@ -112,6 +113,12 @@ export class OneInchProvider extends BaseTokenProvider {
     category: 'MOST_VIEWED' | 'GAINERS' | 'TRENDING' | 'LISTING_NEW',
     limit: number = 30
   ): Promise<ProviderToken[]> {
+    // SECURITY FIX: Fail gracefully if API key is not set
+    if (!this.API_KEY) {
+      console.warn('[OneInchProvider] API key not configured, skipping request');
+      return [];
+    }
+
     try {
       const url = `${this.API_BASE}/multi-chain/trending-tokens?category=${category}`;
       const response = await fetch(url, {

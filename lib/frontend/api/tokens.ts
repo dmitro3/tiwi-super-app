@@ -22,6 +22,7 @@ export interface FetchTokensParams {
   address?: string;  // Token contract address for specific token lookup
   category?: 'hot' | 'new' | 'gainers' | 'losers'; // Market categories
   source?: 'market' | 'default';  // Data source: 'market' for DexScreener market data, 'default' for regular fetching
+  marketType?: 'spot' | 'perp'; // Market type: 'spot' for spot trading, 'perp' for perpetual futures
 }
 
 /**
@@ -34,7 +35,8 @@ export interface FetchTokensParams {
  * @returns Promise resolving to transformed tokens
  */
 export async function fetchTokens(params: FetchTokensParams = {}): Promise<Token[]> {
-  const { chains, query, limit, address, category, source } = params;
+  console.log("🚀 ~ fetchTokens ~ params:", params)
+  const { chains, query, limit, address, category, source, marketType } = params;
   
   // Build API URL
   const url = new URL('/api/v1/tokens', window.location.origin);
@@ -58,10 +60,12 @@ export async function fetchTokens(params: FetchTokensParams = {}): Promise<Token
   if (source) {
     url.searchParams.set('source', source);
   }
+  if (marketType) {
+    url.searchParams.set('marketType', marketType);
+  }
   
   try {
     const response = await fetch(url.toString());
-    console.log("🚀 ~ fetchTokens ~ url:", url)
     
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
@@ -199,6 +203,9 @@ function transformToken(backendToken: NormalizedToken): Token {
     marketCap: backendToken.marketCap,
     holders: backendToken.holders,
     transactionCount: backendToken.transactionCount,
+    // Accessible metrics from CoinGecko
+    marketCapRank: backendToken.marketCapRank,
+    circulatingSupply: backendToken.circulatingSupply,
     // balance and usdValue are not from API (wallet data, set separately)
   };
 }

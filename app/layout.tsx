@@ -23,7 +23,89 @@ import { WalletProviders } from "@/lib/frontend/providers/wallet-providers";
 
 export const metadata: Metadata = {
   title: "TIWI Protocol",
-  description: "TIWI Protocol - Decentralized Finance Platform",
+  description: "A mobile first multi chain DeFi super application for swapping, staking, liquidity, lending, NFTs, payments, and on chain deals.",
+  keywords: [
+    "TIWI Protocol",
+    "DeFi super app",
+    "multichain DEX",
+    "crypto swap",
+    "cross chain swap",
+    "staking",
+    "yield farming",
+    "liquidity pools",
+    "NFT marketplace",
+    "crypto payments",
+    "Web3 wallet",
+    "decentralized finance",
+    "TIWICAT",
+    "TWC",
+  ],
+  authors: [{ name: "TIWI Protocol" }],
+  creator: "TIWI Protocol",
+  publisher: "TIWI Protocol",
+  category: "Finance, Blockchain, Decentralized Finance",
+  metadataBase: new URL("https://tiwiprotocol.xyz"),
+  alternates: {
+    canonical: "/",
+  },
+  openGraph: {
+    title: "TIWI Protocol - One app. All of DeFi.",
+    description: "TIWI Protocol is a mobile first multi chain DeFi super application that brings decentralized finance into one seamless experience. The platform combines spot swapping through a smart aggregator, cross chain liquidity, staking, yield vaults, lending and borrowing, NFT marketplace, P2P exchange, deal brokerage, launchpad, and crypto payments.",
+    url: "https://tiwiprotocol.xyz",
+    siteName: "TIWI Protocol",
+    images: [
+      {
+        url: "/Metadata.png",
+        width: 1200,
+        height: 630,
+        alt: "TIWI Protocol - DeFi Super App",
+      },
+    ],
+    locale: "en_US",
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "TIWI Protocol - One app. All of DeFi.",
+    description: "A mobile first multi chain DeFi super application for swapping, staking, liquidity, lending, NFTs, payments, and on chain deals.",
+    images: ["/Metadata.png"],
+    creator: "@tiwiprotocol",
+  },
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+      "max-video-preview": -1,
+      "max-image-preview": "large",
+      "max-snippet": -1,
+    },
+  },
+  icons: {
+    icon: [
+      { url: "/Metadata.png", sizes: "512x512", type: "image/png" },
+      { url: "/Metadata.png", sizes: "192x192", type: "image/png" },
+    ],
+    apple: [
+      { url: "/Metadata.png", sizes: "180x180", type: "image/png" },
+    ],
+  },
+  manifest: "/manifest.json",
+  applicationName: "TIWI Protocol",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "TIWI Protocol",
+  },
+  formatDetection: {
+    telephone: false,
+  },
+  other: {
+    "mobile-web-app-capable": "yes",
+    "apple-mobile-web-app-capable": "yes",
+    "apple-mobile-web-app-status-bar-style": "black-translucent",
+  },
 };
 
 export default function RootLayout({

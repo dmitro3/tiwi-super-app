@@ -126,7 +126,11 @@ async function handleMarketPairsRequest(params: {
       page,
     };
     
-    return NextResponse.json(response);
+    return NextResponse.json(response, {
+      headers: {
+        'Cache-Control': 'public, s-maxage=30, stale-while-revalidate=60',
+      },
+    });
   } catch (error: any) {
     console.error('[API] Error fetching market pairs:', error);
     

@@ -171,6 +171,13 @@ export function getExhaustedKeysCount(): number {
 }
 
 /**
+ * Get total number of API keys
+ */
+export function getTotalKeysCount(): number {
+  return MORALIS_API_KEYS.length;
+}
+
+/**
  * Reset exhausted keys (for testing or manual reset)
  */
 export function resetExhaustedKeys(): void {

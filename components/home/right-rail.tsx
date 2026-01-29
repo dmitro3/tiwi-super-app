@@ -1,10 +1,12 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
 import { SpotlightCarousel } from "@/components/home/spotlight-carousel";
 import { useTWCPrice } from "@/hooks/useTWCPrice";
 import { SubscriptUSDPrice } from "@/components/ui/subscript-usd-price";
 import { formatNumber, formatPercentageChange, formatTokenSupply } from "@/lib/frontend/utils/price-formatter";
+import { formatCirculatingSupply } from "@/lib/home/token-formatter";
 import Skeleton from "@/components/ui/skeleton";
 
 export function RightRail() {
@@ -25,7 +27,7 @@ export function RightRail() {
 
 export function StakeCard() {
   return (
-    <div className="w-full rounded-2xl overflow-hidden px-4 lg:px-5 xl:px-5 2xl:px-6 py-4">
+    <Link href="/earn" className="w-full rounded-2xl overflow-hidden px-4 lg:px-5 xl:px-5 2xl:px-6 py-4 block hover:opacity-90 transition-opacity cursor-pointer">
       <Image
         src="/assets/icons/home/claim-reward.svg"
         alt="Stake to earn $TWC"
@@ -34,7 +36,7 @@ export function StakeCard() {
         className="w-full h-auto object-contain"
         priority
       />
-    </div>
+    </Link>
   );
 }
 
@@ -47,8 +49,6 @@ function StatsGrid() {
   const priceChange24h = twcData?.priceChange24h ?? 0;
   const volume24h = twcData?.token?.volume24h;
   const marketCap = twcData?.token?.marketCap;
-  const holders = twcData?.token?.holders;
-  const transactionCount = twcData?.token?.transactionCount;
   
   // TWC Total Supply from contract: 908824899185662757314442 (uint256) with 9 decimals
   const TWC_TOTAL_SUPPLY = '908824899185662757314442';
@@ -64,11 +64,28 @@ function StatsGrid() {
   // Format values
   const volume24hFormatted = volume24h ? `$${formatNumber(volume24h, 2)}` : 'N/A';
   const marketCapFormatted = marketCap ? `$${formatNumber(marketCap, 2)}` : 'N/A';
-  const holdersFormatted = holders ? formatNumber(holders, 0) : 'N/A';
-  const txCountFormatted = transactionCount ? formatNumber(transactionCount, 0) : 'N/A';
   
-  // Format total supply with 9 decimals
-  const totalSupplyFormatted = formatTokenSupply(totalSupplyRaw, TWC_DECIMALS);
+  // Convert total supply from raw string to number (dividing by decimals)
+  // Format: Convert "908824899185662757314442" with 9 decimals → 908824899185.662757314
+  let totalSupplyNumber: number | undefined;
+  try {
+    const supplyBigInt = BigInt(totalSupplyRaw);
+    const divisor = BigInt(10 ** TWC_DECIMALS);
+    const wholePart = supplyBigInt / divisor;
+    const fractionalPart = supplyBigInt % divisor;
+    // Convert to number (may lose precision for very large numbers, but good enough for display)
+    totalSupplyNumber = Number(wholePart) + Number(fractionalPart) / Number(divisor);
+  } catch (error) {
+    console.error('[StatsGrid] Error converting total supply:', error);
+    totalSupplyNumber = undefined;
+  }
+  
+  // Format total supply like circulating supply (B/M/K format)
+  const totalSupplyFormatted = formatCirculatingSupply(totalSupplyNumber);
+  
+  // Get full formatted value for tooltip
+  const totalSupplyTooltipData = formatTokenSupply(totalSupplyRaw, TWC_DECIMALS);
+  const totalSupplyTooltip = totalSupplyTooltipData.tooltip;
 
   return (
     <div className="w-full px-6 lg:px-7 xl:px-6 2xl:px-10 py-0 flex flex-col gap-2 justify-center">
@@ -116,26 +133,6 @@ function StatsGrid() {
           </div>
         </div>
 
-        {/* Trans. Count and Holders */}
-        <div className="grid grid-cols-2 gap-2">
-          <div className="border border-[#1f261e] rounded-lg px-0 py-3 lg:py-4 xl:py-4 flex flex-col items-center gap-2">
-            <p className="text-[#b5b5b5] text-xs lg:text-xs xl:text-sm font-medium">Trans. Count</p>
-            {isLoading ? (
-              <Skeleton className="h-5 w-16" />
-            ) : (
-              <p className="text-white text-sm lg:text-sm xl:text-base font-semibold">{txCountFormatted}</p>
-            )}
-          </div>
-          <div className="border border-[#1f261e] rounded-lg px-0 py-3 lg:py-4 xl:py-4 flex flex-col items-center gap-2">
-            <p className="text-[#b5b5b5] text-xs lg:text-xs xl:text-sm font-medium">Holders</p>
-            {isLoading ? (
-              <Skeleton className="h-5 w-16" />
-            ) : (
-              <p className="text-white text-sm lg:text-sm xl:text-base font-semibold">{holdersFormatted}</p>
-            )}
-          </div>
-        </div>
-
         {/* Total Supply */}
         <div className="border border-[#1f261e] rounded-lg px-0 py-3 lg:py-4 xl:py-4 flex flex-col items-center gap-2">
           <p className="text-[#b5b5b5] text-xs lg:text-xs xl:text-sm font-medium">Total Supply</p>
@@ -144,9 +141,9 @@ function StatsGrid() {
           ) : (
             <p 
               className="text-white text-sm lg:text-sm xl:text-base font-semibold cursor-help"
-              title={totalSupplyFormatted.tooltip}
+              title={totalSupplyTooltip}
             >
-              {totalSupplyFormatted.display}
+              {totalSupplyFormatted}
             </p>
           )}
         </div>

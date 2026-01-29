@@ -40,10 +40,14 @@ export function formatCurrency(value: string | undefined): string {
  * @param maxDecimals - Maximum decimal places (default: 6)
  * @returns Formatted amount string (e.g., "0.000337", "1.5K", "6.89B")
  */
-export function formatTokenAmount(amount: string | undefined, maxDecimals: number = 6): string {
-  if (!amount || amount === '0' || amount === '0.00') return '0.00';
-  
-  const num = parseFloat(amount);
+export function formatTokenAmount(amount: string | number | undefined | null, maxDecimals: number = 6): string {
+  // Defensive: handle null/undefined
+  if (amount === null || amount === undefined) return '0.00';
+  const amountStr = String(amount);
+
+  if (!amountStr || amountStr === '0' || amountStr === '0.00') return '0.00';
+
+  const num = parseFloat(amountStr);
   if (isNaN(num)) return '0.00';
   
   // Use compact notation for large numbers
@@ -81,10 +85,14 @@ export function formatTokenAmount(amount: string | undefined, maxDecimals: numbe
  * @param formatted - Formatted amount string (e.g., "1.5K", "6.89B", "1500")
  * @returns Raw number string (e.g., "1500", "6890000000", "1500")
  */
-export function parseFormattedAmount(formatted: string): string {
-  if (!formatted || formatted.trim() === '') return '0';
-  
-  const trimmed = formatted.trim().toUpperCase();
+export function parseFormattedAmount(formatted: string | number | undefined | null): string {
+  // Defensive: ensure we have a string
+  if (formatted === null || formatted === undefined) return '0';
+  const formattedStr = String(formatted);
+
+  if (!formattedStr || formattedStr.trim() === '') return '0';
+
+  const trimmed = formattedStr.trim().toUpperCase();
   
   // Check for suffixes
   if (trimmed.endsWith('T')) {

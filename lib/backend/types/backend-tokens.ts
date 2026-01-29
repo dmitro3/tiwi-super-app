@@ -57,13 +57,17 @@ export interface NormalizedToken {
   verified?: boolean;         // Verification status (from Relay or multiple providers)
   vmType?: string;            // 'evm' | 'solana' | 'cosmos' | etc. (from Relay)
   
-  // Additional metadata (from DexScreener)
+  // Additional metadata (from CoinGecko/DexScreener)
   volume24h?: number;         // 24h trading volume
-  liquidity?: number;          // Liquidity in USD
+  liquidity?: number;          // Liquidity in USD (deprecated - use marketCapRank/circulatingSupply)
   marketCap?: number;          // Market capitalization
   priceChange24h?: number;     // 24h price change percentage (e.g., -12.1)
-  holders?: number;            // Number of token holders
+  holders?: number;            // Number of token holders (deprecated - use marketCapRank/circulatingSupply)
   transactionCount?: number;   // 24h transaction count (buys + sells)
+  
+  // Accessible metrics from CoinGecko (always available, reliable)
+  marketCapRank?: number;      // Market cap rank (lower = better, e.g., #1 Bitcoin)
+  circulatingSupply?: number;  // Circulating supply (number of tokens in circulation)
   
   // Router compatibility (enriched)
   routerFormats?: {

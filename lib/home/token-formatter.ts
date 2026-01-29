@@ -16,8 +16,8 @@ export interface HomepageToken {
   change: string;
   changePositive: boolean;
   vol: string;
-  liq: string;
-  holders: string;
+  marketCapRank: string;      // Market cap rank (e.g., "#1", "#42")
+  circulatingSupply: string;  // Circulating supply (e.g., "19.5M", "1.2B")
   // Additional fields for reference
   token: Token;
 }
@@ -42,19 +42,31 @@ function formatCurrency(value: number | undefined, decimals: number = 2): string
 }
 
 /**
- * Format number to compact string (for holders)
+ * Format market cap rank (e.g., 1 → "#1", 42 → "#42")
  */
-function formatCompact(value: number | undefined): string {
-  if (value === undefined || value === null || isNaN(value)) {
-    return '0';
+function formatMarketCapRank(rank: number | undefined): string {
+  if (rank === undefined || rank === null || isNaN(rank)) {
+    return 'N/A';
+  }
+  return `#${rank}`;
+}
+
+/**
+ * Format circulating supply (e.g., 19500000 → "19.5M", 1200000000 → "1.2B")
+ */
+export function formatCirculatingSupply(supply: number | undefined): string {
+  if (supply === undefined || supply === null || isNaN(supply)) {
+    return 'N/A';
   }
 
-  if (value >= 1_000_000) {
-    return `${(value / 1_000_000).toFixed(1)}M`;
-  } else if (value >= 1_000) {
-    return `${(value / 1_000).toFixed(1)}K`;
+  if (supply >= 1_000_000_000) {
+    return `${(supply / 1_000_000_000).toFixed(1)}B`;
+  } else if (supply >= 1_000_000) {
+    return `${(supply / 1_000_000).toFixed(1)}M`;
+  } else if (supply >= 1_000) {
+    return `${(supply / 1_000).toFixed(1)}K`;
   } else {
-    return value.toFixed(0);
+    return supply.toFixed(0);
   }
 }
 
@@ -168,8 +180,8 @@ export function formatTokenForHomepage(token: Token): HomepageToken {
     change: priceChange.change,
     changePositive: priceChange.positive,
     vol: formatCurrency(token.volume24h),
-    liq: formatCurrency(token.liquidity),
-    holders: formatCompact(token.holders),
+    marketCapRank: formatMarketCapRank((token as any).marketCapRank),
+    circulatingSupply: formatCirculatingSupply((token as any).circulatingSupply),
     token,
   };
 }

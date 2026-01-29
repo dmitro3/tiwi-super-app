@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect, useRef } from "react";
+import { useState, useMemo, useEffect, useRef, Fragment } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import {
@@ -12,13 +12,18 @@ import {
   TableCell,
 } from "@/components/ui/table";
 import MarketTableRowSkeleton from "./market-table-row-skeleton";
-import { marketPairToToken } from "@/lib/frontend/utils/market-utils";
-import { PairLogoStack } from "@/components/ui/pair-logo-stack";
-import { SubscriptPairPrice } from "@/components/ui/subscript-pair-price";
+import { TokenImage } from "@/components/home/token-image";
 import { SubscriptUSDPrice } from "@/components/ui/subscript-usd-price";
 import { formatPercentageChange, formatNumber } from "@/lib/frontend/utils/price-formatter";
-import type { MarketTokenPair } from "@/lib/backend/types/backend-tokens";
 import type { Token } from "@/lib/frontend/types/tokens";
+
+// Helper function to format market cap rank
+function formatMarketCapRank(rank: number | undefined): string {
+  if (rank === undefined || rank === null || isNaN(rank)) {
+    return "N/A";
+  }
+  return `#${rank}`;
+}
 
 
 interface MarketTableProps {
@@ -26,11 +31,14 @@ interface MarketTableProps {
   isLoading: boolean;
   total: number;
   currentPage: number;
-
   onPageChange: (page: number) => void;
-  sortBy: 'volume' | 'liquidity' | 'performance' | 'none';
-  onSortChange: (sort: 'volume' | 'liquidity' | 'performance' | 'none') => void;
+  sortBy: 'volume' | 'rank' | 'performance' | 'none';
+  onSortChange: (sort: 'volume' | 'rank' | 'performance' | 'none') => void;
   marketType?: "spot" | "perp";
+  favourites?: string[];
+  onFavouriteToggle?: (tokenId: string) => void;
+  visiblePages?: number[];
+  totalPages?: number;
 }
 
 export default function MarketTable({
@@ -40,24 +48,54 @@ export default function MarketTable({
   onPageChange,
   sortBy,
   onSortChange,
-  marketType = "spot"
+  marketType = "spot",
+  favourites = [],
+  onFavouriteToggle,
+  visiblePages = [],
+  totalPages = 1,
 }: MarketTableProps) {
   const router = useRouter();
   const [hoveredRowId, setHoveredRowId] = useState<string | null>(null);
   const scrollYContainerRef = useRef<HTMLDivElement | null>(null);
 
   const handleRowClick = (token: Token) => {
-    // If it's a pair, use the pool address or symbol
+    // Navigate to token market page
     const symbol = token.symbol;
     router.push(`/market/${symbol}-USDT`);
   };
 
   const changePage = (page: number) => {
-    if (page < 1) return;
+    if (page < 1 || page > totalPages) return;
     onPageChange(page);
     if (scrollYContainerRef.current) {
       scrollYContainerRef.current.scrollTo({ top: 0, behavior: "smooth" });
     }
+  };
+
+  // Calculate funding rate (for perp) - using price change as proxy if no real data
+  const getFundingRate = (token: Token): string => {
+    // For now, use a calculated value based on price change
+    // In production, this should come from a perp exchange API
+    if (marketType === "perp") {
+      const priceChange = token.priceChange24h || 0;
+      // Simple calculation: funding rate tends to be small, typically -0.01% to 0.01%
+      // We'll use price change as a proxy, normalized to a small range
+      const rate = (priceChange / 100) * 0.1; // Scale down price change
+      return `${rate >= 0 ? '+' : ''}${rate.toFixed(4)}%`;
+    }
+    return "N/A";
+  };
+
+  // Calculate open interest (for perp) - placeholder
+  const getOpenInterest = (token: Token): string => {
+    if (marketType === "perp") {
+      // Use volume as proxy for open interest if available
+      if (token.volume24h) {
+        return `$${formatNumber(token.volume24h * 0.1)}`; // Rough estimate
+      }
+      return "$0";
+    }
+    return "N/A";
   };
 
 
@@ -94,9 +132,9 @@ export default function MarketTable({
                   </TableHead>
                   <TableHead
                     className="w-[120px] px-6 py-4 text-right text-[14px] text-[#7c7c7c] font-semibold bg-[#010501] cursor-pointer hover:text-white"
-                    onClick={() => onSortChange(sortBy === 'liquidity' ? 'none' : 'liquidity')}
+                    onClick={() => onSortChange(sortBy === 'rank' ? 'none' : 'rank')}
                   >
-                    Liquidity {sortBy === 'liquidity' && '↓'}
+                    Rank {sortBy === 'rank' && '↓'}
                   </TableHead>
                   <TableHead className="w-[120px] px-6 py-4 text-right text-[14px] text-[#7c7c7c] font-semibold bg-[#010501]">
                     Market Cap
@@ -125,7 +163,6 @@ export default function MarketTable({
                   tokens.map((token, idx) => {
                     const rowId = `row-${token.id}-${idx}`;
                     const isHovered = hoveredRowId === rowId;
-                    const pair = token.pair;
 
                     return (
                       <TableRow
@@ -138,36 +175,43 @@ export default function MarketTable({
                       >
                         <TableCell className="px-6 py-5">
                           <div className="flex items-center gap-3">
-                            <Image
-                              src="/assets/icons/home/star.svg"
-                              alt="star"
-                              width={18}
-                              height={18}
-                              className="shrink-0 opacity-40 hover:opacity-100 transition-opacity"
-                            />
-                            {pair ? (
-                              <PairLogoStack
-                                baseToken={pair.baseToken}
-                                quoteToken={pair.quoteToken}
-                                pairName={`${pair.baseToken.symbol}/${pair.quoteToken.symbol}`}
-                                chainName={pair.chainName}
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const tokenId = `${token.chainId}-${token.address.toLowerCase()}`;
+                                onFavouriteToggle?.(tokenId);
+                              }}
+                              className="shrink-0 cursor-pointer"
+                              aria-label="Toggle favourite"
+                            >
+                              <Image
+                                src={favourites.includes(`${token.chainId}-${token.address.toLowerCase()}`)
+                                  ? "/assets/icons/wallet/star18.svg"
+                                  : "/assets/icons/home/star.svg"
+                                }
+                                alt="star"
+                                width={18}
+                                height={18}
+                                className="shrink-0 opacity-40 hover:opacity-100 transition-opacity"
                               />
-                            ) : (
-                              <Image src={token.logo || ''} alt={token.symbol} width={32} height={32} className="rounded-full" />
-                            )}
+                            </button>
+                            <TokenImage
+                              src={token.logoURI || token.logo || ''}
+                              alt={token.symbol || ''}
+                              width={32}
+                              height={32}
+                              symbol={token.symbol || ''}
+                              className="rounded-full shrink-0"
+                            />
                             <div className="flex flex-col">
-                              <span className="text-white font-bold text-[16px]">{token.symbol}/{pair?.quoteToken.symbol || 'USDT'}</span>
+                              <span className="text-white font-bold text-[16px]">{token.symbol}</span>
                               <span className="text-[#7c7c7c] text-[12px]">{token.name}</span>
                             </div>
                           </div>
                         </TableCell>
                         <TableCell className="px-6 py-5 text-right">
                           <div className="flex flex-col items-end">
-                            {pair ? (
-                              <SubscriptPairPrice price={pair.pairPrice || '0'} quoteSymbol={pair.quoteToken.symbol} className="text-white font-semibold text-[16px]" />
-                            ) : (
-                              <SubscriptUSDPrice price={token.price || '0'} className="text-white font-semibold text-[16px]" />
-                            )}
+                            <SubscriptUSDPrice price={token.price || '0'} className="text-white font-semibold text-[16px]" />
                           </div>
                         </TableCell>
                         <TableCell className={`px-6 py-5 text-right font-medium text-[16px] ${(token.priceChange24h || 0) >= 0 ? "text-[#3fea9b]" : "text-[#ff5c5c]"
@@ -178,7 +222,7 @@ export default function MarketTable({
                           ${formatNumber(token.volume24h)}
                         </TableCell>
                         <TableCell className="px-6 py-5 text-right text-white font-medium text-[16px]">
-                          ${formatNumber(token.liquidity)}
+                          {formatMarketCapRank(token.marketCapRank)}
                         </TableCell>
                         <TableCell className="px-6 py-5 text-right text-white font-medium text-[16px]">
                           ${formatNumber(token.marketCap)}
@@ -186,8 +230,12 @@ export default function MarketTable({
 
                         {marketType === "perp" && (
                           <>
-                            <TableCell className="px-6 py-5 text-right text-white font-medium text-[16px]">0.01%</TableCell>
-                            <TableCell className="px-6 py-5 text-right text-white font-medium text-[16px]">$1.2M</TableCell>
+                            <TableCell className="px-6 py-5 text-right text-white font-medium text-[16px]">
+                              {getFundingRate(token)}
+                            </TableCell>
+                            <TableCell className="px-6 py-5 text-right text-white font-medium text-[16px]">
+                              {getOpenInterest(token)}
+                            </TableCell>
                           </>
                         )}
 
@@ -221,25 +269,35 @@ export default function MarketTable({
             <Image src="/assets/icons/home/arrow-down-01.svg" alt="prev" width={20} height={20} className="rotate-90 opacity-60" />
           </button>
 
+          {/* Page Numbers */}
           <div className="flex items-center gap-2">
-            {[1, 2, 3, 4, 5].map((p) => (
-              <button
-                key={p}
-                onClick={() => changePage(p)}
-                className={`w-9 h-9 rounded-lg flex items-center justify-center text-[15px] font-medium transition-colors ${currentPage === p
-                  ? 'bg-[#b1f128] text-black font-bold'
-                  : 'text-[#7c7c7c] hover:text-white hover:bg-[#0b0f0a]'
-                  }`}
-              >
-                {p}
-              </button>
-            ))}
-            <span className="text-[#3a3a3a]">...</span>
+            {visiblePages.map((page, index) => {
+              // Show ellipsis before this page if there's a gap
+              const showEllipsisBefore = index > 0 && page - visiblePages[index - 1] > 1;
+              
+              return (
+                <Fragment key={page}>
+                  {showEllipsisBefore && (
+                    <span className="text-[#3a3a3a]">...</span>
+                  )}
+                  <button
+                    onClick={() => changePage(page)}
+                    className={`w-9 h-9 rounded-lg flex items-center justify-center text-[15px] font-medium transition-colors ${currentPage === page
+                      ? 'bg-[#b1f128] text-black font-bold'
+                      : 'text-[#7c7c7c] hover:text-white hover:bg-[#0b0f0a]'
+                      }`}
+                  >
+                    {page}
+                  </button>
+                </Fragment>
+              );
+            })}
           </div>
 
           <button
             onClick={() => changePage(currentPage + 1)}
-            className="bg-[#0b0f0a] border border-[#1f261e] p-2 rounded-lg hover:bg-[#1a1f19] transition-colors"
+            disabled={currentPage >= totalPages}
+            className="bg-[#0b0f0a] border border-[#1f261e] p-2 rounded-lg disabled:opacity-30 hover:bg-[#1a1f19] transition-colors"
           >
             <Image src="/assets/icons/home/arrow-down-01.svg" alt="next" width={20} height={20} className="-rotate-90 opacity-60" />
           </button>

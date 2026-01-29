@@ -1,33 +1,64 @@
 "use client";
 
+import { useState } from "react";
 import Image from "next/image";
 
 interface OverviewSectionProps {
   pair: string; // e.g., "BTC/USDT"
+  tokenData?: any; // Enriched token data from API
+}
+
+function formatLargeNumber(value: number | null | undefined): string {
+  if (value == null || isNaN(value)) return 'N/A';
+  if (value >= 1e12) return `$${(value / 1e12).toFixed(2)}T`;
+  if (value >= 1e9) return `$${(value / 1e9).toFixed(2)}B`;
+  if (value >= 1e6) return `$${(value / 1e6).toFixed(2)}M`;
+  if (value >= 1e3) return `$${(value / 1e3).toFixed(2)}K`;
+  return `$${value.toFixed(2)}`;
+}
+
+function formatSupply(value: number | null | undefined): string {
+  if (value == null || isNaN(value)) return 'N/A';
+  return value.toLocaleString();
+}
+
+function truncateAddress(address: string): string {
+  if (!address || address.length < 12) return address || 'N/A';
+  return `${address.slice(0, 6)}...${address.slice(-4)}`;
 }
 
 /**
  * Overview Section Component
  * Displays token information, details, and statistics
  */
-export default function OverviewSection({ pair }: OverviewSectionProps) {
-  // Parse pair to get token name
+export default function OverviewSection({ pair, tokenData: tokenInfo }: OverviewSectionProps) {
   const [baseToken] = pair.split("/");
-  
-  // Mock data - will be replaced with API calls
+  const [copied, setCopied] = useState(false);
+
+  const tokenName = tokenInfo?.name || baseToken;
+  const tokenSymbol = tokenInfo?.symbol || baseToken;
+  const contractAddress = tokenInfo?.address || '';
+  const chainId = tokenInfo?.chainId;
+
+  const networkName = chainId === 56 ? 'BNB Chain' : chainId === 1 ? 'Ethereum' : chainId === 137 ? 'Polygon' : chainId === 42161 ? 'Arbitrum' : chainId === 10 ? 'Optimism' : chainId === 8453 ? 'Base' : chainId === 43114 ? 'Avalanche' : chainId === 250 ? 'Fantom' : chainId ? `Chain ${chainId}` : 'N/A';
+
+  const handleCopyAddress = () => {
+    if (contractAddress) {
+      navigator.clipboard.writeText(contractAddress);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
   const tokenData = {
-    about: `Bitcoin (BTC) is a decentralized digital currency. Its transactions are verified by network nodes through cryptography and recorded in a public distributed ledger called a blockchain. The process of verification and record, also called mining. Every 10 minutes, the successful miner(as well as network node) finding the new block is allowed by the rest of the network to collect for themselves all transaction fees from transactions they included in the block, as well as a predetermined reward for newly created bitcoins.Bitcoin was invented in 2008 by an unknown person or group of people using the name Satoshi Nakamoto and began to use in 2009, when its implementation was released as open-source software. The word "bitcoin" was defined in a white paper(https://bitcoin.org/bitcoin.pdf) published on October 31, 2008.The Library of Congress reports that, as of November 2021, nine countries have fully banned Bitcoin use, and a further forty-two have implicitly banned it. A few governments have used bitcoin in some capacity. El Salvador has adopted Bitcoin as legal tender, although use by merchants remains low. Ukraine has accepted cryptocurrency donations to fund the resistance to the 2022 Russian invasion. Iran has used bitcoin to bypass sanctions.Recently, Bitcoin has two notable new features. First is Lightning Network(LN), which is a "layer 2" payment protocol that operates on top of Bitcoin and other cryptocurrencies. It aims to facilitate fast transactions among participating nodes and is proposed as a solution to Bitcoin's scalability issues. The Lightning Network allows for micropayments through a network of bidirectional payment channels without requiring the custody of funds to be delegated.Another is Bitcoin Ordinals, which are a relatively new development in the Bitcoin ecosystem, gaining traction especially in April 2023. They are digital assets inscribed on a satoshi, the smallest unit of Bitcoin. This inscription process is made possible by the Taproot upgrade, which was launched on the Bitcoin network on November 14, 2021. Ordinals are similar to Non-Fungible Tokens (NFTs) and allow users to inscribe various types of content like images, videos, and games onto the Bitcoin blockchain.Above are only for introduction, not intended as investment advice.`,
-    tokenName: "Bitcoin",
-    network: "BTC",
-    contract: "0x1111...fc69",
-    officialX: "@BTC",
-    website: "bitcoin.com",
-    marketCap: "$520.98M",
-    liquidity: "$2.08T",
-    volume24h: "$9.55M",
-    circulatingSupply: "4,469,999,998",
-    totalSupply: "10,000,000,000",
-    maxSupply: "10,000,000,000",
+    about: `${tokenName} (${tokenSymbol}) is a cryptocurrency token available for trading on ${networkName}. View live price charts, trade ${tokenSymbol}, and track market performance on TIWI Protocol.`,
+    tokenName,
+    network: networkName,
+    contract: truncateAddress(contractAddress),
+    marketCap: formatLargeNumber(tokenInfo?.marketCap),
+    liquidity: formatLargeNumber(tokenInfo?.liquidity),
+    volume24h: formatLargeNumber(tokenInfo?.volume24h),
+    circulatingSupply: formatSupply(tokenInfo?.circulatingSupply),
   };
 
   return (
@@ -111,10 +142,14 @@ export default function OverviewSection({ pair }: OverviewSectionProps) {
               <p className="font-medium leading-normal relative shrink-0 text-base lg:text-sm xl:text-sm 2xl:text-base text-center text-white">
                 {tokenData.contract}
               </p>
-              <button className="relative shrink-0 size-4 lg:size-3 xl:size-3.5 2xl:size-4 cursor-pointer hover:opacity-80 transition-opacity">
+              <button
+                onClick={handleCopyAddress}
+                className="relative shrink-0 size-4 lg:size-3 xl:size-3.5 2xl:size-4 cursor-pointer hover:opacity-80 transition-opacity"
+                title={copied ? "Copied!" : "Copy address"}
+              >
                 <Image
                   src="/assets/icons/market/copy-01.svg"
-                  alt="Copy"
+                  alt={copied ? "Copied" : "Copy"}
                   width={16}
                   height={16}
                   className="w-full h-full object-contain"
@@ -141,68 +176,25 @@ export default function OverviewSection({ pair }: OverviewSectionProps) {
             </div>
           </div>
 
-          {/* Official X */}
+          {/* Symbol */}
           <div className="flex items-start justify-between w-full">
             <div className="flex gap-2 lg:gap-1.5 xl:gap-1.5 2xl:gap-2 items-center">
               <div className="relative shrink-0 size-6 lg:size-4 xl:size-5 2xl:size-6">
                 <Image
                   src="/assets/icons/market/new-twitter.svg"
-                  alt="Official X"
+                  alt="Symbol"
                   width={24}
                   height={24}
                   className="w-full h-full object-contain"
                 />
               </div>
               <p className="font-medium leading-normal relative shrink-0 text-base lg:text-sm xl:text-sm 2xl:text-base text-center text-[#b5b5b5]">
-                Official X
+                Symbol
               </p>
             </div>
-            <div className="flex gap-2 lg:gap-1.5 xl:gap-1.5 2xl:gap-2 items-center">
-              <p className="font-medium leading-normal relative shrink-0 text-base lg:text-sm xl:text-sm 2xl:text-base text-center text-white">
-                {tokenData.officialX}
-              </p>
-              <button className="relative shrink-0 size-4 lg:size-3 xl:size-3.5 2xl:size-4 cursor-pointer hover:opacity-80 transition-opacity">
-                <Image
-                  src="/assets/icons/market/share-04.svg"
-                  alt="Share"
-                  width={16}
-                  height={16}
-                  className="w-full h-full object-contain"
-                />
-              </button>
-            </div>
-          </div>
-
-          {/* Website */}
-          <div className="flex items-start justify-between w-full">
-            <div className="flex gap-2 lg:gap-1.5 xl:gap-1.5 2xl:gap-2 items-center">
-              <div className="relative shrink-0 size-6 lg:size-4 xl:size-5 2xl:size-6">
-                <Image
-                  src="/assets/icons/market/link-03.svg"
-                  alt="Website"
-                  width={24}
-                  height={24}
-                  className="w-full h-full object-contain"
-                />
-              </div>
-              <p className="font-medium leading-normal relative shrink-0 text-base lg:text-sm xl:text-sm 2xl:text-base text-center text-[#b5b5b5]">
-                Website
-              </p>
-            </div>
-            <div className="flex gap-2 lg:gap-1.5 xl:gap-1.5 2xl:gap-2 items-center">
-              <p className="font-medium leading-normal relative shrink-0 text-base lg:text-sm xl:text-sm 2xl:text-base text-center text-white">
-                {tokenData.website}
-              </p>
-              <button className="relative shrink-0 size-4 lg:size-3 xl:size-3.5 2xl:size-4 cursor-pointer hover:opacity-80 transition-opacity">
-                <Image
-                  src="/assets/icons/market/share-04.svg"
-                  alt="Share"
-                  width={16}
-                  height={16}
-                  className="w-full h-full object-contain"
-                />
-              </button>
-            </div>
+            <p className="font-medium leading-normal relative shrink-0 text-base lg:text-sm xl:text-sm 2xl:text-base text-center text-white">
+              {tokenSymbol}
+            </p>
           </div>
         </div>
 
@@ -241,14 +233,6 @@ export default function OverviewSection({ pair }: OverviewSectionProps) {
           <div className="flex font-medium items-center justify-between leading-normal relative shrink-0 text-base lg:text-sm xl:text-sm 2xl:text-base text-center w-full">
             <p className="relative shrink-0 text-[#b5b5b5]">Circulating Supply</p>
             <p className="relative shrink-0 text-white">{tokenData.circulatingSupply}</p>
-          </div>
-          <div className="flex font-medium items-center justify-between leading-normal relative shrink-0 text-base lg:text-sm xl:text-sm 2xl:text-base text-center w-full">
-            <p className="relative shrink-0 text-[#b5b5b5]">Total Supply</p>
-            <p className="relative shrink-0 text-white">{tokenData.totalSupply}</p>
-          </div>
-          <div className="flex font-medium items-center justify-between leading-normal relative shrink-0 text-base lg:text-sm xl:text-sm 2xl:text-base text-center w-full">
-            <p className="relative shrink-0 text-[#b5b5b5]">Max. Supply</p>
-            <p className="relative shrink-0 text-white">{tokenData.maxSupply}</p>
           </div>
         </div>
       </div>

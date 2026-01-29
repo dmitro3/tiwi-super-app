@@ -11,6 +11,9 @@ export type {
   QuoteSource,
   AggregatedQuote,
   QuoteAggregationOptions,
-  ValidationResult,
 } from './quote-aggregator';
+
+export type {
+  ValidationResult,
+} from './route-validator';
 

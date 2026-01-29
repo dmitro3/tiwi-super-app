@@ -2,16 +2,20 @@
 
 import { useState } from "react";
 import Image from "next/image";
-import { MOCK_ORDERS } from "@/lib/market/trading-mock-data";
 
 type OrdersTab = "Orders" | "Transaction History";
+
+interface OrdersTableProps {
+  baseSymbol?: string;
+  quoteSymbol?: string;
+}
 
 /**
  * Orders Table Component
  * Displays user's orders and transaction history
- * Ready for backend integration
  */
-export default function OrdersTable() {
+export default function OrdersTable({ baseSymbol = '', quoteSymbol = 'USDT' }: OrdersTableProps) {
+  const orders: any[] = [];
   const [activeTab, setActiveTab] = useState<OrdersTab>("Orders");
 
   return (
@@ -26,7 +30,7 @@ export default function OrdersTable() {
             >
               <span className={`text-base lg:text-xs xl:text-sm 2xl:text-base font-semibold leading-normal text-center whitespace-nowrap ${activeTab === "Orders" ? "text-white" : "text-[#b5b5b5]"
                 }`}>
-                Orders ({MOCK_ORDERS.length})
+                Orders ({orders.length})
               </span>
               {activeTab === "Orders" && (
                 <div className="h-0 w-full border-t border-[#b1f128]"></div>
@@ -83,7 +87,7 @@ export default function OrdersTable() {
       </div>
 
       {/* Empty State - Only show when on Orders tab and no orders */}
-      {MOCK_ORDERS.length === 0 && activeTab === "Orders" && (
+      {orders.length === 0 && activeTab === "Orders" && (
         <div className="flex flex-col gap-2 items-center justify-center py-16">
           {/* <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
             <path d="M14 2H6C5.46957 2 4.96086 2.21071 4.58579 2.58579C4.21071 2.96086 4 3.46957 4 4V20C4 20.5304 4.21071 21.0391 4.58579 21.4142C4.96086 21.7893 5.46957 22 6 22H18C18.5304 22 19.0391 21.7893 19.4142 21.4142C19.7893 21.0391 20 20.5304 20 20V8L14 2Z" stroke="#b5b5b5" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
@@ -105,9 +109,9 @@ export default function OrdersTable() {
       )}
 
       {/* Orders List (when data exists) */}
-      {MOCK_ORDERS.length > 0 && activeTab === "Orders" && (
+      {orders.length > 0 && activeTab === "Orders" && (
         <div className="w-full">
-          {MOCK_ORDERS.map((order, index) => {
+          {orders.map((order, index) => {
             const [baseToken, quoteToken] = order.token.split("/");
             return (
               <div

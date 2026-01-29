@@ -7,14 +7,12 @@ import TradingForm from "@/components/market/trading-form";
 import ChartSection from "@/components/market/chart-section";
 import OrderbookSection from "@/components/market/orderbook-section";
 import OrdersTable from "@/components/market/orders-table";
-import StakeCard from "@/components/market/stake-card";
 import MobileTradingLayout from "@/components/market/mobile-trading-layout";
 import TokenHeaderSkeleton from "@/components/market/skeletons/token-header-skeleton";
 import ChartSkeleton from "@/components/market/skeletons/chart-skeleton";
 import OrderbookSkeleton from "@/components/market/skeletons/orderbook-skeleton";
 import TradingFormSkeleton from "@/components/market/skeletons/trading-form-skeleton";
 import OrdersTableSkeleton from "@/components/market/skeletons/orders-table-skeleton";
-import { getTokenByPair, getTokenStats } from "@/lib/market/trading-mock-data";
 import Image from "next/image";
 
 /**
@@ -40,6 +38,34 @@ export default function TradingPage() {
   const [tokenStats, setTokenStats] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
 
+  // Fallback: populate token data from URL pair when API fails
+  const setFallbackFromPair = (normalized: string, parts: string[]) => {
+    const [baseSymbol, quoteSymbol] = parts;
+    setTokenData({
+      symbol: baseSymbol,
+      pair: `${baseSymbol}/${quoteSymbol}`,
+      icon: '',
+      name: baseSymbol,
+      address: '',
+      chainId: 56,
+      quoteSymbol,
+      quoteIcon: '',
+      marketCap: null,
+      liquidity: null,
+      circulatingSupply: null,
+      currentPrice: 0,
+      volume24h: null,
+    });
+    setTokenStats({
+      price: '$--',
+      change: '--',
+      changePositive: true,
+      vol24h: '$--',
+      high24h: '$--',
+      low24h: '$--',
+    });
+  };
+
   // Fetch real token data and price stats from API
   useEffect(() => {
     setIsLoading(true);
@@ -53,16 +79,9 @@ export default function TradingPage() {
         
         if (parts.length < 2) {
           console.error('[MarketPage] Invalid pair format:', pair);
-          // Fallback to mock data
-          const token = getTokenByPair(pair);
-          const stats = getTokenStats(pair);
-          setTokenData(token);
-          setTokenStats(stats);
           setIsLoading(false);
           return;
         }
-        
-        const [baseSymbol, quoteSymbol] = parts;
         
         // Fetch real price data from API
         const response = await fetch(`/api/v1/market/${pair}/price`);
@@ -70,46 +89,60 @@ export default function TradingPage() {
         if (response.ok) {
           const priceData = await response.json();
           
-          // Format token data
           const token = {
             symbol: priceData.baseToken.symbol,
             pair: priceData.pair,
-            icon: "", // Will be fetched from token service if needed
+            icon: priceData.baseToken.logo || '',
+            name: priceData.baseToken.name || priceData.baseToken.symbol,
+            address: priceData.baseToken.address || '',
+            chainId: priceData.baseToken.chainId,
+            quoteSymbol: priceData.quoteToken.symbol,
+            quoteIcon: priceData.quoteToken.logo || '',
+            marketCap: priceData.baseToken.marketCap,
+            liquidity: priceData.baseToken.liquidity,
+            circulatingSupply: priceData.baseToken.circulatingSupply,
+            currentPrice: priceData.priceUSD || priceData.price,
+            volume24h: priceData.volume24h || null,
           };
           
           // Format stats with real price data
           // Use pairPriceUSD for display (matches chart's pair price)
-          const pairPrice = priceData.priceUSD || priceData.price;
+          const pairPrice = priceData.priceUSD || priceData.price || 0;
+          const priceChange = priceData.priceChange24h || 0;
+          const vol24h = priceData.volume24h || 0;
+          const high = priceData.high24h || 0;
+          const low = priceData.low24h || 0;
+
           const stats = {
-            price: `$${pairPrice.toFixed(2)}`, // Pair price in USD (matches chart)
-            change: `${priceData.priceChange24h >= 0 ? '+' : ''}${priceData.priceChange24h.toFixed(2)}%`,
-            changePositive: priceData.priceChange24h >= 0,
-            vol24h: priceData.volume24h >= 1e9 
-              ? `$${(priceData.volume24h / 1e9).toFixed(2)}B`
-              : priceData.volume24h >= 1e6
-              ? `$${(priceData.volume24h / 1e6).toFixed(2)}M`
-              : `$${priceData.volume24h.toFixed(2)}`,
-            high24h: `$${priceData.high24h.toFixed(2)}`,
-            low24h: `$${priceData.low24h.toFixed(2)}`,
+            price: pairPrice > 0 ? `$${pairPrice.toFixed(2)}` : '$--',
+            change: `${priceChange >= 0 ? '+' : ''}${priceChange.toFixed(2)}%`,
+            changePositive: priceChange >= 0,
+            vol24h: vol24h >= 1e9
+              ? `$${(vol24h / 1e9).toFixed(2)}B`
+              : vol24h >= 1e6
+              ? `$${(vol24h / 1e6).toFixed(2)}M`
+              : vol24h > 0
+              ? `$${vol24h.toFixed(2)}`
+              : '$--',
+            high24h: high > 0 ? `$${high.toFixed(2)}` : '$--',
+            low24h: low > 0 ? `$${low.toFixed(2)}` : '$--',
           };
           
           setTokenData(token);
           setTokenStats(stats);
         } else {
-          // Fallback to mock data if API fails
-          console.warn('[MarketPage] Failed to fetch price data, using mock data');
-          const token = getTokenByPair(pair);
-          const stats = getTokenStats(pair);
-          setTokenData(token);
-          setTokenStats(stats);
+          console.warn('[MarketPage] Failed to fetch price data, using fallback');
+          // Fallback: show UI with pair symbols from URL
+          setFallbackFromPair(normalized, parts);
         }
       } catch (error) {
         console.error('[MarketPage] Error fetching market data:', error);
-        // Fallback to mock data on error
-        const token = getTokenByPair(pair);
-        const stats = getTokenStats(pair);
-        setTokenData(token);
-        setTokenStats(stats);
+        // Fallback: show UI with pair symbols from URL
+        const normalized = pair.replace("/", "-").replace("_", "-").toUpperCase();
+        const parts = normalized.split("-");
+        if (parts.length >= 2) {
+          setFallbackFromPair(normalized, parts);
+        }
       } finally {
         setIsLoading(false);
       }
@@ -169,18 +202,22 @@ export default function TradingPage() {
                 <div className="flex flex-row border-b border-[#1f261e]">
                   {/* Chart Section - Scaled proportionally */}
                   <div className="w-[924px] lg:w-[672px] xl:w-[756px] 2xl:w-[924px] min-w-0">
-                    <ChartSection pair={tokenData.pair || ""} />
+                    <ChartSection pair={tokenData.pair || ""} tokenData={tokenData} />
                   </div>
 
                   {/* Orderbook Section - Scaled proportionally */}
                   <div className="w-[424px] lg:w-[308px] xl:w-[344px] 2xl:w-[424px] border-l border-[#1f261e] shrink-0">
-                    <OrderbookSection />
+                    <OrderbookSection
+                      baseSymbol={tokenData.symbol}
+                      quoteSymbol={tokenData.quoteSymbol || 'USDT'}
+                      currentPrice={tokenData.currentPrice || 0}
+                    />
                   </div>
                 </div>
 
                 {/* Orders/History Section */}
                 <div className="flex-1">
-                  <OrdersTable />
+                  <OrdersTable baseSymbol={tokenData.symbol} quoteSymbol={tokenData.quoteSymbol || 'USDT'} />
                 </div>
               </>
             ) : (
@@ -247,7 +284,12 @@ export default function TradingPage() {
 
                 {/* Trading Form */}
                 <div className="px-6 lg:px-4 xl:px-5 2xl:px-6">
-                  <TradingForm marketType={activeMarketTab.toLowerCase() as "spot" | "perp"} />
+                  <TradingForm
+                    marketType={activeMarketTab.toLowerCase() as "spot" | "perp"}
+                    baseSymbol={tokenData?.symbol || ''}
+                    quoteSymbol={tokenData?.quoteSymbol || 'USDT'}
+                    currentPrice={tokenData?.currentPrice || 0}
+                  />
                 </div>
               </div>
             )}

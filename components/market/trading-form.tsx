@@ -4,14 +4,16 @@ import { useState } from "react";
 
 interface TradingFormProps {
   marketType?: "spot" | "perp";
+  baseSymbol?: string;
+  quoteSymbol?: string;
+  currentPrice?: number;
 }
 
 /**
  * Trading Form Component
  * Handles Buy/Sell orders with Market/Limit options
- * Ready for backend integration and wallet confirmation
  */
-export default function TradingForm({ marketType = "spot" }: TradingFormProps) {
+export default function TradingForm({ marketType = "spot", baseSymbol = '', quoteSymbol = 'USDT', currentPrice = 0 }: TradingFormProps) {
   const [side, setSide] = useState<"Buy" | "Sell">("Buy");
   const [orderType, setOrderType] = useState<"Market" | "Limit">("Market");
   const [orderValue, setOrderValue] = useState("0");
@@ -19,7 +21,7 @@ export default function TradingForm({ marketType = "spot" }: TradingFormProps) {
   const [percentage, setPercentage] = useState(0);
 
   // Available balance (will come from wallet/API)
-  const availableBalance = "10 USDT";
+  const availableBalance = `0 ${quoteSymbol}`;
 
   // Color theme constants
   const buyColors = {
@@ -44,9 +46,8 @@ export default function TradingForm({ marketType = "spot" }: TradingFormProps) {
     let quantity = "-";
     if (orderType === "Limit" && value > 0 && price > 0) {
       quantity = (value / price).toFixed(8);
-    } else if (orderType === "Market" && value > 0) {
-      // For Market orders, we'd use current market price (placeholder for now)
-      quantity = "0.00000000";
+    } else if (orderType === "Market" && value > 0 && currentPrice > 0) {
+      quantity = (value / currentPrice).toFixed(8);
     }
     
     return {
@@ -171,7 +172,7 @@ export default function TradingForm({ marketType = "spot" }: TradingFormProps) {
               placeholder="0"
               className="bg-transparent text-[#b5b5b5] text-base lg:text-sm xl:text-sm 2xl:text-base font-medium outline-none w-full"
             />
-            <span className="text-[#b5b5b5] text-base lg:text-sm xl:text-sm 2xl:text-base font-medium">USD</span>
+            <span className="text-[#b5b5b5] text-base lg:text-sm xl:text-sm 2xl:text-base font-medium">{quoteSymbol}</span>
           </div>
         </div>
       )}
@@ -189,7 +190,7 @@ export default function TradingForm({ marketType = "spot" }: TradingFormProps) {
             placeholder="0"
             className="bg-transparent text-[#b5b5b5] text-base lg:text-sm xl:text-sm 2xl:text-base font-medium outline-none w-full"
           />
-          <span className="text-[#b5b5b5] text-base lg:text-sm xl:text-sm 2xl:text-base font-medium">USD</span>
+          <span className="text-[#b5b5b5] text-base lg:text-sm xl:text-sm 2xl:text-base font-medium">{quoteSymbol}</span>
         </div>
         
         {/* Available Balance */}
