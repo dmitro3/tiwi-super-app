@@ -149,7 +149,7 @@ export abstract class EVMDEXExecutor {
     if (route?.raw?.routerAddress) {
       return route.raw.routerAddress;
     }
-    
+
     // Fallback to abstract method (implemented by subclasses)
     return this.getRouterAddressFromChain(chainId);
   }
@@ -247,9 +247,8 @@ export abstract class EVMDEXExecutor {
       // ✅ CRITICAL FIX: Handle reverse routing path and amount
       // For reverse routing: path is reversed (toToken → fromToken) but we need to swap fromToken → toToken
       const isReverseRouting = route.raw?.isReverseRouting || false;
-      
-      // Extract path from route (prioritize raw.path from router response)
-      const _path = this.extractPathFromRoute(route);
+
+      // Trust backend pathing (now correctly oriented for both forward and reverse swaps)
       let path = route.raw?.path;
       if (!path || path.length < 2) {
         throw new SwapExecutionError(
@@ -257,44 +256,16 @@ export abstract class EVMDEXExecutor {
           SwapErrorCode.INVALID_ROUTE
         );
       }
-      
-      // ✅ CRITICAL FIX: For reverse routing, flip the path
-      // Reverse routing calculates path as [toToken, fromToken] but we need [fromToken, toToken] for swap
-      // if (isReverseRouting) {
-      //   console.log('[EVM DEX] Reverse routing detected - flipping path for swap execution');
-      //   console.log('[EVM DEX] Original path (reversed):', path.map((addr: string) => `${addr.slice(0, 6)}...${addr.slice(-4)}`).join(' -> '));
-      //   // Flip path: [path[1], path[0]] for 2-hop, or reverse entire array for multi-hop
-        // path = path.slice().reverse();
-        // // ✅ CRITICAL: Update route.raw.path so buildSwapData uses the flipped path
-        // if (route.raw) {
-        //   route.raw.path = path;
-        // }
-      //   console.log('[EVM DEX] Flipped path (for swap):', path.map((addr: string) => `${addr.slice(0, 6)}...${addr.slice(-4)}`).join(' -> '));
-      // }
-      
-      // ✅ CRITICAL FIX: For reverse routing getAmountsOut, use route.toToken.amount with reversed path
-      // For actual swap, we'll use route.fromToken.amount with flipped path (done later)
-      let amountInSmallestUnit: string;
-      if (isReverseRouting && route.toToken.amount) {
-        // For reverse routing getAmountsOut: use toToken.amount with reversed path [toToken, fromToken]
-        // This verifies what we'd get if we swap the toToken amount
-        amountInSmallestUnit = toSmallestUnit(route.toToken.amount, toToken.decimals!);
-        console.log('[EVM DEX] Reverse routing - getAmountsOut: using toToken.amount with reversed path:', {
-          routeToTokenAmount: route.toToken.amount,
-          toTokenDecimals: toToken.decimals,
-          amountInSmallestUnit,
-          path: path.map((addr: string) => `${addr.slice(0, 6)}...${addr.slice(-4)}`).join(' -> ')
-        });
-      } else {
-        // Normal routing: use fromAmount from params
-        amountInSmallestUnit = toSmallestUnit(fromAmount, fromToken.decimals!);
-        console.log('[EVM DEX] Normal routing - using fromAmount from params:', {
-          fromAmount,
-          fromTokenDecimals: fromToken.decimals,
-          amountInSmallestUnit
-        });
-      }
-      console.log("🚀 ~ EVMDEXExecutor ~ execute ~ amountInSmallestUnit:Final", amountInSmallestUnit)
+
+      // Always use the fromToken.amount with the provided path.
+      // For reverse routing, the fromToken.amount is the calculated input required to get desired output.
+      let amountInSmallestUnit = toSmallestUnit(route.fromToken.amount, fromToken.decimals!);
+      console.log('[EVM DEX] Using path and amount from route:', {
+        path: path.map((addr: string) => `${addr.slice(0, 6)}...${addr.slice(-4)}`).join(' -> '),
+        amountIn: route.fromToken.amount,
+        amountInSmallestUnit,
+        isReverseRouting
+      });
 
       const routerAddress = this.getRouterAddress(chainId, route);
       if (!routerAddress) {
@@ -304,7 +275,7 @@ export abstract class EVMDEXExecutor {
         );
       }
 
-      // ✅ EXACTLY match tiwi-test: Call router's getAmountsOut to get actual expected output
+      // Fresh quote verification (getAmountsOut)
       const ROUTER_ABI = [
         {
           inputs: [
@@ -327,45 +298,12 @@ export abstract class EVMDEXExecutor {
           functionName: 'getAmountsOut',
           args: [BigInt(amountInSmallestUnit), path.map((addr: string) => getAddress(addr) as Address)],
         }) as bigint[];
-        console.log("🚀 ~ EVMDEXExecutor ~ execute ~ amounts:", {
-          address: routerAddress as Address,
-          abi: ROUTER_ABI,
-          functionName: 'getAmountsOut',
-          args: [BigInt(amountInSmallestUnit), path.map((addr: string) => getAddress(addr) as Address)],
-        })
 
         if (amounts && amounts.length > 0 && amounts[amounts.length - 1] > BigInt(0)) {
-          console.log("actual amount contract")
           actualAmountOut = amounts[amounts.length - 1];
-          console.log('[EVM DEX] On-chain quote verification successful (path is valid):', {
-            path: path.map((addr: string) => `${addr.slice(0, 6)}...${addr.slice(-4)}`).join(' -> '),
+          console.log('[EVM DEX] On-chain quote verification successful:', {
             amountOut: actualAmountOut.toString(),
-            previousQuote: route.raw?.amountOut || route.toToken.amount
           });
-          
-          // ✅ CRITICAL: For reverse routing, flip path AFTER getAmountsOut succeeds
-          // Now we flip the path for actual swap execution: [fromToken, toToken]
-          if (isReverseRouting) {
-            console.log('[EVM DEX] Reverse routing - flipping path for swap execution (after getAmountsOut)');
-            console.log('[EVM DEX] Original path (reversed):', path.map((addr: string) => `${addr.slice(0, 6)}...${addr.slice(-4)}`).join(' -> '));
-            path = path.slice().reverse();
-            // ✅ CRITICAL: Update route.raw.path so buildSwapData and simulation use the flipped path
-            if (route.raw) {
-              route.raw.path = path;
-            }
-            console.log('[EVM DEX] Flipped path (for swap):', path.map((addr: string) => `${addr.slice(0, 6)}...${addr.slice(-4)}`).join(' -> '));
-            
-            // ✅ CRITICAL: For reverse routing swap, use route.fromToken.amount (calculated input amount)
-            // This is the amount we actually need to swap to get the desired output
-            if (route.fromToken.amount) {
-              amountInSmallestUnit = toSmallestUnit(route.fromToken.amount, fromToken.decimals!);
-              console.log('[EVM DEX] Reverse routing - swap: using fromToken.amount (calculated input):', {
-                routeFromTokenAmount: route.fromToken.amount,
-                fromTokenDecimals: fromToken.decimals,
-                amountInSmallestUnit
-              });
-            }
-          }
         } else {
           // ✅ EXACTLY match tiwi-test: Router returned 0, but use the quote's amountOut if available
           console.log("actual amount converting raw amount to BigInt")
@@ -382,7 +320,7 @@ export abstract class EVMDEXExecutor {
       } catch (quoteError: any) {
         const errorMsg = quoteError?.message || quoteError?.toString() || '';
         console.warn('[EVM DEX] getAmountsOut failed, using route estimate:', errorMsg);
-        
+
         // ✅ EXACTLY match tiwi-test: Fallback priority
         // 1. route.raw.amountOut (already in smallest units, from backend's getAmountsOut)
         // 2. route.toToken.amount (human-readable, convert to smallest units)
@@ -401,7 +339,7 @@ export abstract class EVMDEXExecutor {
           actualAmountOut = BigInt(amountInSmallestUnit) / BigInt(1000);
           console.warn('[EVM DEX] Using conservative estimate (1/1000 of input):', actualAmountOut.toString());
         }
-        
+
         // ✅ EXACTLY match tiwi-test: If getAmountsOut fails, try to get a fresh quote as fallback
         // Lines 2266-2284 in tiwi-test
         if (!actualAmountOut || actualAmountOut === BigInt(0)) {
@@ -410,11 +348,11 @@ export abstract class EVMDEXExecutor {
               stage: 'preparing',
               message: 'Getting fresh quote...',
             });
-            
+
             // Get fresh quote using the router adapter
             const { PancakeSwapAdapter } = await import('@/lib/backend/routers/adapters/pancakeswap-adapter');
             const adapter = new PancakeSwapAdapter();
-            
+
             const freshRoute = await adapter.getRoute({
               fromToken: fromToken.address,
               toToken: toToken.address,
@@ -424,7 +362,7 @@ export abstract class EVMDEXExecutor {
               fromDecimals: fromToken.decimals!,
               toDecimals: toToken.decimals!,
             });
-            
+
             if (freshRoute && freshRoute.raw?.amountOut && freshRoute.raw.amountOut !== '0') {
               actualAmountOut = BigInt(freshRoute.raw.amountOut);
               // Update route with fresh quote data
@@ -466,7 +404,7 @@ export abstract class EVMDEXExecutor {
         }
         console.warn('[EVM DEX] Using fallback estimate for amountOut:', actualAmountOut.toString());
       }
-      
+
       // ✅ EXACTLY match tiwi-test: Validate swap path exists (only if getAmountsOut failed)
       // Lines 2286-2300 in tiwi-test: Only validate manually if getAmountsOut failed
       // If getAmountsOut succeeded above, the path is already validated by the router
@@ -478,14 +416,14 @@ export abstract class EVMDEXExecutor {
             stage: 'preparing',
             message: 'Validating swap path...',
           });
-          
-          
+
+
           const { verifySwapPath } = await import('@/lib/backend/utils/pancakeswap-pairs');
           const pathValidation = await verifySwapPath(
             path.map((addr: string) => getAddress(addr) as Address),
             chainId
           );
-          
+
           if (!pathValidation.valid) {
             const missingPairsStr = pathValidation.missingPairs
               .map(p => `${p.tokenA.slice(0, 6)}...${p.tokenA.slice(-4)} → ${p.tokenB.slice(0, 6)}...${p.tokenB.slice(-4)}`)
@@ -522,7 +460,7 @@ export abstract class EVMDEXExecutor {
         slippagePercent = parseFloat(route.slippage);
         console.log('[EVM DEX] Using quote recommended slippage:', slippagePercent);
       } else {
-      // Calculate dynamic slippage (matching tiwi-test logic)
+        // Calculate dynamic slippage (matching tiwi-test logic)
         // For low-cap/low-liquidity pairs, start with minimum 3% slippage
         if (isLowLiquidity) {
           slippagePercent = 3; // Minimum 3% for low-cap pairs
@@ -570,26 +508,26 @@ export abstract class EVMDEXExecutor {
       // For reverse routing: user specified exact output (toAmount), so we should use that as target
       // This ensures we get at least what the user wanted, not less
       // Note: isReverseRouting is already declared above when handling path and amount
-      const userDesiredOutput = route.toToken.amount 
+      const userDesiredOutput = route.toToken.amount
         ? BigInt(toSmallestUnit(route.toToken.amount, toToken.decimals!))
         : null;
-      
+
       let targetOutputAmount = actualAmountOut;
-      
+
       // If this is reverse routing (exact output swap), handle market movement
       if (isReverseRouting && userDesiredOutput && actualAmountOut) {
         console.log('[EVM DEX] Reverse routing detected (exact output swap):', {
           userDesiredOutput: userDesiredOutput.toString(),
           actualAmountOut: actualAmountOut.toString(),
         });
-        
+
         // ✅ CRITICAL: For reverse routing, compare actualAmountOut against route.fromToken.amount
         // route.fromToken.amount is the calculated input amount we need to get the desired output
         // If actualAmountOut < route.fromToken.amount, we can't get enough output
-        const expectedFromTokenAmount = route.fromToken.amount 
+        const expectedFromTokenAmount = route.fromToken.amount
           ? BigInt(toSmallestUnit(route.fromToken.amount, fromToken.decimals!))
           : null;
-        
+
         if (expectedFromTokenAmount && actualAmountOut < expectedFromTokenAmount) {
           const desiredFormatted = fromSmallestUnit(route.fromToken.amount, fromToken.decimals!);
           const actualFormatted = fromSmallestUnit(actualAmountOut.toString(), fromToken.decimals!);
@@ -598,7 +536,7 @@ export abstract class EVMDEXExecutor {
             SwapErrorCode.INSUFFICIENT_BALANCE
           );
         }
-        
+
         // For reverse routing: Use the actual achievable output as target (not the desired)
         // This is critical: if market moved and we can't get the desired output, we must use
         // what we can actually get, otherwise the router will reject with INSUFFICIENT_OUTPUT_AMOUNT
@@ -620,7 +558,7 @@ export abstract class EVMDEXExecutor {
       // Use only 0.01% (1/10000) of expected output - this guarantees swap will ALWAYS succeed
       // Lines 2400-2410 in tiwi-test: Ultra-conservative amountOutMin
       let amountOutMin: bigint;
-      
+
       // For extremely low liquidity, use even less - 0.01% (1/10000) to guarantee success
       if (isLowLiquidity || isMultiHop || priceImpact > 10) {
         amountOutMin = (targetOutputAmount * BigInt(1)) / BigInt(10000); // 0.01% minimum
@@ -630,16 +568,16 @@ export abstract class EVMDEXExecutor {
         amountOutMin = (targetOutputAmount * BigInt(1)) / BigInt(1000); // 0.1% minimum
         console.log('[EVM DEX] CONSERVATIVE: Using 0.1% of expected output to guarantee success');
       }
-      
+
       // Ensure minimum is at least 1 wei (router requirement)
       // This is the absolute minimum possible - router can NEVER revert with this
       if (amountOutMin === BigInt(0) || amountOutMin < BigInt(1)) {
         amountOutMin = BigInt(1);
         console.log('[EVM DEX] Using absolute minimum: 1 wei (guaranteed to succeed)');
       }
-      
+
       console.log('[EVM DEX] GUARANTEED SUCCESS - amountOutMin set to:', amountOutMin.toString(), '- Router will NEVER revert');
-      
+
       console.log('[EVM DEX] amountOutMin calculation:', {
         isReverseRouting,
         actualAmountOut: actualAmountOut.toString(),
@@ -667,7 +605,7 @@ export abstract class EVMDEXExecutor {
             // Use the reduced output as our minimum (with additional 20% buffer)
             const reducedOutput = reducedAmounts[reducedAmounts.length - 1];
             amountOutMin = (reducedOutput * BigInt(80)) / BigInt(100);
-            
+
             // ✅ For reverse routing, ensure we don't exceed actualAmountOut
             if (isReverseRouting && actualAmountOut && amountOutMin > actualAmountOut) {
               console.warn('[EVM DEX] Multi-hop amountOutMin exceeds actualAmountOut for reverse routing, capping:', {
@@ -677,7 +615,7 @@ export abstract class EVMDEXExecutor {
               // Use 0.01% of actualAmountOut as absolute minimum
               amountOutMin = (actualAmountOut * BigInt(1)) / BigInt(10000);
             }
-            
+
             console.log('[EVM DEX] Using very conservative amountOutMin based on reduced input simulation:', {
               originalAmountOut: actualAmountOut.toString(),
               reducedInputOutput: reducedOutput.toString(),
@@ -688,7 +626,7 @@ export abstract class EVMDEXExecutor {
           console.warn('[EVM DEX] Could not simulate reduced input, using calculated amountOutMin');
         }
       }
-      
+
       // ✅ Final safeguard: For reverse routing, ensure amountOutMin never exceeds actualAmountOut
       // This is critical - the router will reject if amountOutMin > what we can actually get
       if (isReverseRouting && actualAmountOut && amountOutMin > actualAmountOut) {
@@ -707,7 +645,7 @@ export abstract class EVMDEXExecutor {
       } else if (amountOutMin > BigInt(100)) {
         amountOutMin = (amountOutMin / BigInt(100)) * BigInt(100);
       }
-      
+
       console.log('[EVM DEX] Final slippage calculation:', {
         actualAmountOut: actualAmountOut.toString(),
         amountOutMin: amountOutMin.toString(),
@@ -722,11 +660,13 @@ export abstract class EVMDEXExecutor {
       // ✅ EXACTLY match tiwi-test: Always use fee-on-transfer supporting functions for safety
       // This matches PancakeSwap UI behavior - always use supporting functions unless explicitly disabled
       // Line 2597 in tiwi-test: const swapData = getPancakeSwapV2SwapData(..., true)
-      console.log("execute", {route,
+      console.log("execute", {
+        route,
         amountInSmallestUnit,
         amountOutMin: amountOutMin.toString(),
         recipient,
-        deadline,})
+        deadline,
+      })
       const swapData = this.buildSwapData(
         route,
         amountInSmallestUnit,
@@ -758,13 +698,13 @@ export abstract class EVMDEXExecutor {
         // If simulation fails with TRANSFER_FROM_FAILED, retry with delays (RPC indexing)
         if (!simulationResult.success && simulationResult.error?.includes('TRANSFER_FROM_FAILED')) {
           console.warn('[EVM DEX] Simulation failed with TRANSFER_FROM_FAILED, retrying with delays (RPC indexing)...');
-          
+
           for (let retry = 0; retry < 3; retry++) {
             onStatusUpdate?.({
               stage: 'preparing',
               message: `Waiting for RPC to index approval (retry ${retry + 1}/3)...`,
             });
-            
+
             // Wait a bit for RPC to index the approval
             await new Promise(resolve => setTimeout(resolve, 1000));
             console.log("Simulate swap 2")
@@ -777,12 +717,12 @@ export abstract class EVMDEXExecutor {
               publicClient,
               true
             );
-            
+
             if (retrySimulation.success) {
               console.log('[EVM DEX] Simulation succeeded after retry');
               break;
             }
-            
+
             // If still failing and it's not a fee-on-transfer token, try with fee-on-transfer function
             if (retry === 2 && !retrySimulation.success && retrySimulation.error?.includes('TRANSFER_FROM_FAILED')) {
               console.log('[EVM DEX] Retrying simulation with fee-on-transfer function...');
@@ -790,7 +730,7 @@ export abstract class EVMDEXExecutor {
                 stage: 'preparing',
                 message: 'Retrying with fee-on-transfer function...',
               });
-              
+
               console.log("Simulate swap 3")
               const feeOnTransferSimulation = await this.simulateSwap(
                 route,
@@ -801,7 +741,7 @@ export abstract class EVMDEXExecutor {
                 publicClient,
                 true // Try with fee-on-transfer function
               );
-              
+
               if (feeOnTransferSimulation.success) {
                 console.log('[EVM DEX] Detected fee-on-transfer token, using appropriate router function');
                 // Rebuild swap data with fee-on-transfer function
@@ -873,7 +813,7 @@ export abstract class EVMDEXExecutor {
         try {
           const { checkTokenApproval } = await import('../services/approval-handler');
           const maxApproval = BigInt('0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff');
-          
+
           const allowanceCheck = await checkTokenApproval(
             fromToken.address,
             userAddress,
@@ -972,9 +912,9 @@ export abstract class EVMDEXExecutor {
         console.warn('[EVM DEX] Gas estimation warning:', gasError);
 
         // ✅ EXACTLY match tiwi-test: Check for critical errors that should stop the swap
-        if (errorMsg.includes('TRANSFER_FROM_FAILED') || 
-            errorMsg.includes('transferFrom') ||
-            errorMsg.includes('insufficient allowance')) {
+        if (errorMsg.includes('TRANSFER_FROM_FAILED') ||
+          errorMsg.includes('transferFrom') ||
+          errorMsg.includes('insufficient allowance')) {
           // Try to approve with max amount as last resort
           if (!isNative) {
             try {
@@ -1019,16 +959,16 @@ export abstract class EVMDEXExecutor {
                 console.log('[EVM DEX] Gas estimate after max approval:', retryGasEstimate);
               } catch (retryGasError: any) {
                 const retryErrorMsg = retryGasError?.message || retryGasError?.toString() || '';
-                
+
                 // If still failing with TRANSFER_FROM_FAILED, check balance and allowance
                 if (retryErrorMsg.includes('TRANSFER_FROM_FAILED') || retryErrorMsg.includes('transferFrom')) {
                   console.error('[EVM DEX] Gas estimation still failing after max approval with TRANSFER_FROM_FAILED');
-                  
+
                   // Check balance and allowance to provide specific error
                   if (!isNative) {
                     try {
                       const { fromSmallestUnit } = await import('../utils/amount-converter');
-                      
+
                       // Check balance
                       const balance = await publicClient.readContract({
                         address: fromToken.address as Address,
@@ -1112,7 +1052,7 @@ export abstract class EVMDEXExecutor {
                     try {
                       const balance = await publicClient.getBalance({ address: userAddress as Address });
                       const requiredAmount = BigInt(amountInSmallestUnit);
-                      
+
                       if (balance < requiredAmount) {
                         const { fromSmallestUnit } = await import('../utils/amount-converter');
                         const balanceFormatted = fromSmallestUnit(balance.toString(), 18);
@@ -1122,7 +1062,7 @@ export abstract class EVMDEXExecutor {
                           SwapErrorCode.INSUFFICIENT_BALANCE
                         );
                       }
-                      
+
                       throw new SwapExecutionError(
                         'Native token transfer failed. Please check your balance and try again.',
                         SwapErrorCode.TRANSACTION_FAILED
@@ -1138,7 +1078,7 @@ export abstract class EVMDEXExecutor {
                     }
                   }
                 }
-                
+
                 // For other errors after max approval, still throw to prevent bad transactions
                 throw new SwapExecutionError(
                   `Gas estimation failed after token approval: ${retryErrorMsg}. The transaction would likely fail. Please check your balance and try again.`,
@@ -1156,10 +1096,10 @@ export abstract class EVMDEXExecutor {
               console.warn('[EVM DEX] Max approval attempt failed, but proceeding - approval might already exist:', maxApprovalError);
             }
           }
-        } else if (errorMsg.includes('Pancake: K') || 
-                   errorMsg.includes('PancakeSwapV2: K') ||
-                   errorMsg.includes('constant product') ||
-                   errorMsg.includes('K:')) {
+        } else if (errorMsg.includes('Pancake: K') ||
+          errorMsg.includes('PancakeSwapV2: K') ||
+          errorMsg.includes('constant product') ||
+          errorMsg.includes('K:')) {
           // "K" error - log warning but allow swap to proceed
           console.warn('[EVM DEX] Gas estimation failed with "K" error, but proceeding with swap. The transaction may still succeed on-chain.');
         } else if (errorMsg.includes('insufficient') || errorMsg.includes('balance')) {
@@ -1251,7 +1191,7 @@ export abstract class EVMDEXExecutor {
       };
     } catch (error) {
       const swapError = createSwapError(error, SwapErrorCode.TRANSACTION_FAILED);
-      
+
       onStatusUpdate?.({
         stage: 'failed',
         message: formatErrorMessage(swapError),
@@ -1348,17 +1288,17 @@ export abstract class EVMDEXExecutor {
   private calculateAmountOutMin(amountOut: string, slippage: string, decimals: number): string {
     // Convert human-readable amount to smallest units first
     const amountOutSmallestUnit = toSmallestUnit(amountOut, decimals);
-    
+
     // Now convert to BigInt (safe because it's already in smallest units)
     const amountOutBigInt = BigInt(amountOutSmallestUnit);
-    
+
     // Calculate slippage multiplier
     const slippagePercent = parseFloat(slippage) || 0.5;
     const slippageMultiplier = BigInt(Math.floor((100 - slippagePercent) * 100));
-    
+
     // Apply slippage: amountOutMin = amountOut * (100 - slippage) / 100
     const amountOutMin = (amountOutBigInt * slippageMultiplier) / BigInt(10000);
-    
+
     return amountOutMin.toString();
   }
 
@@ -1399,15 +1339,15 @@ export abstract class EVMDEXExecutor {
         route.fromToken.address,
         route.toToken.address,
       ];
-      
+
       // ✅ Add null check - if path is invalid, return error
       if (!path || path.length < 2) {
-        return { 
-          success: false, 
-          error: 'Invalid swap path: route.raw.path is missing or invalid. Unable to determine swap route.' 
+        return {
+          success: false,
+          error: 'Invalid swap path: route.raw.path is missing or invalid. Unable to determine swap route.'
         };
       }
-      
+
       // Convert path addresses to proper format
       const pathAddresses = path.map((addr: string) => getAddress(addr.toLowerCase()) as Address) as readonly `0x${string}`[];
 
@@ -1421,7 +1361,7 @@ export abstract class EVMDEXExecutor {
       // For non-native tokens, check balance and allowance before simulation
       if (!isNativeIn) {
         const tokenIn = pathAddresses[0];
-        
+
         try {
           // Check balance
           const balance = await publicClient.readContract({
@@ -1505,7 +1445,7 @@ export abstract class EVMDEXExecutor {
         return { success: true };
       } catch (simError: any) {
         const errorMsg = simError?.message || simError?.toString() || '';
-        
+
         // Provide more specific error messages
         if (errorMsg.includes('TRANSFER_FROM_FAILED') || errorMsg.includes('transferFrom')) {
           // This usually means insufficient allowance or balance
@@ -1515,7 +1455,7 @@ export abstract class EVMDEXExecutor {
             error: `TRANSFER_FROM_FAILED: The router cannot transfer tokens from your wallet. This usually means: 1) Token approval hasn't been indexed yet (wait a few seconds), 2) Insufficient balance, or 3) Approval amount is too low. Please check your token approval and try again.`,
           };
         }
-        
+
         // ✅ EXACTLY match tiwi-test: If simulation fails with fee-on-transfer, try without
         if (useFeeOnTransfer && errorMsg.includes('TRANSFER_FROM_FAILED')) {
           return this.simulateSwap(route, amountIn, amountOutMin, chainId, fromAddress, publicClient, false);

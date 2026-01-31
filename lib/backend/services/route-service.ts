@@ -12,11 +12,11 @@ import { getAutoSlippageService } from '@/lib/backend/services/auto-slippage-ser
 import { getJupiterFeeInfoService } from '@/lib/backend/services/jupiter-fee-info-service';
 import { ChainTransformer, toSmallestUnit, transformTokenAddress, transformSlippage } from '@/lib/backend/routers/transformers';
 import { selectBestRoute, sortRoutesByScore } from '@/lib/backend/routers/scoring';
-import { 
-  DEFAULT_SLIPPAGE, 
+import {
+  DEFAULT_SLIPPAGE,
   QUOTE_EXPIRATION_SECONDS,
   ROUTER_TIMEOUT_MS,
-  MAX_RETRY_ATTEMPTS 
+  MAX_RETRY_ATTEMPTS
 } from '@/lib/backend/routers/constants';
 import { SOLANA_CHAIN_ID } from '@/lib/backend/providers/moralis';
 import type { RouteRequest, RouteResponse, RouterRoute, RouterParams, RouterError } from '@/lib/backend/routers/types';
@@ -32,7 +32,7 @@ import '@/lib/backend/routers/init';
 export class RouteService {
   private routerRegistry = getRouterRegistry();
   private tokenService = getTokenService();
-  
+
   /**
    * Get best route for a swap
    * 
@@ -92,7 +92,7 @@ export class RouteService {
     } catch (error: any) {
       // If reverse routing fails, toToken becomes fromToken and toAmount becomes fromAmount (user requirement)
       console.warn('[RouteService] Reverse routing failed, falling back to direct routing:', error);
-      
+
       // Create fallback request: use toToken as fromToken, toAmount as fromAmount
       const fallbackRequest: RouteRequest = {
         fromToken: request.toToken,
@@ -112,7 +112,7 @@ export class RouteService {
       } else {
         routeResponse = await this.getRouteWithFixedSlippage(fallbackRequest);
       }
-      
+
       // Return the route as-is (tokens are already swapped in fallback)
       // Frontend will need to handle this case
       return routeResponse;
@@ -137,10 +137,14 @@ export class RouteService {
       exchangeRate: routeResponse.route.exchangeRate && parseFloat(routeResponse.route.exchangeRate) > 0
         ? (1 / parseFloat(routeResponse.route.exchangeRate)).toFixed(8)
         : '0',
-      // Add reverse routing flag to raw for executor
+      // Add reverse routing flag and flip path/tokens in raw
       raw: {
         ...routeResponse.route.raw,
         isReverseRouting: true,
+        // Flip path and tokens for actual swap execution (forward direction)
+        path: routeResponse.route.raw?.path ? [...routeResponse.route.raw.path].reverse() : undefined,
+        tokenIn: routeResponse.route.raw?.tokenOut,
+        tokenOut: routeResponse.route.raw?.tokenIn,
       },
     };
 
@@ -149,10 +153,10 @@ export class RouteService {
       alternatives: routeResponse.alternatives?.map(alt => ({
         ...alt,
         fromToken: {
-          ...alt.toToken, // Original fromToken with calculated amount
+          ...alt.toToken,
         },
         toToken: {
-          ...alt.fromToken, // Original toToken with user's desired amount
+          ...alt.fromToken,
         },
         exchangeRate: alt.exchangeRate && parseFloat(alt.exchangeRate) > 0
           ? (1 / parseFloat(alt.exchangeRate)).toFixed(8)
@@ -160,6 +164,9 @@ export class RouteService {
         raw: {
           ...alt.raw,
           isReverseRouting: true,
+          path: alt.raw?.path ? [...alt.raw.path].reverse() : undefined,
+          tokenIn: alt.raw?.tokenOut,
+          tokenOut: alt.raw?.tokenIn,
         },
       })),
       timestamp: routeResponse.timestamp,
@@ -211,38 +218,38 @@ export class RouteService {
     // 1. Get token decimals (use provided decimals, fetch from blockchain if undefined)
     // Frontend provides decimals from token data (enriched by TokenService)
     // If undefined, fetch from blockchain contract
-    const fromDecimals = request.fromToken.decimals !== undefined 
-      ? request.fromToken.decimals 
+    const fromDecimals = request.fromToken.decimals !== undefined
+      ? request.fromToken.decimals
       : await this.getTokenDecimals(request.fromToken.chainId, request.fromToken.address);
     const toDecimals = request.toToken.decimals !== undefined
       ? request.toToken.decimals
       : await this.getTokenDecimals(request.toToken.chainId, request.toToken.address);
-    
+
     // 2. Transform amount to smallest unit
     // Note: This method is only called when fromAmount is provided (reverse routing handled separately)
     const fromAmountSmallest = toSmallestUnit(request.fromAmount!, fromDecimals);
-    
+
     // 3. Get eligible routers
     const eligibleRouters = await this.routerRegistry.getEligibleRouters(
       request.fromToken.chainId,
       request.toToken.chainId
     );
-    
+
     if (eligibleRouters.length === 0) {
       throw new Error('No routers support this chain combination');
     }
-    
+
     // 4. OPTIMIZED: Try primary routers AND enhanced routing in parallel (single attempt)
     // This reduces total attempts from 2 (sequential) to 1 (parallel)
     const routes: RouterRoute[] = [];
     const errors: RouterError[] = [];
-    
+
     // Prepare enhanced routing promise (runs in parallel with primary routers)
     const enhancedRoutingPromise = (async () => {
       try {
         const { getRouteServiceEnhancer } = await import('@/lib/backend/routing/integration');
         const enhancer = getRouteServiceEnhancer();
-        
+
         console.log(`[RouteService] 🔄 Running enhanced routing in parallel with primary routers...`);
         const enhancedResponse = await enhancer.enhanceRoute(
           request,
@@ -257,14 +264,14 @@ export class RouteService {
             preferUniversalRouting: false, // Use existing if better
           }
         );
-        
+
         return enhancedResponse;
       } catch (error: any) {
         console.warn(`[RouteService] Enhanced routing failed:`, error.message);
         return null;
       }
     })();
-    
+
     // Call all eligible routers in parallel
     const routerPromises = eligibleRouters.map(async (router) => {
       try {
@@ -276,11 +283,11 @@ export class RouteService {
           fromDecimals,
           toDecimals
         );
-        
+
         // Get route from router (with timeout)
         const route = await this.getRouteWithTimeout(router, routerParams);
         console.log("🚀 ~ RouteService ~ getRouteWithFixedSlippage ~ route:", route)
-        
+
         return { router: router.name, route, error: null };
       } catch (error: any) {
         // Collect error for debugging
@@ -292,18 +299,18 @@ export class RouteService {
           routerErrorCode: error?.code,
           routerErrorMessage: error?.message,
         };
-        
+
         console.warn(`[RouteService] Router ${router.name} failed:`, error.message);
         return { router: router.name, route: null, error: routerError };
       }
     });
-    
+
     // OPTIMIZATION: Wait for BOTH primary routers AND enhanced routing in parallel
     const [primaryResults, enhancedResponse] = await Promise.allSettled([
       Promise.all(routerPromises),
       enhancedRoutingPromise,
     ]);
-    
+
     // Collect successful routes from primary routers
     if (primaryResults.status === 'fulfilled') {
       for (const result of primaryResults.value) {
@@ -318,7 +325,7 @@ export class RouteService {
     } else {
       console.error('[RouteService] Primary routers promise rejected:', primaryResults.reason);
     }
-    
+
     // Collect enhanced routing result
     if (enhancedResponse.status === 'fulfilled' && enhancedResponse.value) {
       const enhanced = enhancedResponse.value;
@@ -327,7 +334,7 @@ export class RouteService {
         console.log(`[RouteService] ✅ Enhanced routing found a route in parallel!`);
         console.log(`[RouteService]   Router: ${enhanced.route.router}`);
         console.log(`[RouteService]   Sources: ${enhanced.sources?.join(', ') || 'none'}`);
-        
+
         // Add enhanced alternatives if available
         if (enhanced.alternatives && enhanced.alternatives.length > 0) {
           routes.push(...enhanced.alternatives);
@@ -336,25 +343,25 @@ export class RouteService {
         console.log(`[RouteService] Enhanced routing did not find a route (ran in parallel)`);
       }
     }
-    
+
     // 5. Select best route from all sources (primary + enhanced)
     let bestRoute = selectBestRoute(routes);
-    
+
     if (!bestRoute) {
       // All routers failed - provide detailed error message
       const routerNames = eligibleRouters.map(r => r.displayName || r.name).join(', ');
-      
+
       // Check if it's a specific error type
-      const hasNoRouteError = errors.some(e => 
-        e.message.toLowerCase().includes('no route') || 
+      const hasNoRouteError = errors.some(e =>
+        e.message.toLowerCase().includes('no route') ||
         e.message.toLowerCase().includes('no route available')
       );
-      
-      const hasLiquidityError = errors.some(e => 
+
+      const hasLiquidityError = errors.some(e =>
         e.message.toLowerCase().includes('insufficient liquidity') ||
         e.message.toLowerCase().includes('low liquidity')
       );
-      
+
       // Build user-friendly error message (updated to reflect parallel execution)
       let errorMessage: string;
       if (hasNoRouteError) {
@@ -364,10 +371,10 @@ export class RouteService {
       } else {
         errorMessage = `Unable to find a swap route. We tried ${routerNames} and the enhanced routing system in parallel, but all attempts failed.`;
       }
-      
+
       throw new Error(errorMessage);
     }
-    
+
     // 6. Enrich routes with USD values and Tiwi fees (for routes that don't have them)
     const enrichedBestRoute = await this.enrichRouteWithUSD(bestRoute, request);
     const enrichedAlternatives = await Promise.all(
@@ -375,13 +382,13 @@ export class RouteService {
         .filter(r => r.routeId !== bestRoute.routeId)
         .map(route => this.enrichRouteWithUSD(route, request))
     );
-    
+
     // 7. Sort alternatives
     const alternatives = sortRoutesByScore(enrichedAlternatives);
-    
+
     // 8. Calculate expiration timestamp
     const expiresAt = Date.now() + (QUOTE_EXPIRATION_SECONDS * 1000);
-    
+
     // 9. Return response
     return {
       route: enrichedBestRoute,
@@ -390,7 +397,7 @@ export class RouteService {
       expiresAt,
     };
   }
-  
+
   /**
    * Transform canonical request parameters to router-specific format
    */
@@ -410,11 +417,11 @@ export class RouteService {
       request.toToken.chainId,
       router.name
     );
-    
+
     if (fromChainId === null || toChainId === null) {
       throw new Error(`Router ${router.name} does not support these chains`);
     }
-    
+
     // Transform token addresses
     const fromToken = transformTokenAddress(
       request.fromToken.address,
@@ -426,16 +433,16 @@ export class RouteService {
       request.toToken.chainId,
       router.name
     );
-    
+
     // Transform slippage
     const slippage = transformSlippage(
       request.slippage || DEFAULT_SLIPPAGE,
       router.name
     );
-    
+
     // Transform order preference
     const order = request.order || 'RECOMMENDED';
-    
+
     return {
       fromChainId,
       fromToken,
@@ -451,7 +458,7 @@ export class RouteService {
       order,
     };
   }
-  
+
   /**
    * Get route from router with timeout
    */
@@ -468,7 +475,7 @@ export class RouteService {
       }),
     ]);
   }
-  
+
   /**
    * Get token decimals (on-demand fetching)
    * 
@@ -486,18 +493,18 @@ export class RouteService {
       // Method 1: Try token service cache (may have been fetched in previous request)
       const tokens = await this.tokenService.getTokensByChain(chainId, 100);
       const token = tokens.find(t => t.address.toLowerCase() === address.toLowerCase());
-      
+
       if (token && token.decimals !== undefined) {
         // Use cached decimals if available
         return token.decimals;
       }
-      
+
       // Method 2: Fetch directly from blockchain (on-demand)
       // This is the primary method when decimals are undefined
       const { getTokenDecimalsFetcher } = await import('@/lib/backend/utils/token-decimals-fetcher');
       const decimalsFetcher = getTokenDecimalsFetcher();
       const decimals = await decimalsFetcher.getTokenDecimals(address, chainId);
-      
+
       return decimals;
     } catch (error) {
       console.warn(`[RouteService] Error fetching token decimals for ${chainId}:${address}, using default 18`);
@@ -505,7 +512,7 @@ export class RouteService {
       return 18;
     }
   }
-  
+
   /**
    * Validate route request
    */
@@ -513,30 +520,30 @@ export class RouteService {
     if (!request.fromToken || !request.toToken) {
       throw new Error('Missing required parameters: fromToken, toToken');
     }
-    
+
     if (!request.fromToken.chainId || !request.fromToken.address) {
       throw new Error('Invalid fromToken: chainId and address are required');
     }
-    
+
     if (!request.toToken.chainId || !request.toToken.address) {
       throw new Error('Invalid toToken: chainId and address are required');
     }
-    
+
     // Validate that exactly one of fromAmount or toAmount is provided
     if (!request.fromAmount && !request.toAmount) {
       throw new Error('Either fromAmount or toAmount must be provided');
     }
-    
+
     if (request.fromAmount && request.toAmount) {
       throw new Error('Cannot provide both fromAmount and toAmount. Provide exactly one.');
     }
-    
+
     // Validate amount
     const amount = request.fromAmount || request.toAmount!;
     if (amount === '' || parseFloat(amount) <= 0) {
       throw new Error(`Invalid ${request.fromAmount ? 'fromAmount' : 'toAmount'}: must be greater than 0`);
     }
-    
+
     // Validate slippage if provided
     if (request.slippage !== undefined) {
       if (request.slippage < 0 || request.slippage > 100) {
@@ -544,14 +551,14 @@ export class RouteService {
       }
     }
   }
-  
+
   /**
    * Normalize error message for frontend
    */
   private normalizeErrorMessage(error: any, routerName: string): string {
     const errorMessage = error?.message || 'Unknown error';
     const lowerMessage = errorMessage.toLowerCase();
-    
+
     // Common error patterns with user-friendly messages
     if (lowerMessage.includes('no route') || lowerMessage.includes('no route available')) {
       return 'No route available for this token pair';
@@ -571,26 +578,26 @@ export class RouteService {
     if (lowerMessage.includes('network') || lowerMessage.includes('connection')) {
       return 'Network connection error';
     }
-    
+
     // Return generic message with router name
     const routerDisplayName = routerName === 'lifi' ? 'LiFi' :
-                             routerName === 'pancakeswap' ? 'PancakeSwap' :
-                             routerName === 'uniswap' ? 'Uniswap' :
-                             routerName.charAt(0).toUpperCase() + routerName.slice(1);
+      routerName === 'pancakeswap' ? 'PancakeSwap' :
+        routerName === 'uniswap' ? 'Uniswap' :
+          routerName.charAt(0).toUpperCase() + routerName.slice(1);
     return `Failed to get route from ${routerDisplayName}`;
   }
-  
+
   /**
    * Get error code from error
    */
   private getErrorCode(error: any): string {
     const errorMessage = error?.message?.toLowerCase() || '';
-    
+
     if (errorMessage.includes('no route')) return 'NO_ROUTE';
     if (errorMessage.includes('unsupported')) return 'UNSUPPORTED_PAIR';
     if (errorMessage.includes('timeout')) return 'TIMEOUT';
     if (errorMessage.includes('insufficient liquidity')) return 'INSUFFICIENT_LIQUIDITY';
-    
+
     return 'UNKNOWN_ERROR';
   }
 
@@ -605,7 +612,7 @@ export class RouteService {
   ): Promise<RouterRoute> {
     console.log("🚀 ~ RouteService ~ enrichRouteWithUSD ~ route:", route)
     const TIWI_PROTOCOL_FEE_RATE = 0.0025; // 0.25%
-    
+
     // Special handling for Jupiter routes - fetch fee info
     if (route.router === 'jupiter' && route.fromToken.chainId === SOLANA_CHAIN_ID) {
       return this.enrichJupiterRoute(route, request);
@@ -699,7 +706,7 @@ export class RouteService {
         toAmountNum > 0 && toPriceUSD > 0
           ? (toAmountNum * toPriceUSD).toFixed(2)
           : "0.00";
-      
+
       // Log warning if USD calculation resulted in 0.00
       if (toAmountUSD === "0.00" && toAmountNum > 0) {
         console.warn(`[enrichRouteWithUSD] WARNING: toAmountUSD is 0.00 but toAmountNum=${toAmountNum}. toPriceUSD=${toPriceUSD}. This might indicate a price fetch issue.`);
@@ -756,7 +763,7 @@ export class RouteService {
       return route;
     }
   }
-  
+
   /**
    * Enrich Jupiter route with fee information
    * Fetches fee breakdown from Jupiter's /fees endpoint
@@ -767,11 +774,11 @@ export class RouteService {
   ): Promise<RouterRoute> {
     const TIWI_PROTOCOL_FEE_RATE = 0.0025; // 0.25%
     const feeInfoService = getJupiterFeeInfoService();
-    
+
     // Get USD values (use from route if available, otherwise calculate)
     let fromAmountUSD = route.fromToken.amountUSD;
     let toAmountUSD = route.toToken.amountUSD;
-    
+
     if (!fromAmountUSD || !toAmountUSD) {
       // Calculate USD values from token prices
       try {
@@ -787,12 +794,12 @@ export class RouteService {
             request.toToken.symbol
           ),
         ]);
-        
+
         const fromAmountNum = parseFloat(route.fromToken.amount || "0");
         const toAmountNum = parseFloat(route.toToken.amount || "0");
         const fromPriceUSD = fromTokenPrice ? parseFloat(fromTokenPrice.priceUSD) : 0;
         const toPriceUSD = toTokenPrice ? parseFloat(toTokenPrice.priceUSD) : 0;
-        
+
         fromAmountUSD = fromAmountNum > 0 && fromPriceUSD > 0
           ? (fromAmountNum * fromPriceUSD).toFixed(2)
           : "0.00";
@@ -805,7 +812,7 @@ export class RouteService {
         toAmountUSD = toAmountUSD || "0.00";
       }
     }
-    
+
     // Fetch fee info from Jupiter
     const fromAmountUSDNum = parseFloat(fromAmountUSD || "0");
     const feeBreakdown = await feeInfoService.calculateTotalFees(
@@ -813,7 +820,7 @@ export class RouteService {
       request.toToken.address,
       fromAmountUSDNum
     );
-    
+
     // Calculate gas USD (convert SOL to USD)
     let gasUSD = "0.00";
     if (route.fees.gas && route.fees.gas !== "0") {
@@ -832,13 +839,13 @@ export class RouteService {
         console.warn('[RouteService] Failed to fetch SOL price for gas calculation:', error);
       }
     }
-    
+
     // Tiwi protocol fee is already included in the swap via referralFee
     // But we show it separately for transparency
     const tiwiProtocolFeeUSD = feeBreakdown
       ? feeBreakdown.tiwiFeeUSD.toFixed(2)
       : (fromAmountUSDNum * TIWI_PROTOCOL_FEE_RATE).toFixed(2);
-    
+
     // Total fees = Jupiter fee + Tiwi fee + Gas
     const jupiterFeeUSD = feeBreakdown
       ? feeBreakdown.jupiterFeeUSD.toFixed(2)
@@ -847,17 +854,17 @@ export class RouteService {
     const jupiterFeeNum = parseFloat(jupiterFeeUSD);
     const tiwiFeeNum = parseFloat(tiwiProtocolFeeUSD);
     const totalFeesUSD = (gasUSDNum + jupiterFeeNum + tiwiFeeNum).toFixed(2);
-    
+
     // Extract fee info from raw response if available
     const rawOrder = route.raw as any;
-    const jupiterFeeInfo = rawOrder?.feeBps 
+    const jupiterFeeInfo = rawOrder?.feeBps
       ? {
-          jupiterFeeBps: rawOrder.feeBps,
-          tiwiFeeBps: 31, // 31 bps = 0.25% net after 20% cut
-          feeMint: rawOrder.feeMint,
-        }
+        jupiterFeeBps: rawOrder.feeBps,
+        tiwiFeeBps: 31, // 31 bps = 0.25% net after 20% cut
+        feeMint: rawOrder.feeMint,
+      }
       : null;
-    
+
     return {
       ...route,
       fromToken: {
