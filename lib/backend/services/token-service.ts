@@ -369,7 +369,6 @@ export class TokenService {
         circulating_supply?: number | null;
         total_supply?: number | null;
       }>;
-      console.log("🚀 ~ TokenService ~ getTokensByCategoryFromCoinGecko ~ coinsData:", coinsData)
 
       // Filter gainers/losers if needed
       let filteredCoins = coinsData;
