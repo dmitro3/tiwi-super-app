@@ -146,7 +146,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const body: RouteRequestBody = await req.json();
-    console.log("🚀 ~ POST ~ body:", body)
+    console.log("🚀 ~ POST ~ body:check", body)
     
     // Validate required fields
     if (!body.fromToken || !body.toToken) {

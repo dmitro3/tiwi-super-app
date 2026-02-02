@@ -107,20 +107,7 @@ export class LiFiAdapter extends BaseRouter {
         console.log('[LiFiAdapter] Attempting getQuote (will fallback to getRoutes if needed)');
       }
       
-      try {
-        console.log("🚀 ~ LiFiAdapter ~ getRoute ~ params:", {
-          fromChain: fromChainId,
-          fromToken: params.fromToken,
-          fromAmount: params.fromAmount,
-          toChain: toChainId,
-          toToken: params.toToken,
-          fromAddress: params.fromAddress, // Log fromAddress
-          toAddress: params.recipient,
-          order: this.mapOrderPreference(params.order),
-          slippage: params.slippage || 0.5
-        });
-
-        
+      try {        
         // Build quote parameters
         const quoteParams: any = {
           fromChain: fromChainId,
@@ -142,8 +129,7 @@ export class LiFiAdapter extends BaseRouter {
         }
         
         const quote: LiFiStep = await getQuote(quoteParams);
-        console.log("🚀 ~ [Get QUOTE FROM LIFI] ~LiFiAdapter ~ getRoute ~ getQuote:", quote)
-        
+        console.log("🚀 ~ LiFiAdapter ~ getRoute ~ quote:", quote)
         // Convert quote (LiFiStep) to RouteExtended format
         // A quote is essentially a single-step route
         const quoteAction = quote.action as any;

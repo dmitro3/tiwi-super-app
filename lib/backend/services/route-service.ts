@@ -215,6 +215,7 @@ export class RouteService {
    * Get route with fixed slippage (existing implementation)
    */
   private async getRouteWithFixedSlippage(request: RouteRequest): Promise<RouteResponse> {
+    console.log("🚀 ~ RouteService ~ getRouteWithFixedSlippage ~ request:", request)
     // 1. Get token decimals (use provided decimals, fetch from blockchain if undefined)
     // Frontend provides decimals from token data (enriched by TokenService)
     // If undefined, fetch from blockchain contract
@@ -228,7 +229,6 @@ export class RouteService {
     // 2. Transform amount to smallest unit
     // Note: This method is only called when fromAmount is provided (reverse routing handled separately)
     const fromAmountSmallest = toSmallestUnit(request.fromAmount!, fromDecimals);
-
     // 3. Get eligible routers
     const eligibleRouters = await this.routerRegistry.getEligibleRouters(
       request.fromToken.chainId,
@@ -283,10 +283,8 @@ export class RouteService {
           fromDecimals,
           toDecimals
         );
-
         // Get route from router (with timeout)
         const route = await this.getRouteWithTimeout(router, routerParams);
-        console.log("🚀 ~ RouteService ~ getRouteWithFixedSlippage ~ route:", route)
 
         return { router: router.name, route, error: null };
       } catch (error: any) {
@@ -306,9 +304,9 @@ export class RouteService {
     });
 
     // OPTIMIZATION: Wait for BOTH primary routers AND enhanced routing in parallel
-    const [primaryResults, enhancedResponse] = await Promise.allSettled([
+    const [primaryResults] = await Promise.allSettled([
       Promise.all(routerPromises),
-      enhancedRoutingPromise,
+      // enhancedRoutingPromise,
     ]);
 
     // Collect successful routes from primary routers
@@ -327,22 +325,22 @@ export class RouteService {
     }
 
     // Collect enhanced routing result
-    if (enhancedResponse.status === 'fulfilled' && enhancedResponse.value) {
-      const enhanced = enhancedResponse.value;
-      if (enhanced.route) {
-        routes.push(enhanced.route);
-        console.log(`[RouteService] ✅ Enhanced routing found a route in parallel!`);
-        console.log(`[RouteService]   Router: ${enhanced.route.router}`);
-        console.log(`[RouteService]   Sources: ${enhanced.sources?.join(', ') || 'none'}`);
+    // if (enhancedResponse.status === 'fulfilled' && enhancedResponse.value) {
+    //   const enhanced = enhancedResponse.value;
+    //   if (enhanced.route) {
+    //     routes.push(enhanced.route);
+    //     console.log(`[RouteService] ✅ Enhanced routing found a route in parallel!`);
+    //     console.log(`[RouteService]   Router: ${enhanced.route.router}`);
+    //     console.log(`[RouteService]   Sources: ${enhanced.sources?.join(', ') || 'none'}`);
 
-        // Add enhanced alternatives if available
-        if (enhanced.alternatives && enhanced.alternatives.length > 0) {
-          routes.push(...enhanced.alternatives);
-        }
-      } else {
-        console.log(`[RouteService] Enhanced routing did not find a route (ran in parallel)`);
-      }
-    }
+    //     // Add enhanced alternatives if available
+    //     if (enhanced.alternatives && enhanced.alternatives.length > 0) {
+    //       routes.push(...enhanced.alternatives);
+    //     }
+    //   } else {
+    //     console.log(`[RouteService] Enhanced routing did not find a route (ran in parallel)`);
+    //   }
+    // }
 
     // 5. Select best route from all sources (primary + enhanced)
     let bestRoute = selectBestRoute(routes);
