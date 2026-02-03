@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState } from "react";
 import Image from "next/image";
-import type { OrderBookEntry } from "@/lib/market/trading-mock-data";
+import { useBinanceOrderbook } from "@/hooks/useBinanceOrderbook";
 
 type OrderbookTab = "Order Book" | "Trades";
 
@@ -10,43 +10,35 @@ interface OrderbookSectionProps {
   baseSymbol?: string;
   quoteSymbol?: string;
   currentPrice?: number;
-}
-
-function generateOrderbookEntries(price: number, side: "ask" | "bid", count: number = 8): OrderBookEntry[] {
-  const entries: OrderBookEntry[] = [];
-  const spread = price * 0.0005;
-
-  for (let i = 0; i < count; i++) {
-    const offset = side === "ask" ? (count - i) * spread : (i + 1) * spread;
-    const entryPrice = side === "ask" ? price + offset : price - offset;
-    const quantity = (0.001 + Math.random() * 0.005).toFixed(6);
-    const total = (entryPrice * parseFloat(quantity)).toFixed(6);
-    entries.push({
-      price: entryPrice.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 }),
-      quantity,
-      total,
-    });
-  }
-  return entries;
+  marketType?: "spot" | "perp";
 }
 
 /**
  * Orderbook Section Component
- * Displays order book with depth visualization and recent trades
+ * Displays real-time order book with depth visualization from Binance WebSocket
  */
-export default function OrderbookSection({ baseSymbol = 'BTC', quoteSymbol = 'USDT', currentPrice: price = 0 }: OrderbookSectionProps) {
+export default function OrderbookSection({
+  baseSymbol = 'BTC',
+  quoteSymbol = 'USDT',
+  currentPrice: initialPrice = 0,
+  marketType = 'spot'
+}: OrderbookSectionProps) {
   const [activeTab, setActiveTab] = useState<OrderbookTab>("Order Book");
   const [depthLevel, setDepthLevel] = useState(1);
 
-  const formattedPrice = price > 0 ? price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00';
+  // Use WebSocket-based orderbook hook
+  const {
+    bids,
+    asks,
+    currentPrice: wsPrice,
+    isConnected,
+    isLoading,
+    error,
+    supported,
+  } = useBinanceOrderbook(baseSymbol, quoteSymbol, marketType);
 
-  const { asks, bids } = useMemo(() => {
-    if (price <= 0) return { asks: [], bids: [] };
-    return {
-      asks: generateOrderbookEntries(price, "ask"),
-      bids: generateOrderbookEntries(price, "bid"),
-    };
-  }, [price]);
+  const price = wsPrice > 0 ? wsPrice : initialPrice;
+  const formattedPrice = price > 0 ? price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00';
 
   const getDepthHeight = (index: number, side: "ask" | "bid") => {
     const entries = side === "ask" ? asks : bids;
@@ -91,7 +83,15 @@ export default function OrderbookSection({ baseSymbol = 'BTC', quoteSymbol = 'US
       </div>
 
       {activeTab === "Order Book" ? (
-        price <= 0 ? (
+        isLoading ? (
+          /* Loading state */
+          <div className="flex-1 flex flex-col items-center justify-center gap-3 px-6">
+            <div className="w-8 h-8 border-2 border-[#1f261e] border-t-[#b1f128] rounded-full animate-spin"></div>
+            <span className="text-[#7c7c7c] text-sm text-center">
+              Loading orderbook...
+            </span>
+          </div>
+        ) : !supported || (asks.length === 0 && bids.length === 0) ? (
           /* No orderbook available */
           <div className="flex-1 flex flex-col items-center justify-center gap-3 px-6">
             <svg width="48" height="48" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="text-[#3a3a3a]">
@@ -103,7 +103,7 @@ export default function OrderbookSection({ baseSymbol = 'BTC', quoteSymbol = 'US
               Order book not available for this pair
             </span>
             <span className="text-[#5a5a5a] text-xs text-center max-w-[200px]">
-              This token may not have active trading pools
+              {error || `${baseSymbol}/${quoteSymbol} is not listed on Binance ${marketType} market`}
             </span>
           </div>
         ) : (
@@ -133,6 +133,8 @@ export default function OrderbookSection({ baseSymbol = 'BTC', quoteSymbol = 'US
                       />
                   </span>
               </button>
+              {/* Connection indicator */}
+              <div className={`w-2 h-2 rounded-full ml-2 ${isConnected ? 'bg-[#3fea9b]' : 'bg-[#ff5c5c]'}`} title={isConnected ? 'Live' : 'Disconnected'} />
             </div>
             <div className="bg-[#1f261e] flex items-center justify-between px-4 lg:px-3 xl:px-3.5 2xl:px-4 py-1 rounded-lg w-[72px] lg:w-[52px] xl:w-[58px] 2xl:w-[72px]">
               <span className="text-[#b5b5b5] text-base lg:text-xs xl:text-sm 2xl:text-base font-medium tracking-[0.016px]">
@@ -269,4 +271,3 @@ export default function OrderbookSection({ baseSymbol = 'BTC', quoteSymbol = 'US
     </div>
   );
 }
-

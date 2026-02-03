@@ -13,6 +13,20 @@ interface ChartSectionProps {
   tokenData?: any; // Enriched token data from API
 }
 
+// Common USDT addresses by chainId
+function getUsdtAddress(chainId: number): string {
+  const usdtAddresses: Record<number, string> = {
+    1: '0xdAC17F958D2ee523a2206206994597C13D831ec7', // Ethereum
+    56: '0x55d398326f99059fF775485246999027B3197955', // BSC
+    137: '0xc2132D05D31c914a87C6611C10748AEb04B58e8F', // Polygon
+    42161: '0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9', // Arbitrum
+    10: '0x94b008aA00579c1307B0EF2c499aD98a8ce58e58', // Optimism
+    8453: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', // Base (USDC)
+    43114: '0x9702230A8Ea53601f5cD2dc00fDBc13d4dF4A8c7', // Avalanche
+  };
+  return usdtAddresses[chainId] || usdtAddresses[56]; // Default to BSC USDT
+}
+
 type ChartTab = "Chart" | "Overview";
 type TimePeriod = "15m" | "1h" | "4h" | "6h" | "1D" | "3D" | "More";
 
@@ -42,14 +56,69 @@ export default function ChartSection({ pair, tokenData }: ChartSectionProps) {
   }, [pair]);
 
   // Fetch token data by symbols
+  // If tokenData is provided (from page), use it directly
   useEffect(() => {
     if (!baseSymbol || !quoteSymbol) {
       setIsLoadingTokens(false);
       return;
     }
 
+    // If we have token addresses from the page's API call, use them directly
+    // This ensures we get the correct tokens on the correct chain
+    if (tokenData?.address && tokenData?.chainId) {
+      console.log('[ChartSection] Using tokenData from page:', tokenData.symbol, tokenData.chainId);
+
+      // Create Token objects from tokenData
+      const baseTokenFromData: Token = {
+        address: tokenData.address,
+        symbol: tokenData.symbol,
+        name: tokenData.name || tokenData.symbol,
+        chainId: tokenData.chainId,
+        logoURI: tokenData.icon || '',
+        decimals: 18, // Default, will be overridden by chart if needed
+      };
+
+      // For quote token, fetch by symbol but filter by the same chainId
+      setIsLoadingTokens(true);
+      fetchTokens({ query: quoteSymbol, chains: [tokenData.chainId], limit: 5 })
+        .then((quoteResults) => {
+          const quote = quoteResults.find(
+            (t) => t.symbol.toUpperCase() === quoteSymbol.toUpperCase()
+          );
+
+          if (quote) {
+            setBaseToken(baseTokenFromData);
+            setQuoteToken(quote);
+            setChartError(null);
+          } else {
+            // Fallback: create a USDT token for the same chain
+            console.warn('[ChartSection] Quote token not found, using fallback');
+            const fallbackQuote: Token = {
+              address: getUsdtAddress(tokenData.chainId),
+              symbol: 'USDT',
+              name: 'Tether USD',
+              chainId: tokenData.chainId,
+              logoURI: '',
+              decimals: 18,
+            };
+            setBaseToken(baseTokenFromData);
+            setQuoteToken(fallbackQuote);
+            setChartError(null);
+          }
+        })
+        .catch((error) => {
+          console.error('[ChartSection] Error fetching quote token:', error);
+          setChartError(error instanceof Error ? error : new Error('Failed to load quote token'));
+        })
+        .finally(() => {
+          setIsLoadingTokens(false);
+        });
+      return;
+    }
+
+    // Fallback: search for both tokens (may get wrong chain)
     setIsLoadingTokens(true);
-    
+
     // Fetch both tokens in parallel
     Promise.all([
       fetchTokens({ query: baseSymbol, limit: 5 }),
@@ -57,10 +126,15 @@ export default function ChartSection({ pair, tokenData }: ChartSectionProps) {
     ])
       .then(([baseResults, quoteResults]) => {
         // Find exact symbol match (case-insensitive)
+        // Prefer BSC (chainId 56) for common pairs
         const base = baseResults.find(
+          (t) => t.symbol.toUpperCase() === baseSymbol.toUpperCase() && t.chainId === 56
+        ) || baseResults.find(
           (t) => t.symbol.toUpperCase() === baseSymbol.toUpperCase()
         );
         const quote = quoteResults.find(
+          (t) => t.symbol.toUpperCase() === quoteSymbol.toUpperCase() && t.chainId === 56
+        ) || quoteResults.find(
           (t) => t.symbol.toUpperCase() === quoteSymbol.toUpperCase()
         );
 
@@ -80,7 +154,7 @@ export default function ChartSection({ pair, tokenData }: ChartSectionProps) {
       .finally(() => {
         setIsLoadingTokens(false);
       });
-  }, [baseSymbol, quoteSymbol]);
+  }, [baseSymbol, quoteSymbol, tokenData]);
 
   // Map time period to resolution
   const resolution = useMemo<ResolutionString>(() => {

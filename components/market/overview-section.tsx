@@ -40,7 +40,8 @@ export default function OverviewSection({ pair, tokenData: tokenInfo }: Overview
   const contractAddress = tokenInfo?.address || '';
   const chainId = tokenInfo?.chainId;
 
-  const networkName = chainId === 56 ? 'BNB Chain' : chainId === 1 ? 'Ethereum' : chainId === 137 ? 'Polygon' : chainId === 42161 ? 'Arbitrum' : chainId === 10 ? 'Optimism' : chainId === 8453 ? 'Base' : chainId === 43114 ? 'Avalanche' : chainId === 250 ? 'Fantom' : chainId ? `Chain ${chainId}` : 'N/A';
+  // For Binance tokens (chainId=0), show "Binance" as network
+  const networkName = chainId === 0 ? 'Binance' : chainId === 56 ? 'BNB Chain' : chainId === 1 ? 'Ethereum' : chainId === 137 ? 'Polygon' : chainId === 42161 ? 'Arbitrum' : chainId === 10 ? 'Optimism' : chainId === 8453 ? 'Base' : chainId === 43114 ? 'Avalanche' : chainId === 250 ? 'Fantom' : chainId ? `Chain ${chainId}` : 'Binance';
 
   const handleCopyAddress = () => {
     if (contractAddress) {
@@ -50,8 +51,10 @@ export default function OverviewSection({ pair, tokenData: tokenInfo }: Overview
     }
   };
 
+  const defaultDescription = `${tokenName} (${tokenSymbol}) is a cryptocurrency available for trading on ${networkName}. View live price charts, trade ${tokenSymbol}, and track market performance on TIWI Protocol.`;
+
   const tokenData = {
-    about: `${tokenName} (${tokenSymbol}) is a cryptocurrency token available for trading on ${networkName}. View live price charts, trade ${tokenSymbol}, and track market performance on TIWI Protocol.`,
+    about: tokenInfo?.description || defaultDescription,
     tokenName,
     network: networkName,
     contract: truncateAddress(contractAddress),
