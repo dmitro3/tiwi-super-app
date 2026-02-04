@@ -205,56 +205,12 @@ export class QuoteAggregator {
     console.log(`[QuoteAggregator] ========================================\n`);
     
     try {
-      // Get token symbols from DexScreener (for better route finding)
-      console.log(`[QuoteAggregator] 📍 STEP 1: Getting token symbols from DexScreener...`);
-      const { getTokenPairs } = await import('../dexscreener-client');
-      
       // CRITICAL FIX: For cross-chain swaps, toToken is on destination chain, not source chain
       const toTokenChainId = options.toChainId || chainId;
       const isCrossChain = toTokenChainId !== chainId;
 
-      console.log(`[QuoteAggregator]   Fetching pairs for fromToken: ${fromToken} on chain ${chainId}`);
-      const fromPairs = await getTokenPairs(fromToken, chainId);
-      console.log(`[QuoteAggregator]   Found ${fromPairs.length} pairs for fromToken`);
-
-      console.log(`[QuoteAggregator]   Fetching pairs for toToken: ${toToken} on chain ${toTokenChainId}${isCrossChain ? ' (CROSS-CHAIN)' : ''}`);
-      const toPairs = await getTokenPairs(toToken, toTokenChainId);
-      console.log(`[QuoteAggregator]   Found ${toPairs.length} pairs for toToken`);
-      
-      // Extract symbol from pairs (find the token in the pair)
-      let fromTokenSymbol: string | undefined;
-      if (fromPairs.length > 0) {
-        const pair = fromPairs[0];
-        if (pair.baseToken.address.toLowerCase() === fromToken.toLowerCase()) {
-          fromTokenSymbol = pair.baseToken.symbol;
-          console.log(`[QuoteAggregator]   ✅ FromToken symbol: ${fromTokenSymbol} (from baseToken)`);
-        } else if (pair.quoteToken.address.toLowerCase() === fromToken.toLowerCase()) {
-          fromTokenSymbol = pair.quoteToken.symbol;
-          console.log(`[QuoteAggregator]   ✅ FromToken symbol: ${fromTokenSymbol} (from quoteToken)`);
-        } else {
-          console.log(`[QuoteAggregator]   ⚠️ FromToken address not found in pair (address mismatch?)`);
-        }
-      } else {
-        console.log(`[QuoteAggregator]   ⚠️ No pairs found for fromToken, symbol will be undefined`);
-      }
-      
-      let toTokenSymbol: string | undefined;
-      if (toPairs.length > 0) {
-        const pair = toPairs[0];
-        if (pair.baseToken.address.toLowerCase() === toToken.toLowerCase()) {
-          toTokenSymbol = pair.baseToken.symbol;
-          console.log(`[QuoteAggregator]   ✅ ToToken symbol: ${toTokenSymbol} (from baseToken)`);
-        } else if (pair.quoteToken.address.toLowerCase() === toToken.toLowerCase()) {
-          toTokenSymbol = pair.quoteToken.symbol;
-          console.log(`[QuoteAggregator]   ✅ ToToken symbol: ${toTokenSymbol} (from quoteToken)`);
-        } else {
-          console.log(`[QuoteAggregator]   ⚠️ ToToken address not found in pair (address mismatch?)`);
-        }
-      } else {
-        console.log(`[QuoteAggregator]   ⚠️ No pairs found for toToken, symbol will be undefined`);
-      }
-      
-      console.log(`[QuoteAggregator]   Final symbols: ${fromTokenSymbol || 'unknown'} → ${toTokenSymbol || 'unknown'}\n`);
+      const fromTokenSymbol: string | undefined = undefined;
+      const toTokenSymbol: string | undefined = undefined;
 
       console.log(`[QuoteAggregator] 📍 STEP 2: Determining routing strategy...`);
       console.log(`[QuoteAggregator]   From Chain: ${chainId}`);
