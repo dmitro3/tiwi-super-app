@@ -93,38 +93,38 @@ export class SameChainRouteFinder {
 
     let bestRoute: SameChainRoute | null = null;
 
-    // Verify paths sequentially
-    for (const path of paths) {
-      try {
-        const verified = await verifyRoute(path, chainId, dexId, amountIn);
+    // Verify ALL paths in parallel for maximum speed
+    const startTime = Date.now();
+    const results = await Promise.allSettled(
+      paths.map(path => verifyRoute(path, chainId, dexId, amountIn))
+    );
+    console.log(`[SameChainFinder]   ⚡ Parallel verification of ${paths.length} paths took ${Date.now() - startTime}ms`);
 
-        if (verified && verified.outputAmount > 0n) {
-          const route: SameChainRoute = {
-            path: verified.path,
-            outputAmount: verified.outputAmount,
-            dexId: verified.dexId,
-            chainId: verified.chainId,
-            hops: path.length - 1,
-            verified: true,
-            pairs: path.slice(0, -1).map((token, i) => ({
-              tokenA: token,
-              tokenB: path[i + 1],
-              dexId,
-            }))
-          };
+    for (let idx = 0; idx < results.length; idx++) {
+      const result = results[idx];
+      if (result.status !== 'fulfilled' || !result.value) continue;
 
-          // Pick route with highest output
-          if (!bestRoute || route.outputAmount > bestRoute.outputAmount) {
-            bestRoute = route;
+      const verified = result.value;
+      if (verified.outputAmount <= 0n) continue;
 
-            // Optimization: If it's a direct route with good output, we can stop early
-            if (route.hops === 1 && route.outputAmount > 0n) {
-              console.log(`[SameChainFinder]   ✅ High confidence direct route found, continuing to check others...`);
-            }
-          }
-        }
-      } catch (err) {
-        // Skip invalid paths
+      const path = paths[idx];
+      const route: SameChainRoute = {
+        path: verified.path,
+        outputAmount: verified.outputAmount,
+        dexId: verified.dexId,
+        chainId: verified.chainId,
+        hops: path.length - 1,
+        verified: true,
+        pairs: path.slice(0, -1).map((token, i) => ({
+          tokenA: token,
+          tokenB: path[i + 1],
+          dexId,
+        }))
+      };
+
+      // Pick route with highest output
+      if (!bestRoute || route.outputAmount > bestRoute.outputAmount) {
+        bestRoute = route;
       }
     }
 
