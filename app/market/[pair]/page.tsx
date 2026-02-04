@@ -2,7 +2,6 @@
 
 import { useParams } from "next/navigation";
 import { useState, useEffect } from "react";
-import { getCryptoMetadata } from "@/lib/backend/data/crypto-metadata";
 import TokenHeader from "@/components/market/token-header";
 import TradingForm from "@/components/market/trading-form";
 import ChartSection from "@/components/market/chart-section";
@@ -82,7 +81,7 @@ export default function TradingPage() {
     return `$${val.toFixed(8)}`;
   };
 
-  // Fetch real token data directly from Binance (client-side)
+  // Fetch token data via server-side API (proxies to Binance)
   useEffect(() => {
     setIsLoading(true);
 
@@ -97,118 +96,42 @@ export default function TradingPage() {
           return;
         }
 
-        const [baseSymbol, quoteSymbol] = parts;
+        const response = await fetch(`/api/v1/market/${pair}/price`);
+        if (response.ok) {
+          const priceData = await response.json();
 
-        // Fetch directly from Binance in the browser (try multiple endpoints)
-        if (quoteSymbol === 'USDT') {
-          try {
-            const binanceSymbol = `${baseSymbol}${quoteSymbol}`;
-            const spotEndpoints = [
-              'https://api.binance.com',
-              'https://api1.binance.com',
-              'https://api2.binance.com',
-              'https://api3.binance.com',
-              'https://api4.binance.com',
-              'https://data-api.binance.vision',
-            ];
-            let response: Response | null = null;
-            for (const base of spotEndpoints) {
-              try {
-                response = await fetch(`${base}/api/v3/ticker/24hr?symbol=${binanceSymbol}`, {
-                  signal: AbortSignal.timeout(10000),
-                });
-                if (response.ok) break;
-                response = null;
-              } catch {
-                response = null;
-              }
-            }
+          setTokenData({
+            symbol: priceData.baseToken.symbol,
+            pair: priceData.pair,
+            icon: priceData.baseToken.logo || '',
+            name: priceData.baseToken.name || priceData.baseToken.symbol,
+            address: priceData.baseToken.address || '',
+            chainId: priceData.baseToken.chainId,
+            quoteSymbol: priceData.quoteToken.symbol,
+            quoteIcon: priceData.quoteToken.logo || '',
+            marketCap: priceData.baseToken.marketCap,
+            liquidity: priceData.baseToken.liquidity,
+            circulatingSupply: priceData.baseToken.circulatingSupply,
+            currentPrice: priceData.priceUSD || priceData.price,
+            volume24h: priceData.volume24h || null,
+            description: priceData.description || null,
+          });
 
-            if (response && response.ok) {
-              const ticker = await response.json();
-              const meta = getCryptoMetadata(baseSymbol);
+          const pairPrice = priceData.priceUSD || priceData.price || 0;
+          const priceChange = priceData.priceChange24h || 0;
+          const vol24h = priceData.volume24h || 0;
+          const high = priceData.high24h || 0;
+          const low = priceData.low24h || 0;
 
-              const lastPrice = parseFloat(ticker.lastPrice);
-              const priceChange = parseFloat(ticker.priceChangePercent);
-              const highPrice = parseFloat(ticker.highPrice);
-              const lowPrice = parseFloat(ticker.lowPrice);
-              const vol = parseFloat(ticker.quoteVolume);
-
-              setTokenData({
-                symbol: baseSymbol,
-                pair: `${baseSymbol}/${quoteSymbol}`,
-                icon: meta.logo,
-                name: meta.name,
-                address: '',
-                chainId: 0,
-                quoteSymbol,
-                quoteIcon: '',
-                marketCap: null,
-                liquidity: null,
-                circulatingSupply: null,
-                currentPrice: lastPrice,
-                volume24h: vol,
-                description: meta.description || null,
-              });
-
-              setTokenStats({
-                price: formatStatPrice(lastPrice),
-                change: `${priceChange >= 0 ? '+' : ''}${priceChange.toFixed(2)}%`,
-                changePositive: priceChange >= 0,
-                vol24h: formatVol(vol),
-                high24h: formatStatPrice(highPrice),
-                low24h: formatStatPrice(lowPrice),
-              });
-
-              setIsLoading(false);
-              return;
-            }
-          } catch (binanceErr) {
-            console.warn('[MarketPage] Binance direct fetch failed, trying API:', binanceErr);
-          }
-        }
-
-        // Fallback: try our API route (for non-Binance pairs or if Binance fetch fails)
-        try {
-          const response = await fetch(`/api/v1/market/${pair}/price`);
-          if (response.ok) {
-            const priceData = await response.json();
-
-            setTokenData({
-              symbol: priceData.baseToken.symbol,
-              pair: priceData.pair,
-              icon: priceData.baseToken.logo || '',
-              name: priceData.baseToken.name || priceData.baseToken.symbol,
-              address: priceData.baseToken.address || '',
-              chainId: priceData.baseToken.chainId,
-              quoteSymbol: priceData.quoteToken.symbol,
-              quoteIcon: priceData.quoteToken.logo || '',
-              marketCap: priceData.baseToken.marketCap,
-              liquidity: priceData.baseToken.liquidity,
-              circulatingSupply: priceData.baseToken.circulatingSupply,
-              currentPrice: priceData.priceUSD || priceData.price,
-              volume24h: priceData.volume24h || null,
-              description: priceData.description || null,
-            });
-
-            const pairPrice = priceData.priceUSD || priceData.price || 0;
-            const priceChange = priceData.priceChange24h || 0;
-            const vol24h = priceData.volume24h || 0;
-            const high = priceData.high24h || 0;
-            const low = priceData.low24h || 0;
-
-            setTokenStats({
-              price: formatStatPrice(pairPrice),
-              change: `${priceChange >= 0 ? '+' : ''}${priceChange.toFixed(2)}%`,
-              changePositive: priceChange >= 0,
-              vol24h: formatVol(vol24h),
-              high24h: formatStatPrice(high),
-              low24h: formatStatPrice(low),
-            });
-          } else {
-            setFallbackFromPair(normalized, parts);
-          }
-        } catch {
+          setTokenStats({
+            price: formatStatPrice(pairPrice),
+            change: `${priceChange >= 0 ? '+' : ''}${priceChange.toFixed(2)}%`,
+            changePositive: priceChange >= 0,
+            vol24h: formatVol(vol24h),
+            high24h: formatStatPrice(high),
+            low24h: formatStatPrice(low),
+          });
+        } else {
           setFallbackFromPair(normalized, parts);
         }
       } catch (error) {
