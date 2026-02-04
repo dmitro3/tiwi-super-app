@@ -350,7 +350,7 @@ export class QuoteAggregator {
           options.fromAddress // Pass fromAddress to cross-chain finder
         );
 
-        if (crossChainRoute) {
+        if (crossChainRoute && crossChainRoute.totalOutput > BigInt(0)) {
           console.log(`[QuoteAggregator] ✅ Cross-chain route found!`);
           console.log(`[QuoteAggregator]   Total Output: ${crossChainRoute.totalOutput.toString()}`);
 
@@ -381,7 +381,11 @@ export class QuoteAggregator {
 
           return [quote];
         } else {
-          console.log(`[QuoteAggregator] ❌ Cross-chain route not found`);
+          if (crossChainRoute) {
+            console.log(`[QuoteAggregator] ❌ Cross-chain route found but output is 0 (invalid), falling through to multi-hop`);
+          } else {
+            console.log(`[QuoteAggregator] ❌ Cross-chain route not found`);
+          }
         }
       }
 

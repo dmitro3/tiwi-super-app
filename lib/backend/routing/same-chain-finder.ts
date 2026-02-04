@@ -1249,17 +1249,28 @@ export class SameChainRouteFinder {
       console.error(`[SameChainFinder] No wrapped native token for chain ${chainId}`);
       return null;
     }
-    
+
+    // CRITICAL: Skip if fromToken or toToken IS the wrapped native token
+    // Path [WETH, WETH, toToken] has IDENTICAL_ADDRESSES and will always fail
+    if (fromToken.toLowerCase() === wrappedNative.toLowerCase()) {
+      console.log(`[SameChainFinder] ⚠️ fromToken IS the wrapped native token, cannot use as intermediary`);
+      return null;
+    }
+    if (toToken.toLowerCase() === wrappedNative.toLowerCase()) {
+      console.log(`[SameChainFinder] ⚠️ toToken IS the wrapped native token, cannot use as intermediary`);
+      return null;
+    }
+
     // Force route: fromToken → wrappedNative → toToken
     const path = [fromToken, wrappedNative, toToken];
-    
+
     // Try all supported DEXes
     const dexes = getSupportedDEXes(chainId);
-    
+
     for (const dex of dexes) {
       const verified = await verifyRoute(path, chainId, dex.dexId, amountIn);
-      
-      if (verified) {
+
+      if (verified && verified.outputAmount > BigInt(0)) {
         return {
           path: verified.path,
           outputAmount: verified.outputAmount,
@@ -1285,33 +1296,11 @@ export class SameChainRouteFinder {
         };
       }
     }
-    
-    // If verification fails, return route anyway (execution will handle errors)
-    // This ensures we never return "no route"
-    console.warn(`[SameChainFinder] ⚠️ Route verification failed, but returning route anyway`);
-    return {
-      path,
-      outputAmount: BigInt(0), // Will be calculated during execution
-      dexId: dexes[0]?.dexId || 'unknown',
-      chainId,
-      hops: 2,
-      verified: true,
-      liquidityUSD: 0,
-      pairs: [
-        {
-          tokenA: fromToken,
-          tokenB: wrappedNative,
-          dexId: dexes[0]?.dexId || 'unknown',
-          liquidityUSD: 0,
-        },
-        {
-          tokenA: wrappedNative,
-          tokenB: toToken,
-          dexId: dexes[0]?.dexId || 'unknown',
-          liquidityUSD: 0,
-        },
-      ],
-    };
+
+    // If verification fails, return null instead of a broken route with output=0
+    // Returning output=0 causes downstream validation failures
+    console.warn(`[SameChainFinder] ⚠️ Route verification failed for guaranteed route, returning null`);
+    return null;
   }
 }
 
