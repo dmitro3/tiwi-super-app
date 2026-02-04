@@ -8,6 +8,20 @@
 import type { Address } from 'viem';
 import type { RouterRoute, RouterParams } from '../routers/types';
 import { getRouterRegistry } from '../routers/registry';
+import { toSmallestUnit } from '../routers/transformers/amount-transformer';
+
+/**
+ * Convert a human-readable amount from RouterRoute.toToken.amount
+ * back to smallest unit (wei) for passing as fromAmount to the next router.
+ *
+ * RouterRoute returns amounts in human-readable format (e.g., "0.000000417108020265")
+ * but RouterParams.fromAmount expects smallest unit (e.g., "417108020265")
+ */
+function toWei(humanReadableAmount: string, decimals: number = 18): string {
+  const result = toSmallestUnit(humanReadableAmount, decimals);
+  console.log(`[MultiHopRouter] 💱 Amount conversion: "${humanReadableAmount}" (human) → "${result}" (wei, ${decimals} decimals)`);
+  return result;
+}
 
 /**
  * Common intermediate tokens for multi-hop routing
@@ -226,9 +240,12 @@ export class MultiHopRouter {
           continue;
         }
 
-        // Get output amount from hop1
-        const hop1Output = hop1Route.toToken.amount;
-        console.log('[MultiHopRouter] Hop1 output amount:', hop1Output);
+        // Get output amount from hop1 and convert to smallest unit
+        // RouterRoute.toToken.amount is human-readable, but RouterParams.fromAmount needs smallest unit (wei)
+        const hop1OutputHuman = hop1Route.toToken.amount;
+        const hop1Decimals = hop1Route.toToken.decimals || 18;
+        const hop1Output = toWei(hop1OutputHuman, hop1Decimals);
+        console.log('[MultiHopRouter] Hop1 output amount:', hop1OutputHuman, '→ wei:', hop1Output);
 
         // Try to get route for second hop (intermediate → toToken)
         let hop2Route: RouterRoute | null = null;
@@ -239,7 +256,7 @@ export class MultiHopRouter {
               fromChainId: chainId,
               fromToken: intermediate as string,
               fromAmount: hop1Output,
-              fromDecimals: 18,
+              fromDecimals: hop1Decimals,
               toChainId: chainId,
               toToken: toToken as string,
               toDecimals: 18,
@@ -532,7 +549,10 @@ export class MultiHopRouter {
 
             if (!intermediateRoute1) continue;
 
-            const intermediateOutput = intermediateRoute1.toToken.amount;
+            // Convert human-readable output to smallest unit for next hop
+            const intermediateOutputHuman = intermediateRoute1.toToken.amount;
+            const intermediateDecimals = intermediateRoute1.toToken.decimals || 18;
+            const intermediateOutput = toWei(intermediateOutputHuman, intermediateDecimals);
 
             // Get route: intermediate → bridgeToken
             let intermediateRoute2: RouterRoute | null = null;
@@ -542,7 +562,7 @@ export class MultiHopRouter {
                   fromChainId,
                   fromToken: intermediate as string,
                   fromAmount: intermediateOutput,
-                  fromDecimals: 18,
+                  fromDecimals: intermediateDecimals,
                   toChainId: fromChainId,
                   toToken: bridgeToken.address as string,
                   toDecimals: 18,
@@ -575,8 +595,11 @@ export class MultiHopRouter {
           continue;
         }
 
-        const hop1Output = hop1Route.toToken.amount;
-        console.log('[MultiHopRouter] Hop1 output amount:', hop1Output);
+        // Convert human-readable output to smallest unit for bridge
+        const hop1OutputHuman = hop1Route.toToken.amount;
+        const hop1Decimals = hop1Route.toToken.decimals || 18;
+        const hop1Output = toWei(hop1OutputHuman, hop1Decimals);
+        console.log('[MultiHopRouter] Hop1 output amount:', hop1OutputHuman, '→ wei:', hop1Output);
 
         // Step 4b: Get bridge route (bridgeToken source → bridgeToken destination)
         console.log('[MultiHopRouter] 📍 Step 4b: Finding bridge route...');
@@ -590,7 +613,7 @@ export class MultiHopRouter {
               fromChainId,
               fromToken: bridgeToken.address as string,
               fromAmount: hop1Output,
-              fromDecimals: 18,
+              fromDecimals: hop1Decimals,
               toChainId,
               toToken: bridgeToken.address as string, // Bridge to same token on dest chain
               toDecimals: 18,
@@ -614,8 +637,11 @@ export class MultiHopRouter {
           continue;
         }
 
-        const bridgeOutput = bridgeRoute.toToken.amount;
-        console.log('[MultiHopRouter] Bridge output amount:', bridgeOutput);
+        // Convert human-readable bridge output to smallest unit for destination chain
+        const bridgeOutputHuman = bridgeRoute.toToken.amount;
+        const bridgeDecimals = bridgeRoute.toToken.decimals || 18;
+        const bridgeOutput = toWei(bridgeOutputHuman, bridgeDecimals);
+        console.log('[MultiHopRouter] Bridge output amount:', bridgeOutputHuman, '→ wei:', bridgeOutput);
 
         // Step 4c: Get route for second hop on destination chain (bridgeToken → toToken)
         // Try direct route first, if that fails, try multi-hop on destination chain
@@ -634,7 +660,7 @@ export class MultiHopRouter {
               fromChainId: toChainId,
               fromToken: bridgeToken.address as string,
               fromAmount: bridgeOutput,
-              fromDecimals: 18,
+              fromDecimals: bridgeDecimals,
               toChainId,
               toToken: toToken as string,
               toDecimals: 18,
@@ -692,7 +718,7 @@ export class MultiHopRouter {
                   fromChainId: toChainId,
                   fromToken: bridgeToken.address as string,
                   fromAmount: bridgeOutput,
-                  fromDecimals: 18,
+                  fromDecimals: bridgeDecimals,
                   toChainId,
                   toToken: intermediate as string,
                   toDecimals: 18,
@@ -712,7 +738,10 @@ export class MultiHopRouter {
 
             if (!intermediateRoute1) continue;
 
-            const intermediateOutput = intermediateRoute1.toToken.amount;
+            // Convert human-readable output to smallest unit for next hop
+            const destIntermediateHuman = intermediateRoute1.toToken.amount;
+            const destIntermediateDecimals = intermediateRoute1.toToken.decimals || 18;
+            const intermediateOutput = toWei(destIntermediateHuman, destIntermediateDecimals);
 
             // Get route: intermediate → toToken
             let intermediateRoute2: RouterRoute | null = null;
@@ -722,7 +751,7 @@ export class MultiHopRouter {
                   fromChainId: toChainId,
                   fromToken: intermediate as string,
                   fromAmount: intermediateOutput,
-                  fromDecimals: 18,
+                  fromDecimals: destIntermediateDecimals,
                   toChainId,
                   toToken: toToken as string,
                   toDecimals: 18,

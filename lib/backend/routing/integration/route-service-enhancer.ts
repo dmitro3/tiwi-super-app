@@ -228,20 +228,25 @@ export class RouteServiceEnhancer {
       if (existingRoute) {
         const existingOutput = parseFloat(existingRoute.toToken.amount || '0');
         const newOutput = parseFloat(bestQuote.outputAmount);
-        
+
         // Use new route if it's better (higher output)
         if (newOutput > existingOutput * 1.01) {
           // New route is at least 1% better
+          console.log(`[RouteServiceEnhancer] ✅ New route is better: ${newOutput} vs ${existingOutput}`);
           return this.buildEnhancedResponse(bestQuote, aggregatedQuotes, existingRouteResponse);
         }
+
+        // Use existing route if it's better or similar
+        return {
+          ...existingRouteResponse,
+          sources: aggregatedQuotes.map(q => q.source),
+          universalRoutingEnabled: bestQuote.source === 'universal',
+        };
       }
-      
-      // Use existing route if it's better or similar
-      return {
-        ...existingRouteResponse,
-        sources: aggregatedQuotes.map(q => q.source),
-        universalRoutingEnabled: bestQuote.source === 'universal',
-      };
+
+      // No existing route - use the new route from quote aggregator
+      console.log(`[RouteServiceEnhancer] ✅ No existing route, using new route from QuoteAggregator`);
+      return this.buildEnhancedResponse(bestQuote, aggregatedQuotes, existingRouteResponse);
     } catch (error) {
       console.error('[RouteServiceEnhancer] Error enhancing route:', error);
       
