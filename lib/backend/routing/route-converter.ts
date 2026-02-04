@@ -27,17 +27,17 @@ export async function convertSameChainRouteToRouterRoute(
   // Get decimals if not provided
   const fromDecimals = fromToken.decimals ?? await decimalsFetcher.getTokenDecimals(fromToken.address, chainId);
   const toDecimals = toToken.decimals ?? await decimalsFetcher.getTokenDecimals(toToken.address, chainId);
-  
+
   // Format amounts
   const fromAmount = formatAmount(amountIn, fromDecimals);
   const toAmount = formatAmount(route.outputAmount, toDecimals);
-  
+
   // Calculate exchange rate
   const exchangeRate = calculateExchangeRate(amountIn, route.outputAmount, fromDecimals, toDecimals);
-  
+
   // Build steps
   const steps: RouteStep[] = [];
-  
+
   if (route.hops === 1) {
     // Direct swap
     steps.push({
@@ -47,11 +47,13 @@ export async function convertSameChainRouteToRouterRoute(
         address: route.path[0],
         amount: fromAmount,
         symbol: fromToken.symbol,
+        decimals: fromDecimals,
       },
       toToken: {
         address: route.path[1],
         amount: toAmount,
         symbol: toToken.symbol,
+        decimals: toDecimals,
       },
       protocol: getProtocolName(route.dexId),
       description: `Swap ${fromToken.symbol || 'Token'} → ${toToken.symbol || 'Token'}`,
@@ -59,33 +61,38 @@ export async function convertSameChainRouteToRouterRoute(
   } else {
     // Multi-hop swap
     for (let i = 0; i < route.path.length - 1; i++) {
-      const stepFromToken = route.path[i];
-      const stepToToken = route.path[i + 1];
-      
-      // Estimate intermediate amounts (simplified - actual would need getAmountsOut for each hop)
+      const stepFromAddr = route.path[i];
+      const stepToAddr = route.path[i + 1];
+
+      const stepFromDecimals = i === 0 ? fromDecimals : await decimalsFetcher.getTokenDecimals(stepFromAddr, chainId);
+      const stepToDecimals = i === route.path.length - 2 ? toDecimals : await decimalsFetcher.getTokenDecimals(stepToAddr, chainId);
+
+      // Estimate intermediate amounts (simplified)
       const stepAmountIn = i === 0 ? amountIn : route.outputAmount; // Simplified
       const stepAmountOut = i === route.path.length - 2 ? route.outputAmount : route.outputAmount; // Simplified
-      
+
       steps.push({
         type: 'swap',
         chainId,
         fromToken: {
-          address: stepFromToken,
-          amount: formatAmount(stepAmountIn, fromDecimals),
+          address: stepFromAddr,
+          amount: formatAmount(stepAmountIn, stepFromDecimals),
+          decimals: stepFromDecimals,
         },
         toToken: {
-          address: stepToToken,
-          amount: formatAmount(stepAmountOut, toDecimals),
+          address: stepToAddr,
+          amount: formatAmount(stepAmountOut, stepToDecimals),
+          decimals: stepToDecimals,
         },
         protocol: getProtocolName(route.dexId),
         description: `Swap via ${route.dexId}`,
       });
     }
   }
-  
+
   // Get router address
   const routerAddress = getRouterAddress(chainId, route.dexId);
-  
+
   return {
     router: `universal-${route.dexId}`,
     routeId: `route-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
@@ -131,17 +138,17 @@ export async function convertCrossChainRouteToRouterRoute(
   // Get decimals
   const fromDecimals = fromToken.decimals ?? await decimalsFetcher.getTokenDecimals(fromToken.address, route.sourceRoute.chainId);
   const toDecimals = toToken.decimals ?? await decimalsFetcher.getTokenDecimals(toToken.address, route.chainId);
-  
+
   // Format amounts
   const fromAmount = formatAmount(amountIn, fromDecimals);
   const toAmount = formatAmount(route.totalOutput, toDecimals);
-  
+
   // Calculate exchange rate
   const exchangeRate = calculateExchangeRate(amountIn, route.totalOutput, fromDecimals, toDecimals);
-  
+
   // Build steps
   const steps: RouteStep[] = [];
-  
+
   // Step 1: Source chain swap
   if (route.sourceRoute.hops === 1) {
     steps.push({
@@ -151,11 +158,13 @@ export async function convertCrossChainRouteToRouterRoute(
         address: route.sourceRoute.path[0],
         amount: fromAmount,
         symbol: fromToken.symbol,
+        decimals: fromDecimals,
       },
       toToken: {
         address: route.sourceRoute.path[1],
-        amount: formatAmount(route.sourceRoute.outputAmount, fromDecimals),
-        symbol: getTokenSymbol(route.sourceRoute.path[1], route.sourceRoute.chainId),
+        amount: formatAmount(route.sourceRoute.outputAmount, fromDecimals), // Use same decimals as fromDecimals for simplicity or fetch
+        symbol: await getTokenSymbol(route.sourceRoute.path[1], route.sourceRoute.chainId),
+        decimals: fromDecimals, // Usually the same for source chain pairs
       },
       protocol: getProtocolName(route.sourceRoute.dexId),
       description: `Swap on ${getChainName(route.sourceRoute.chainId)}`,
@@ -169,32 +178,40 @@ export async function convertCrossChainRouteToRouterRoute(
         address: route.sourceRoute.path[0],
         amount: fromAmount,
         symbol: fromToken.symbol,
+        decimals: fromDecimals,
       },
       toToken: {
         address: route.sourceRoute.path[route.sourceRoute.path.length - 1],
         amount: formatAmount(route.sourceRoute.outputAmount, fromDecimals),
+        decimals: fromDecimals,
       },
       protocol: getProtocolName(route.sourceRoute.dexId),
       description: `Multi-hop swap on ${getChainName(route.sourceRoute.chainId)}`,
     });
   }
-  
+
   // Step 2: Bridge
+  // Fetch bridge decimals for precise mapping
+  const bridgeFromDecimals = await decimalsFetcher.getTokenDecimals(route.bridge.fromToken as Address, route.bridge.fromChain);
+  const bridgeToDecimals = await decimalsFetcher.getTokenDecimals(route.bridge.toToken as Address, route.bridge.toChain);
+
   steps.push({
     type: 'bridge',
     chainId: route.bridge.fromChain,
     fromToken: {
       address: route.bridge.fromToken,
-      amount: formatAmount(route.bridge.amountIn, fromDecimals),
+      amount: formatAmount(route.bridge.amountIn, bridgeFromDecimals),
+      decimals: bridgeFromDecimals,
     },
     toToken: {
       address: route.bridge.toToken,
-      amount: formatAmount(route.bridge.amountOut, toDecimals),
+      amount: formatAmount(route.bridge.amountOut, bridgeToDecimals),
+      decimals: bridgeToDecimals,
     },
     protocol: 'LiFi',
     description: `Bridge from ${getChainName(route.bridge.fromChain)} to ${getChainName(route.bridge.toChain)}`,
   });
-  
+
   // Step 3: Destination chain swap (if needed)
   if (route.destRoute) {
     steps.push({
@@ -202,18 +219,20 @@ export async function convertCrossChainRouteToRouterRoute(
       chainId: route.destRoute.chainId,
       fromToken: {
         address: route.destRoute.path[0],
-        amount: formatAmount(route.bridge.amountOut, toDecimals),
+        amount: formatAmount(route.bridge.amountOut, bridgeToDecimals),
+        decimals: bridgeToDecimals,
       },
       toToken: {
         address: route.destRoute.path[route.destRoute.path.length - 1],
         amount: toAmount,
         symbol: toToken.symbol,
+        decimals: toDecimals,
       },
       protocol: getProtocolName(route.destRoute.dexId),
       description: `Swap on ${getChainName(route.destRoute.chainId)}`,
     });
   }
-  
+
   return {
     router: 'universal-lifi',
     routeId: `route-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
@@ -258,7 +277,7 @@ async function getTokenSymbol(tokenAddress: Address, chainId: number): Promise<s
   try {
     const { getTokenPairs } = await import('./dexscreener-client');
     const pairs = await getTokenPairs(tokenAddress, chainId);
-    
+
     if (pairs.length > 0) {
       // Get symbol from first pair
       const pair = pairs[0];
@@ -272,7 +291,7 @@ async function getTokenSymbol(tokenAddress: Address, chainId: number): Promise<s
   } catch (error) {
     console.warn(`[RouteConverter] Failed to get token symbol:`, error);
   }
-  
+
   return undefined;
 }
 
@@ -281,11 +300,11 @@ function formatAmount(amount: bigint, decimals: number): string {
   const divisor = BigInt(10 ** decimals);
   const whole = amount / divisor;
   const fractional = amount % divisor;
-  
+
   if (fractional === 0n) {
     return whole.toString();
   }
-  
+
   const fractionalStr = fractional.toString().padStart(decimals, '0');
   const trimmed = fractionalStr.replace(/0+$/, '');
   return trimmed ? `${whole}.${trimmed}` : whole.toString();
@@ -298,11 +317,11 @@ function calculateExchangeRate(
   decimalsOut: number
 ): number {
   if (amountIn === 0n) return 0;
-  
+
   // Normalize to same decimals
   const normalizedIn = Number(amountIn) / (10 ** decimalsIn);
   const normalizedOut = Number(amountOut) / (10 ** decimalsOut);
-  
+
   return normalizedOut / normalizedIn;
 }
 
@@ -312,7 +331,7 @@ function getProtocolName(dexId: string): string {
     uniswap: 'Uniswap',
     quickswap: 'QuickSwap',
   };
-  
+
   return protocolMap[dexId.toLowerCase()] || dexId;
 }
 
@@ -325,7 +344,7 @@ function getChainName(chainId: number): string {
     42161: 'Arbitrum',
     8453: 'Base',
   };
-  
+
   return chainNames[chainId] || `Chain ${chainId}`;
 }
 

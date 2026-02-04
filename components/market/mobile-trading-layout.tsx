@@ -90,6 +90,7 @@ export default function MobileTradingLayout({
               baseSymbol={tokenData?.symbol}
               quoteSymbol={tokenData?.quoteSymbol || 'USDT'}
               currentPrice={tokenData?.currentPrice || 0}
+              marketType={activeMarketTab.toLowerCase() as "spot" | "perp"}
             />
           </div>
         )}

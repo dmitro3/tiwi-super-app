@@ -41,7 +41,7 @@ export const POPULAR_INTERMEDIARIES: Record<number, IntermediaryToken[]> = {
     { address: getAddress('0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d'), symbol: 'USDC', priority: 4, category: 'stable' },
     { address: getAddress('0x2170Ed0880ac9A755fd29B2688956BD959F933F8'), symbol: 'ETH', priority: 5, category: 'bluechip' }, // ETH on BSC
   ],
-  
+
   // Ethereum (1)
   1: [
     { address: getAddress('0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2'), symbol: 'WETH', priority: 1, category: 'native' },
@@ -51,7 +51,7 @@ export const POPULAR_INTERMEDIARIES: Record<number, IntermediaryToken[]> = {
     { address: getAddress('0xae7ab96520DE3A18E5e111B5EaAb095312D7fE84'), symbol: 'stETH', priority: 5, category: 'lst' }, // Lido Staked ETH
     { address: getAddress('0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0'), symbol: 'wstETH', priority: 6, category: 'lst' }, // Wrapped stETH
   ],
-  
+
   // Polygon (137)
   137: [
     { address: getAddress('0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270'), symbol: 'WMATIC', priority: 1, category: 'native' },
@@ -59,7 +59,7 @@ export const POPULAR_INTERMEDIARIES: Record<number, IntermediaryToken[]> = {
     { address: getAddress('0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174'), symbol: 'USDC', priority: 3, category: 'stable' },
     { address: getAddress('0x1BFD67037B42Cf73acF2047067bd4F2C47D9BfD6'), symbol: 'WBTC', priority: 4, category: 'bluechip' }, // Wrapped BTC on Polygon
   ],
-  
+
   // Optimism (10)
   10: [
     { address: getAddress('0x4200000000000000000000000000000000000006'), symbol: 'WETH', priority: 1, category: 'native' },
@@ -67,7 +67,7 @@ export const POPULAR_INTERMEDIARIES: Record<number, IntermediaryToken[]> = {
     { address: getAddress('0x7F5c764cBc14f9669B88837ca1490cCa17c31607'), symbol: 'USDC', priority: 3, category: 'stable' },
     { address: getAddress('0x1F32b1c2345538c0C6F582fB022929c35a05FeF0'), symbol: 'wstETH', priority: 4, category: 'lst' }, // Wrapped stETH on Optimism
   ],
-  
+
   // Arbitrum (42161)
   42161: [
     { address: getAddress('0x82aF49447D8a07e3bd95BD0d56f35241523fBab1'), symbol: 'WETH', priority: 1, category: 'native' },
@@ -75,7 +75,7 @@ export const POPULAR_INTERMEDIARIES: Record<number, IntermediaryToken[]> = {
     { address: getAddress('0xFF970A61A04b1cA14834A43f5dE4533eBDDB5CC8'), symbol: 'USDC', priority: 3, category: 'stable' },
     { address: getAddress('0x5979D7b546E38E414F7E9822514be443A4800529'), symbol: 'wstETH', priority: 4, category: 'lst' }, // Wrapped stETH on Arbitrum
   ],
-  
+
   // Base (8453)
   8453: [
     { address: getAddress('0x4200000000000000000000000000000000000006'), symbol: 'WETH', priority: 1, category: 'native' },
@@ -120,6 +120,40 @@ export function getStablecoins(chainId: number): Address[] {
 }
 
 /**
+ * Cross-Chain Token Mapping
+ * Maps symbols/categories to equivalent addresses on other chains for bridging.
+ */
+export const CROSS_CHAIN_MAPPING: Record<string, Record<number, Address>> = {
+  'USDT': {
+    56: getAddress('0x55d398326f99059fF775485246999027B3197955'),
+    1: getAddress('0xdAC17F958D2ee523a2206206994597C13D831ec7'),
+    137: getAddress('0xc2132D05D31c914a87C6611C10748AEb04B58e8F'),
+    10: getAddress('0x94b008aA00579c1307B0EF2c499aD98a8ce58e58'),
+    42161: getAddress('0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9'),
+  },
+  'USDC': {
+    56: getAddress('0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d'),
+    1: getAddress('0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48'),
+    137: getAddress('0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174'),
+    10: getAddress('0x7F5c764cBc14f9669B88837ca1490cCa17c31607'),
+    42161: getAddress('0xFF970A61A04b1cA14834A43f5dE4533eBDDB5CC8'),
+    8453: getAddress('0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2'),
+  },
+  'WETH': {
+    56: getAddress('0x2170Ed0880ac9A755fd29B2688956BD959F933F8'), // ETH on BSC
+    1: getAddress('0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2'),
+    137: getAddress('0x7ceB23fD6bC0adD59E62ac25578270cFf1b9f619'), // WETH on Polygon
+    10: getAddress('0x4200000000000000000000000000000000000006'),
+    42161: getAddress('0x82aF49447D8a07e3bd95BD0d56f35241523fBab1'),
+    8453: getAddress('0x4200000000000000000000000000000000000006'),
+  },
+  'DAI': {
+    1: getAddress('0x6B175474E89094C44Da98b954EedeAC495271d0F'),
+    56: getAddress('0x1AF3F329e8BE154074D8769D1FFa4eE058B1DBc3'),
+  }
+};
+
+/**
  * Get bridgeable tokens for cross-chain swaps
  * Priority: native > stablecoins > LST tokens
  * 
@@ -131,5 +165,42 @@ export function getBridgeableTokens(chainId: number): Address[] {
   return intermediaries
     .filter(t => t.category === 'native' || t.category === 'stable' || t.category === 'lst')
     .map(t => t.address);
+}
+
+/**
+ * Get equivalent token on destination chain for bridging
+ * 
+ * @param sourceTokenAddress Token address on source chain
+ * @param sourceChainId Source chain ID
+ * @param destChainId Destination chain ID
+ * @returns Equivalent token address on destination chain or null
+ */
+export function getDestinationBridgeToken(
+  sourceTokenAddress: Address,
+  sourceChainId: number,
+  destChainId: number
+): Address | null {
+  const sourceToken = sourceTokenAddress.toLowerCase();
+
+  // 1. Check matching symbol/category in CROSS_CHAIN_MAPPING
+  for (const symbol in CROSS_CHAIN_MAPPING) {
+    const mappings = CROSS_CHAIN_MAPPING[symbol];
+    if (mappings[sourceChainId]?.toLowerCase() === sourceToken) {
+      const destToken = mappings[destChainId];
+      if (destToken) return destToken;
+    }
+  }
+
+  // 2. Fallback: Check if destination chain has a token with the same symbol in intermediaries
+  const sourceIntermediaries = getIntermediaries(sourceChainId);
+  const sourceInfo = sourceIntermediaries.find(t => t.address.toLowerCase() === sourceToken);
+
+  if (sourceInfo) {
+    const destIntermediaries = getIntermediaries(destChainId);
+    const destMatch = destIntermediaries.find(t => t.symbol.toLowerCase() === sourceInfo.symbol.toLowerCase());
+    if (destMatch) return destMatch.address;
+  }
+
+  return null;
 }
 

@@ -6,10 +6,9 @@ import MarketTabs from "@/components/market/market-tabs";
 import MarketSubTabs from "@/components/market/market-sub-tabs";
 import MarketTable from "@/components/market/market-table";
 import MobileMarketList from "@/components/market/mobile-market-list";
-import { NetworkSelector } from "@/components/home/network-selector";
-import { useNetworkFilterStore } from "@/lib/frontend/store/network-store";
-import { useTokensQuery } from "@/hooks/useTokensQuery";
+import { useBinanceTickersQuery } from "@/hooks/useBinanceTickersQuery";
 import { usePrefetchMarkets } from "@/hooks/usePrefetchMarkets";
+import { fetchBinanceTickers } from "@/lib/frontend/api/binance-tickers";
 import { fetchTokens } from "@/lib/frontend/api/tokens";
 import type { Token } from "@/lib/frontend/types/tokens";
 
@@ -41,9 +40,6 @@ export default function MarketPage() {
   const [spotlightTokensData, setSpotlightTokensData] = useState<Token[]>([]);
   const [isSpotlightLoading, setIsSpotlightLoading] = useState(false);
   const rowsPerPage = 60;
-  const fetchLimit = rowsPerPage * 3; // Fetch 3 pages worth for client-side pagination
-
-  const { selectedNetworkSlug, selectedChainId } = useNetworkFilterStore();
   
   // Load favourites from localStorage and add TWC as default favorite
   useEffect(() => {
@@ -161,9 +157,9 @@ export default function MarketPage() {
     loadSpotlightTokens();
   }, [activeSubTab]);
 
-  // Mapping subtabs to API categories
-  const categoryMap: Record<string, 'hot' | 'new' | 'gainers' | 'losers' | null> = {
-    Top: 'hot',
+  // Mapping subtabs to Binance categories
+  const categoryMap: Record<string, 'top' | 'new' | 'gainers' | 'losers' | null> = {
+    Top: 'top',
     Spotlight: null, // Spotlight is handled separately
     New: 'new',
     Gainers: 'gainers',
@@ -171,20 +167,18 @@ export default function MarketPage() {
     Favourite: null, // Favourite is handled separately
   };
 
-  const activeCategory = categoryMap[activeSubTab] || 'hot';
+  const binanceCategory = categoryMap[activeSubTab];
 
-  // Fetch single tokens by category - differentiate spot vs perp
+  // Fetch Binance tickers by category
   const {
     data: allTokens = [],
     isLoading: isCategoryLoading,
-  } = useTokensQuery({
+  } = useBinanceTickersQuery({
     params: {
-      category: activeCategory,
-      limit: fetchLimit,
-      chains: selectedChainId ? [selectedChainId] : undefined,
-      marketType: activeTab.toLowerCase() as 'spot' | 'perp', // Add marketType parameter
+      marketType: activeTab.toLowerCase() as 'spot' | 'perp',
+      category: binanceCategory || 'top',
     },
-    enabled: activeCategory !== null && activeSubTab !== "Spotlight" && activeSubTab !== "Favourite",
+    enabled: binanceCategory !== null && activeSubTab !== "Spotlight" && activeSubTab !== "Favourite",
   });
 
   // Fetch favourite tokens - use same fetchTokens function as Top to ensure consistent price data
@@ -205,32 +199,19 @@ export default function MarketPage() {
           return;
         }
 
-        // Use fetchTokens function to ensure same price formatting and data enrichment as Top
-        const tokensPromises = favouriteIds.map(async (id: string) => {
-          const [chainId, address] = id.split("-");
-          try {
-            // Use fetchTokens function instead of direct API call to ensure consistent data
-            const tokens = await fetchTokens({ 
-              address: address, 
-              chains: [parseInt(chainId, 10)], 
-              limit: 1 
-            });
-            return tokens?.[0] as Token | undefined;
-          } catch (e) {
-            console.error(`[MarketPage] Error fetching favourite token ${id}:`, e);
-          }
-          return null;
-        });
+        // Fetch all Binance tickers to match favourites against
+        const marketType = activeTab.toLowerCase() as 'spot' | 'perp';
+        const allTickers = await fetchBinanceTickers({ marketType, category: 'top', limit: 500 });
 
-        const results = await Promise.all(tokensPromises);
-        const filtered = results.filter(Boolean) as Token[];
-        
-        // Filter by selected chain if applicable
-        const finalTokens = selectedChainId 
-          ? filtered.filter(t => t.chainId === selectedChainId)
-          : filtered;
-        
-        setFavouriteTokens(finalTokens);
+        // Match favourites by ID format "chainId-address" (for Binance: "0-btcusdt")
+        const matched = favouriteIds
+          .map((id) => {
+            const token = allTickers.find(t => t.id === id);
+            return token || null;
+          })
+          .filter(Boolean) as Token[];
+
+        setFavouriteTokens(matched);
       } catch (error) {
         console.error("[MarketPage] Error fetching favourite tokens:", error);
         setFavouriteTokens([]);
@@ -240,7 +221,7 @@ export default function MarketPage() {
     };
 
     loadFavouriteTokens();
-  }, [activeSubTab, selectedChainId]);
+  }, [activeSubTab, activeTab]);
 
   // Determine which token list to use
   const rawTokens: Token[] = useMemo(() => {
@@ -264,11 +245,6 @@ export default function MarketPage() {
   const tokens = useMemo(() => {
     let result: Token[] = [...rawTokens];
 
-    // Network/Chain filtering
-    if (selectedChainId !== null) {
-      result = result.filter((token) => token.chainId === selectedChainId);
-    }
-
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
       result = result.filter(
@@ -289,9 +265,8 @@ export default function MarketPage() {
       });
     }
 
-    // Return full list; pagination handled separately
     return result;
-  }, [rawTokens, searchQuery, sortBy, selectedChainId]);
+  }, [rawTokens, searchQuery, sortBy]);
 
   // Pagination logic - calculate which pages to show (like home page)
   const getVisiblePages = (): number[] => {
@@ -336,10 +311,10 @@ export default function MarketPage() {
   );
   const total = tokens.length;
 
-  // Reset page when category or network changes
+  // Reset page when category changes
   useEffect(() => {
     setCurrentPage(1);
-  }, [activeSubTab, selectedNetworkSlug, activeTab]);
+  }, [activeSubTab, activeTab]);
 
   return (
     <>
@@ -357,7 +332,6 @@ export default function MarketPage() {
               {/* Sub Tabs (Favourite, Top, New, etc.) and Search */}
               <div className="w-full flex items-center justify-between gap-3 lg:gap-4 xl:gap-4 2xl:gap-4">
                 <div className="flex items-center gap-4 flex-1">
-                  <NetworkSelector />
                   <MarketSubTabs activeTab={activeSubTab} onTabChange={setActiveSubTab} />
                 </div>
                 <div className="hidden lg:block">

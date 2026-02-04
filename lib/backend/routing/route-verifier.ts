@@ -36,7 +36,7 @@ function getRpcUrl(chainId: number): string {
   if (customRpc) {
     return customRpc;
   }
-  
+
   // Fallback to public RPCs (shouldn't happen if config is complete)
   const rpcMap: Record<number, string> = {
     1: 'https://eth.llamarpc.com',
@@ -75,6 +75,7 @@ export interface VerifiedRoute {
  * @param amountIn Input amount in smallest unit
  * @returns Verified route if valid, null if invalid
  */
+
 export async function verifyRoute(
   path: Address[],
   chainId: number,
@@ -88,22 +89,22 @@ export async function verifyRoute(
       console.warn(`[RouteVerifier] DEX ${dexId} not supported on chain ${chainId}`);
       return null;
     }
-    
+
     // Get chain and RPC URL
     const chain = getChain(chainId);
     if (!chain) {
       console.warn(`[RouteVerifier] Chain ${chainId} not supported`);
       return null;
     }
-    
+
     const rpcUrl = getRpcUrl(chainId);
-    
+
     // Create public client
     const publicClient = createPublicClient({
       chain,
       transport: http(rpcUrl),
     });
-    
+
     // Call router.getAmountsOut
     console.log(`[RouteVerifier] ========================================`);
     console.log(`[RouteVerifier] 🔄 VERIFYING ROUTE`);
@@ -117,7 +118,7 @@ export async function verifyRoute(
     console.log(`[RouteVerifier] Amount In: ${amountIn.toString()}`);
     console.log(`[RouteVerifier] RPC: ${rpcUrl}`);
     console.log(`[RouteVerifier] ========================================`);
-    
+
     // Helper to try getAmountsOut with a specific amount
     const tryGetAmountsOut = async (testAmount: bigint): Promise<bigint[] | null> => {
       try {
@@ -127,7 +128,7 @@ export async function verifyRoute(
           functionName: 'getAmountsOut',
           args: [testAmount, path],
         }) as bigint[];
-        
+
         if (result && result.length > 0 && result[result.length - 1] > BigInt(0)) {
           return result;
         }
@@ -135,18 +136,18 @@ export async function verifyRoute(
       } catch (error: any) {
         const errorMsg = error?.message || error?.toString() || '';
         // "K" error means insufficient liquidity for this amount
-        if (errorMsg.includes('K') || errorMsg.includes('constant product') || 
-            errorMsg.includes('insufficient') || errorMsg.includes('INSUFFICIENT')) {
+        if (errorMsg.includes('K') || errorMsg.includes('constant product') ||
+          errorMsg.includes('insufficient') || errorMsg.includes('INSUFFICIENT')) {
           return null; // Amount too large, try smaller
         }
         throw error; // Other errors should be propagated
       }
     };
-    
+
     const startTime = Date.now();
     let amounts: bigint[] | null = null;
     let lastError: any = null;
-    
+
     // Try full amount first
     try {
       amounts = await tryGetAmountsOut(amountIn);
@@ -156,7 +157,7 @@ export async function verifyRoute(
     } catch (error: any) {
       lastError = error;
     }
-    
+
     // If full amount failed, try progressively smaller amounts in parallel (tiwi-test approach)
     if (!amounts || (amounts.length > 0 && amounts[amounts.length - 1] === BigInt(0))) {
       console.log(`[RouteVerifier] Full amount failed, trying smaller amounts in parallel...`);
@@ -166,12 +167,12 @@ export async function verifyRoute(
         amountIn / BigInt(100),    // 1%
         BigInt(10 ** 18),          // 1 token (for 18 decimals)
       ].filter(amt => amt > BigInt(0));
-      
+
       // Try all test amounts in parallel
       const testResults = await Promise.allSettled(
         testAmounts.map(testAmount => tryGetAmountsOut(testAmount))
       );
-      
+
       // Find first successful result
       for (let i = 0; i < testResults.length; i++) {
         const result = testResults[i];
@@ -180,15 +181,15 @@ export async function verifyRoute(
           const testAmountsResult = result.value;
           const testAmountOut = testAmountsResult[testAmountsResult.length - 1];
           const ratio = amountIn / testAmount;
-          
+
           // Scale factor based on ratio (tiwi-test logic)
           let scaleFactor = BigInt(100);
           if (ratio > BigInt(100)) scaleFactor = BigInt(75);
           else if (ratio > BigInt(10)) scaleFactor = BigInt(90);
-          
+
           // Estimate output for full amount
           const estimatedAmountOut = (testAmountOut * ratio * scaleFactor) / BigInt(100);
-          
+
           // Build amounts array
           amounts = [amountIn];
           for (let j = 0; j < path.length - 1; j++) {
@@ -199,15 +200,15 @@ export async function verifyRoute(
               amounts.push((intermediateOut * ratio * scaleFactor) / BigInt(100));
             }
           }
-          
+
           console.log(`[RouteVerifier] ✅ Got quote using scaled estimation from ${testAmount.toString()}`);
           break;
         }
       }
     }
-    
+
     const verifyTime = Date.now() - startTime;
-    
+
     // Check if we have valid amounts
     if (!amounts || amounts.length === 0) {
       console.warn(`[RouteVerifier] ❌ VERIFICATION FAILED (took ${verifyTime}ms) - No valid amounts`);
@@ -217,37 +218,37 @@ export async function verifyRoute(
       console.error(`[RouteVerifier] ========================================\n`);
       return null;
     }
-    
+
     console.log(`[RouteVerifier] ⏱️ Verification took ${verifyTime}ms`);
     console.log(`[RouteVerifier] 📊 Amounts returned: ${amounts.length} values`);
     amounts.forEach((amt, idx) => {
       console.log(`[RouteVerifier]   Step ${idx + 1}: ${amt.toString()}`);
     });
-    
+
     // Check if route is valid
     if (amounts.length !== path.length) {
       console.warn(`[RouteVerifier] ❌ Invalid amounts array length: expected ${path.length}, got ${amounts.length}`);
       return null;
     }
-    
+
     if (amounts[0] !== amountIn) {
       console.warn(`[RouteVerifier] ❌ Input amount mismatch: expected ${amountIn}, got ${amounts[0]}`);
       return null;
     }
-    
+
     const outputAmount = amounts[amounts.length - 1];
     if (outputAmount === BigInt(0)) {
       console.warn(`[RouteVerifier] ❌ Route returns zero output`);
       return null;
     }
-    
+
     const exchangeRate = Number(outputAmount) / Number(amountIn);
     console.log(`[RouteVerifier] ✅ ROUTE VERIFIED`);
     console.log(`[RouteVerifier] Input: ${amountIn.toString()}`);
     console.log(`[RouteVerifier] Output: ${outputAmount.toString()}`);
     console.log(`[RouteVerifier] Exchange Rate: ${exchangeRate.toFixed(6)}`);
     console.log(`[RouteVerifier] ========================================\n`);
-    
+
     return {
       path,
       outputAmount,
@@ -279,14 +280,14 @@ export async function verifyRoutes(
   const verifiedRoutes = await Promise.all(
     routes.map(route => verifyRoute(route.path, chainId, route.dexId, amountIn))
   );
-  
+
   // Filter out null results
   const validRoutes = verifiedRoutes.filter((r): r is VerifiedRoute => r !== null);
-  
+
   if (validRoutes.length === 0) {
     return null;
   }
-  
+
   // Return route with highest output
   return validRoutes.reduce((best, current) =>
     current.outputAmount > best.outputAmount ? current : best

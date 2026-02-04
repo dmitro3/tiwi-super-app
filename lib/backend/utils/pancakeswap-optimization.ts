@@ -20,7 +20,7 @@ export function getCachedClient(chainId: number): PublicClient {
     if (!chain) {
       throw new Error(`Chain ${chainId} not supported`);
     }
-    
+
     clientCache.set(chainId, createPublicClient({
       chain,
       transport: http(undefined, {
@@ -93,11 +93,11 @@ export async function getCached<T>(
 ): Promise<T> {
   const cache = caches[cacheType];
   const entry = cache.get(key);
-  
+
   if (!isExpired(entry)) {
     return entry!.data;
   }
-  
+
   const data = await fn();
   cache.set(key, {
     data,

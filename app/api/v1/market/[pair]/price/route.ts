@@ -3,14 +3,15 @@ import { getChartDataService } from '@/lib/backend/services/chart-data-service';
 import { getTokenService } from '@/lib/backend/services/token-service';
 import { getTokenPrice } from '@/lib/backend/providers/price-provider';
 import { convertPairToWrapped } from '@/lib/backend/utils/token-address-helper';
-import { getCanonicalChain } from '@/lib/backend/registry/chains';
+import { getBinanceTickers } from '@/lib/backend/services/binance-ticker-service';
+import { getCryptoMetadata } from '@/lib/backend/data/crypto-metadata';
 
 /**
  * GET /api/v1/market/[pair]/price
- * 
+ *
  * Returns the current price and 24h stats for a trading pair.
- * This ensures the header price matches the chart's current price.
- * 
+ * Tries Binance data first (fast, accurate 24h stats), then falls back to on-chain.
+ *
  * Query params:
  * - chainId: Optional chain ID (defaults to 56 for BNB Chain)
  */
@@ -22,48 +23,100 @@ export async function GET(
     const { pair } = await params;
     const searchParams = req.nextUrl.searchParams;
     const chainIdParam = searchParams.get('chainId');
-    
+
     // Parse pair (e.g., "WBNB-USDT" or "WBNB/USDT")
     const normalized = pair.replace("/", "-").replace("_", "-").toUpperCase();
     const parts = normalized.split("-");
-    
+
     if (parts.length < 2) {
       return NextResponse.json(
         { error: 'Invalid pair format. Expected: BASE-QUOTE (e.g., WBNB-USDT)' },
         { status: 400 }
       );
     }
-    
+
     const [baseSymbol, quoteSymbol] = parts;
-    
+
     // Default to BNB Chain (56) if not specified
     const chainId = chainIdParam ? parseInt(chainIdParam, 10) : 56;
-    
+
     if (isNaN(chainId)) {
       return NextResponse.json(
         { error: 'Invalid chainId' },
         { status: 400 }
       );
     }
-    
-    // Fetch tokens by symbol in parallel
+
+    // ============================================================
+    // Strategy: Try Binance first for USDT pairs (fast, real 24h data)
+    // ============================================================
+    if (quoteSymbol === 'USDT') {
+      try {
+        const binanceSymbol = `${baseSymbol}${quoteSymbol}`;
+        const tickers = await getBinanceTickers('spot', 'top', 500);
+        const ticker = tickers.find(t => t.symbol === binanceSymbol);
+
+        if (ticker) {
+          const baseMeta = getCryptoMetadata(baseSymbol);
+          const quoteMeta = getCryptoMetadata(quoteSymbol);
+          return NextResponse.json({
+            pair: `${baseSymbol}/${quoteSymbol}`,
+            price: ticker.lastPrice,
+            priceUSD: ticker.lastPrice,
+            priceChange24h: ticker.priceChangePercent,
+            high24h: ticker.highPrice,
+            low24h: ticker.lowPrice,
+            volume24h: ticker.quoteVolume,
+            description: baseMeta.description || null,
+            baseToken: {
+              symbol: baseSymbol,
+              name: baseMeta.name,
+              address: '',
+              chainId: 0,
+              priceUSD: ticker.lastPrice,
+              logo: baseMeta.logo,
+              marketCap: null,
+              liquidity: null,
+              circulatingSupply: null,
+            },
+            quoteToken: {
+              symbol: quoteSymbol,
+              name: quoteMeta.name,
+              address: '',
+              chainId: 0,
+              priceUSD: 1,
+              logo: quoteMeta.logo,
+            },
+          }, {
+            headers: {
+              'Cache-Control': 'public, s-maxage=15, stale-while-revalidate=30',
+            },
+          });
+        }
+      } catch (binanceErr) {
+        console.error('[Market Price API] Binance lookup error:', binanceErr);
+      }
+    }
+
+    // ============================================================
+    // Fallback: On-chain data (for tokens not on Binance)
+    // ============================================================
     const tokenService = getTokenService();
     const [baseTokens, quoteTokens] = await Promise.all([
       tokenService.searchTokens(baseSymbol, undefined, [chainId], 5),
       tokenService.searchTokens(quoteSymbol, undefined, [chainId], 5),
     ]);
-    
-    // Find exact symbol match
+
     const baseToken = baseTokens.find(t => t.symbol.toUpperCase() === baseSymbol.toUpperCase());
     const quoteToken = quoteTokens.find(t => t.symbol.toUpperCase() === quoteSymbol.toUpperCase());
-    
+
     if (!baseToken || !quoteToken) {
       return NextResponse.json(
         { error: `Token not found: ${baseSymbol} or ${quoteSymbol} on chain ${chainId}` },
         { status: 404 }
       );
     }
-    
+
     // Convert native tokens to wrapped
     const { baseToken: baseAddress } = convertPairToWrapped(
       baseToken.address,
@@ -75,8 +128,8 @@ export async function GET(
       '0x0000000000000000000000000000000000000000',
       chainId
     );
-    
-    // Fetch prices AND chart bars ALL in parallel (major speed optimization)
+
+    // Fetch prices AND chart bars in parallel
     const chartService = getChartDataService();
     const now = Math.floor(Date.now() / 1000);
     const yesterday = now - 24 * 60 * 60;
@@ -97,7 +150,6 @@ export async function GET(
       }).catch(() => [] as any[]),
     ]);
 
-    // Use prices from getTokenPrice, or fall back to searchTokens priceUSD
     const basePriceUSD = basePrice
       ? parseFloat(basePrice.priceUSD)
       : parseFloat(baseToken.priceUSD || '0');
@@ -130,13 +182,11 @@ export async function GET(
       high24h = currentPrice;
       low24h = currentPrice;
     } else if (basePriceUSD > 0) {
-      // If only base price available, use it as USD price
       currentPrice = basePriceUSD;
       high24h = currentPrice;
       low24h = currentPrice;
     }
 
-    // Use priceChange from baseToken if available and no chart data
     if (priceChange24h === 0 && baseToken.priceChange24h) {
       priceChange24h = baseToken.priceChange24h;
     }
@@ -184,4 +234,3 @@ export async function GET(
     );
   }
 }
-

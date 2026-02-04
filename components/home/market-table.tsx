@@ -17,9 +17,9 @@ import { formatTokenForHomepage, type HomepageToken, formatPrice } from "@/lib/h
 import type { Token } from "@/lib/frontend/types/tokens";
 import { useLocaleStore } from "@/lib/locale/locale-store";
 import { TableSkeleton } from "@/components/home/table-skeleton";
-import { useTokensQuery } from "@/hooks/useTokensQuery";
+import { useBinanceTickersQuery } from "@/hooks/useBinanceTickersQuery";
+import { fetchBinanceTickers } from "@/lib/frontend/api/binance-tickers";
 import { useSwapStore } from "@/lib/frontend/store/swap-store";
-import { useNetworkFilterStore } from "@/lib/frontend/store/network-store";
 
 
 type TabKey = "Favourite" | "Hot" | "New" | "Gainers" | "Losers";
@@ -71,9 +71,9 @@ export function MarketTable({ activeTab = "Hot", searchQuery = "", sortBy = 'non
     setFavourites(favouritesList);
   }, []);
 
-  // Map tabs to market categories
-  const categoryMap: Record<TabKey, 'hot' | 'new' | 'gainers' | 'losers' | null> = {
-    Hot: 'hot',
+  // Map tabs to Binance categories
+  const categoryMap: Record<TabKey, 'top' | 'new' | 'gainers' | 'losers' | null> = {
+    Hot: 'top',
     New: 'new',
     Gainers: 'gainers',
     Losers: 'losers',
@@ -81,30 +81,21 @@ export function MarketTable({ activeTab = "Hot", searchQuery = "", sortBy = 'non
   };
 
   const activeCategory = categoryMap[activeTab];
-  const { selectedNetworkSlug, selectedChainId } = useNetworkFilterStore();
 
-  // Reset to page 1 when network or category changes
+  // Reset to page 1 when category changes
   useEffect(() => {
     setCurrentPage(1);
-  }, [selectedNetworkSlug, activeCategory]);
+  }, [activeCategory]);
 
-  // Category-based single tokens (Hot/New/Gainers/Losers) - fetched via TanStack Query
+  // Category-based tokens from Binance - fetched via TanStack Query
   const {
     data: categoryTokensData = [],
     isLoading: isCategoryLoading,
-    error: categoryError,
-  } = useTokensQuery({
-    params: activeCategory
-      ? {
-        category: activeCategory,
-        limit: rowsPerPage * 2, // Fetch more to account for filtering
-        chains: selectedChainId ? [selectedChainId] : undefined, // Filter by selected chain
-      }
-      : {
-        category: 'hot',
-        limit: rowsPerPage * 2,
-        chains: selectedChainId ? [selectedChainId] : undefined, // Filter by selected chain
-      },
+  } = useBinanceTickersQuery({
+    params: {
+      marketType: 'spot',
+      category: activeCategory || 'top',
+    },
     enabled: !!activeCategory,
   });
 
@@ -132,26 +123,18 @@ export function MarketTable({ activeTab = "Hot", searchQuery = "", sortBy = 'non
           return;
         }
 
-        const tokensPromises = favouriteIds.map(async (id: string) => {
-          const [chainId, address] = id.split("-");
-          try {
-            const url = new URL("/api/v1/tokens", window.location.origin);
-            url.searchParams.set("address", address);
-            url.searchParams.set("chains", chainId);
-            url.searchParams.set("limit", "1");
-            const response = await fetch(url.toString());
-            if (response.ok) {
-              const data = await response.json();
-              return data.tokens?.[0] as Token | undefined;
-            }
-          } catch (e) {
-            console.error(`[MarketTable] Error fetching favourite token ${id}:`, e);
-          }
-          return null;
-        });
+        // Fetch all Binance tickers to match favourites against
+        const allTickers = await fetchBinanceTickers({ marketType: 'spot', category: 'top', limit: 500 });
 
-        const results = await Promise.all(tokensPromises);
-        setFavouriteTokens(results.filter(Boolean) as Token[]);
+        // Match favourites by ID format "chainId-address"
+        const matched = favouriteIds
+          .map((id) => {
+            const token = allTickers.find(t => t.id === id);
+            return token || null;
+          })
+          .filter(Boolean) as Token[];
+
+        setFavouriteTokens(matched);
       } catch (error) {
         console.error("[MarketTable] Error fetching favourite tokens:", error);
         setFavouriteTokens([]);
@@ -161,7 +144,7 @@ export function MarketTable({ activeTab = "Hot", searchQuery = "", sortBy = 'non
     };
 
     loadFavouriteTokens();
-  }, [activeTab, selectedChainId]); // Re-fetch when chain filter changes
+  }, [activeTab]);
 
   // Derive base token list for the active tab
   const rawTokens: Token[] = useMemo(() => {
@@ -177,11 +160,6 @@ export function MarketTable({ activeTab = "Hot", searchQuery = "", sortBy = 'non
   // Transform, filter, and sort tokens for homepage display (unpaginated)
   const homepageTokens: HomepageToken[] = useMemo(() => {
     let working: Token[] = [...rawTokens];
-
-    // Network/Chain filtering - filter by selected chain ID
-    if (selectedChainId !== null) {
-      working = working.filter((token) => token.chainId === selectedChainId);
-    }
 
     // Client-side search
     if (searchQuery.trim()) {
@@ -224,7 +202,7 @@ export function MarketTable({ activeTab = "Hot", searchQuery = "", sortBy = 'non
 
     // Return full list; pagination handled separately
     return formatted;
-  }, [rawTokens, searchQuery, sortBy, selectedChainId]);
+  }, [rawTokens, searchQuery, sortBy]);
 
   // Pagination logic - calculate which pages to show
   const getVisiblePages = (): number[] => {
@@ -333,14 +311,11 @@ export function MarketTable({ activeTab = "Hot", searchQuery = "", sortBy = 'non
                 >
                   24h Vol {sortBy === 'volume' ? '▼' : ''}
                 </TableHead>
-                <TableHead
-                  className="z-20 px-3 lg:px-4 xl:px-5 2xl:px-6 py-1.5 lg:py-2 text-right text-[10px] lg:text-xs xl:text-sm text-[#7c7c7c] font-semibold bg-[#010501] cursor-pointer hover:text-[#b1f128] transition-colors"
-                  onClick={() => onSortChange?.(sortBy === 'rank' ? 'none' : 'rank')}
-                >
-                  Rank {sortBy === 'rank' ? '▼' : ''}
+                <TableHead className="z-20 px-3 lg:px-4 xl:px-5 2xl:px-6 py-1.5 lg:py-2 text-right text-[10px] lg:text-xs xl:text-sm text-[#7c7c7c] font-semibold bg-[#010501]">
+                  24h High
                 </TableHead>
                 <TableHead className="z-20 px-3 lg:px-4 xl:px-5 2xl:px-6 py-1.5 lg:py-2 text-right text-[10px] lg:text-xs xl:text-sm text-[#7c7c7c] font-semibold bg-[#010501]">
-                  Supply
+                  24h Low
                 </TableHead>
                 <TableHead className="z-20 px-3 lg:px-4 xl:px-5 2xl:px-6 py-1.5 lg:py-2 text-center text-[10px] lg:text-xs xl:text-sm text-[#7c7c7c] font-semibold bg-[#010501]">
                   Buy/Sell
@@ -425,10 +400,10 @@ export function MarketTable({ activeTab = "Hot", searchQuery = "", sortBy = 'non
                       {token.vol}
                     </TableCell>
                     <TableCell className="px-3 lg:px-4 xl:px-5 2xl:px-6 py-2.5 lg:py-3 xl:py-4 text-right text-white text-[10px] lg:text-xs xl:text-base font-medium">
-                      {token.marketCapRank}
+                      {formatPrice((token.token as any).high24h?.toString())}
                     </TableCell>
                     <TableCell className="px-3 lg:px-4 xl:px-5 2xl:px-6 py-2.5 lg:py-3 xl:py-4 text-right text-white text-[10px] lg:text-xs xl:text-base font-medium">
-                      {token.circulatingSupply}
+                      {formatPrice((token.token as any).low24h?.toString())}
                     </TableCell>
                     <TableCell className="px-3 lg:px-4 xl:px-5 2xl:px-6 py-2.5 lg:py-3 xl:py-4 text-center">
                       <div className="flex justify-center items-center">

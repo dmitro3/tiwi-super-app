@@ -72,16 +72,17 @@ export default function MarketTable({
     }
   };
 
-  // Calculate funding rate (for perp) - using price change as proxy if no real data
+  // Get funding rate from Binance data or calculate proxy
   const getFundingRate = (token: Token): string => {
-    // For now, use a calculated value based on price change
-    // In production, this should come from a perp exchange API
     if (marketType === "perp") {
+      const rate = (token as any).fundingRate;
+      if (rate !== undefined && rate !== null) {
+        const pct = rate * 100; // Binance returns decimal (0.0001 = 0.01%)
+        return `${pct >= 0 ? '+' : ''}${pct.toFixed(4)}%`;
+      }
       const priceChange = token.priceChange24h || 0;
-      // Simple calculation: funding rate tends to be small, typically -0.01% to 0.01%
-      // We'll use price change as a proxy, normalized to a small range
-      const rate = (priceChange / 100) * 0.1; // Scale down price change
-      return `${rate >= 0 ? '+' : ''}${rate.toFixed(4)}%`;
+      const proxyRate = (priceChange / 100) * 0.1;
+      return `${proxyRate >= 0 ? '+' : ''}${proxyRate.toFixed(4)}%`;
     }
     return "N/A";
   };

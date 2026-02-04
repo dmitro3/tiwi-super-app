@@ -40,7 +40,7 @@ export interface RouterRoute {
   // Route identification
   router: string;                      // Router name (e.g., 'lifi', 'squid')
   routeId: string;                     // Unique route identifier
-  
+
   // Token information
   fromToken: {
     chainId: number;                   // Canonical chain ID
@@ -58,12 +58,12 @@ export interface RouterRoute {
     amountUSD?: string;                 // Output amount in USD (from route or calculated)
     decimals: number;
   };
-  
+
   // Quote information
   exchangeRate: string;                // e.g., "1.5" (1 USDC = 1.5 USDT)
   priceImpact: string;                 // e.g., "0.5" (0.5%)
   slippage: string;                    // Applied slippage (e.g., "0.5")
-  
+
   // Cost information
   fees: {
     protocol: string;                  // Protocol fee in USD (from router)
@@ -77,15 +77,15 @@ export interface RouterRoute {
       feeMint: string;                  // Token mint fees are collected in
     };
   };
-  
+
   // Route steps
   steps: RouteStep[];
-  
+
   // Execution metadata
   estimatedTime: number;               // Estimated time in seconds
   expiresAt: number;                  // Quote expiration timestamp (Unix timestamp)
   transactionData?: string;           // Encoded transaction (if available)
-  
+
   // Raw router response (for debugging)
   raw?: any;                           // Original router response
 }
@@ -97,11 +97,13 @@ export interface RouteStep {
     address: string;
     amount: string;
     symbol?: string;
+    decimals?: number;
   };
   toToken: {
     address: string;
     amount: string;
     symbol?: string;
+    decimals?: number;
   };
   protocol?: string;                   // e.g., "Uniswap V3", "Stargate"
   description?: string;                // Human-readable step description
@@ -128,11 +130,11 @@ export interface RouteRequest {
     symbol?: string;
     decimals: number | undefined;       // From token data (undefined means unknown, will be fetched)
   };
-  
+
   // Amount (exactly one of fromAmount or toAmount must be provided)
   fromAmount?: string;                   // Human-readable amount (e.g., "100.5")
   toAmount?: string;                     // Human-readable output amount (for reverse routing)
-  
+
   // Optional parameters
   slippage?: number;                    // Slippage tolerance (0-100, default: 0.5)
   slippageMode?: 'fixed' | 'auto';     // Fixed slippage or auto-adjust (default: 'fixed')
@@ -167,7 +169,7 @@ export interface RouterError {
   // Normalized error (for frontend)
   message: string;                     // User-friendly error message
   code: string;                        // Error code (e.g., 'NO_ROUTE', 'UNSUPPORTED_PAIR')
-  
+
   // Router-specific details (for backend debugging)
   router: string;                      // Router name
   routerError?: any;                   // Original router error
