@@ -26,6 +26,7 @@ import { getIntermediaries, getWrappedNativeToken } from './intermediaries';
 import { verifyRoute, verifyRoutes, type VerifiedRoute } from './route-verifier';
 import { getSupportedDEXes } from './dex-registry';
 import { queryDEXPairsForToken, type DEXPairInfo } from './dex-pair-query';
+import { convertToWrappedToken, isNativeToken } from '@/lib/backend/utils/token-address-helper';
 
 /**
  * Route found by same-chain finder
@@ -87,10 +88,20 @@ export class SameChainRouteFinder {
     toTokenSymbol?: string,
     minLiquidityUSD: number = 0
   ): Promise<SameChainRoute | null> {
+    const resolvedFromToken = convertToWrappedToken(fromToken, chainId) as Address;
+    const resolvedToToken = convertToWrappedToken(toToken, chainId) as Address;
+
+    if (isNativeToken(fromToken)) {
+      console.log(`[SameChainFinder] 🔁 Converted native fromToken to wrapped: ${fromToken} → ${resolvedFromToken}`);
+    }
+    if (isNativeToken(toToken)) {
+      console.log(`[SameChainFinder] 🔁 Converted native toToken to wrapped: ${toToken} → ${resolvedToToken}`);
+    }
+
     console.log(`\n[SameChainFinder] ========================================`);
     console.log(`[SameChainFinder] 🎯 FINDING ROUTE`);
-    console.log(`[SameChainFinder] From: ${fromToken} (${fromTokenSymbol || 'unknown symbol'})`);
-    console.log(`[SameChainFinder] To: ${toToken} (${toTokenSymbol || 'unknown symbol'})`);
+    console.log(`[SameChainFinder] From: ${resolvedFromToken} (${fromTokenSymbol || 'unknown symbol'})`);
+    console.log(`[SameChainFinder] To: ${resolvedToToken} (${toTokenSymbol || 'unknown symbol'})`);
     console.log(`[SameChainFinder] Chain: ${chainId}`);
     console.log(`[SameChainFinder] Amount In: ${amountIn.toString()}`);
     console.log(`[SameChainFinder] Min Liquidity: $${minLiquidityUSD.toLocaleString()}`);
@@ -100,8 +111,8 @@ export class SameChainRouteFinder {
     // This matches tiwi-test's findSimpleRoute - router.getAmountsOut is the source of truth
     console.log(`[SameChainFinder] 📍 STEP 1: Trying direct pair with router.getAmountsOut...`);
     const directRoute = await this.tryDirectRoute(
-      fromToken, 
-      toToken, 
+      resolvedFromToken, 
+      resolvedToToken, 
       chainId, 
       amountIn,
       fromTokenSymbol,
@@ -120,8 +131,8 @@ export class SameChainRouteFinder {
     // This matches tiwi-test: build paths through intermediaries, try each with router.getAmountsOut
     console.log(`[SameChainFinder] 📍 STEP 2: Trying router.getAmountsOut-based routing (tiwi-test approach)...`);
     const routerBasedRoute = await this.tryRouterBasedRouting(
-      fromToken,
-      toToken,
+      resolvedFromToken,
+      resolvedToToken,
       chainId,
       amountIn
     );
@@ -136,8 +147,8 @@ export class SameChainRouteFinder {
     // Step 2b: Try batch intermediary correlation (2-hop, 3-hop, 4-hop) as fallback
     console.log(`[SameChainFinder] 📍 STEP 2b: Trying batch intermediary correlation (fallback)...`);
     const batchRoute = await this.tryIntermediaryCorrelationBatch(
-      fromToken,
-      toToken,
+      resolvedFromToken,
+      resolvedToToken,
       chainId,
       amountIn,
       fromTokenSymbol,
@@ -155,8 +166,8 @@ export class SameChainRouteFinder {
     // Step 4: Try DexScreener discovery (find common tokens)
     console.log(`[SameChainFinder] 📍 STEP 4: Trying DexScreener discovery (find common tokens)...`);
     const discoveryRoute = await this.tryDexScreenerDiscovery(
-      fromToken,
-      toToken,
+      resolvedFromToken,
+      resolvedToToken,
       chainId,
       amountIn,
       fromTokenSymbol,
@@ -173,7 +184,7 @@ export class SameChainRouteFinder {
     
     // Step 5: Last resort - use wrapped native as guaranteed intermediary
     console.log(`[SameChainFinder] 📍 STEP 5: Last resort - using wrapped native as guaranteed intermediary...`);
-    const guaranteedRoute = await this.findGuaranteedRoute(fromToken, toToken, chainId, amountIn);
+    const guaranteedRoute = await this.findGuaranteedRoute(resolvedFromToken, resolvedToToken, chainId, amountIn);
     if (guaranteedRoute) {
       console.log(`[SameChainFinder] ✅ SUCCESS: Found guaranteed route`);
       console.log(`[SameChainFinder] Path: ${guaranteedRoute.path.map(p => p.slice(0, 10) + '...').join(' → ')}`);
@@ -632,6 +643,11 @@ export class SameChainRouteFinder {
     // Try 2-hop first (fastest)
     console.log(`[SameChainFinder]     Trying 2-hop routes...`);
     for (const { intermediary, fromPair, toPair, bothVerified, sources } of commonIntermediaries) {
+      if (intermediary.address.toLowerCase() === fromToken.toLowerCase() ||
+          intermediary.address.toLowerCase() === toToken.toLowerCase()) {
+        console.log(`[SameChainFinder]       ⚠️ Skipping intermediary equal to from/to token`);
+        continue;
+      }
       // Prefer DEX-verified pairs, use same DEX if possible
       const dexId = fromPair.dexId === toPair.dexId ? fromPair.dexId : fromPair.dexId;
       const path = [fromToken, intermediary.address, toToken];
@@ -1250,8 +1266,25 @@ export class SameChainRouteFinder {
       return null;
     }
     
+    if (amountIn <= BigInt(0)) {
+      console.warn(`[SameChainFinder] Invalid amountIn for guaranteed route: ${amountIn.toString()}`);
+      return null;
+    }
+    
+    if (fromToken.toLowerCase() === toToken.toLowerCase()) {
+      console.warn(`[SameChainFinder] fromToken and toToken are identical, no swap needed`);
+      return null;
+    }
+    
     // Force route: fromToken → wrappedNative → toToken
-    const path = [fromToken, wrappedNative, toToken];
+    let path = [fromToken, wrappedNative, toToken];
+    
+    // Avoid identical adjacent addresses in path (router will revert)
+    if (fromToken.toLowerCase() === wrappedNative.toLowerCase()) {
+      path = [fromToken, toToken];
+    } else if (wrappedNative.toLowerCase() === toToken.toLowerCase()) {
+      path = [fromToken, toToken];
+    }
     
     // Try all supported DEXes
     const dexes = getSupportedDEXes(chainId);
@@ -1260,28 +1293,39 @@ export class SameChainRouteFinder {
       const verified = await verifyRoute(path, chainId, dex.dexId, amountIn);
       
       if (verified) {
+        const hops = path.length - 1;
+        const pairs = hops === 1
+          ? [
+              {
+                tokenA: fromToken,
+                tokenB: toToken,
+                dexId: dex.dexId,
+                liquidityUSD: 0,
+              },
+            ]
+          : [
+              {
+                tokenA: fromToken,
+                tokenB: wrappedNative,
+                dexId: dex.dexId,
+                liquidityUSD: 0,
+              },
+              {
+                tokenA: wrappedNative,
+                tokenB: toToken,
+                dexId: dex.dexId,
+                liquidityUSD: 0,
+              },
+            ];
         return {
           path: verified.path,
           outputAmount: verified.outputAmount,
           dexId: verified.dexId,
           chainId: verified.chainId,
-          hops: 2,
+          hops,
           verified: true,
           liquidityUSD: 0, // Will be calculated if pair data available
-          pairs: [
-            {
-              tokenA: fromToken,
-              tokenB: wrappedNative,
-              dexId: dex.dexId,
-              liquidityUSD: 0,
-            },
-            {
-              tokenA: wrappedNative,
-              tokenB: toToken,
-              dexId: dex.dexId,
-              liquidityUSD: 0,
-            },
-          ],
+          pairs,
         };
       }
     }
@@ -1289,28 +1333,39 @@ export class SameChainRouteFinder {
     // If verification fails, return route anyway (execution will handle errors)
     // This ensures we never return "no route"
     console.warn(`[SameChainFinder] ⚠️ Route verification failed, but returning route anyway`);
+    const hops = path.length - 1;
+    const pairs = hops === 1
+      ? [
+          {
+            tokenA: fromToken,
+            tokenB: toToken,
+            dexId: dexes[0]?.dexId || 'unknown',
+            liquidityUSD: 0,
+          },
+        ]
+      : [
+          {
+            tokenA: fromToken,
+            tokenB: wrappedNative,
+            dexId: dexes[0]?.dexId || 'unknown',
+            liquidityUSD: 0,
+          },
+          {
+            tokenA: wrappedNative,
+            tokenB: toToken,
+            dexId: dexes[0]?.dexId || 'unknown',
+            liquidityUSD: 0,
+          },
+        ];
     return {
       path,
       outputAmount: BigInt(0), // Will be calculated during execution
       dexId: dexes[0]?.dexId || 'unknown',
       chainId,
-      hops: 2,
+      hops,
       verified: true,
       liquidityUSD: 0,
-      pairs: [
-        {
-          tokenA: fromToken,
-          tokenB: wrappedNative,
-          dexId: dexes[0]?.dexId || 'unknown',
-          liquidityUSD: 0,
-        },
-        {
-          tokenA: wrappedNative,
-          tokenB: toToken,
-          dexId: dexes[0]?.dexId || 'unknown',
-          liquidityUSD: 0,
-        },
-      ],
+      pairs,
     };
   }
 }

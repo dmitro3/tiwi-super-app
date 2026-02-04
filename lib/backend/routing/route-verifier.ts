@@ -82,6 +82,24 @@ export async function verifyRoute(
   amountIn: bigint
 ): Promise<VerifiedRoute | null> {
   try {
+    // Basic input validation to avoid router reverts
+    if (amountIn <= BigInt(0)) {
+      console.warn(`[RouteVerifier] Invalid amountIn: ${amountIn.toString()}`);
+      return null;
+    }
+    
+    if (path.length < 2) {
+      console.warn(`[RouteVerifier] Invalid path length: ${path.length}`);
+      return null;
+    }
+    
+    for (let i = 1; i < path.length; i++) {
+      if (path[i - 1].toLowerCase() === path[i].toLowerCase()) {
+        console.warn(`[RouteVerifier] Invalid path (identical adjacent addresses)`);
+        return null;
+      }
+    }
+    
     // Get DEX config
     const dexConfig = findDEXByDexId(chainId, dexId);
     if (!dexConfig) {
@@ -157,15 +175,31 @@ export async function verifyRoute(
       lastError = error;
     }
     
-    // If full amount failed, try progressively smaller amounts in parallel (tiwi-test approach)
+    // If full amount failed, try smaller AND larger amounts (covers tiny-amount rounding)
     if (!amounts || (amounts.length > 0 && amounts[amounts.length - 1] === BigInt(0))) {
       console.log(`[RouteVerifier] Full amount failed, trying smaller amounts in parallel...`);
-      const testAmounts = [
-        amountIn / BigInt(2),      // 50%
-        amountIn / BigInt(10),     // 10%
-        amountIn / BigInt(100),    // 1%
-        BigInt(10 ** 18),          // 1 token (for 18 decimals)
-      ].filter(amt => amt > BigInt(0));
+      const testAmountsSet = new Set<bigint>();
+      
+      const addTestAmount = (value: bigint) => {
+        if (value > BigInt(0)) {
+          testAmountsSet.add(value);
+        }
+      };
+      
+      // Smaller amounts (helpful for liquidity limits)
+      addTestAmount(amountIn / BigInt(2));      // 50%
+      addTestAmount(amountIn / BigInt(10));     // 10%
+      addTestAmount(amountIn / BigInt(100));    // 1%
+      
+      // Larger fallback amounts (helpful when amountIn is too small and rounds to 0)
+      const fallbackScales = [BigInt(1_000_000), BigInt(1_000_000_000), BigInt(1_000_000_000_000)];
+      for (const fallback of fallbackScales) {
+        if (amountIn < fallback) {
+          addTestAmount(fallback);
+        }
+      }
+      
+      const testAmounts = Array.from(testAmountsSet);
       
       // Try all test amounts in parallel
       const testResults = await Promise.allSettled(

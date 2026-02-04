@@ -49,7 +49,16 @@ export interface RouteAPIResponse {
  * @returns Promise resolving to route response
  */
 export async function fetchRoute(params: FetchRouteParams): Promise<RouteAPIResponse> {
-  const url = new URL('/api/v1/route', window.location.origin);
+  const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL;
+  const baseUrl = apiBase && apiBase.length > 0
+    ? apiBase
+    : (typeof window !== 'undefined' ? window.location.origin : '');
+  
+  if (!baseUrl) {
+    throw new Error('Missing API base URL for route requests');
+  }
+  
+  const url = new URL('/api/v1/route', baseUrl);
   
   try {
     const response = await fetch(url.toString(), {

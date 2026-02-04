@@ -240,26 +240,55 @@ async function verifyPairWithRouter(
 ): Promise<{ outputAmount?: bigint } | null> {
   try {
     const path = [tokenA, tokenB];
+
+    const testAmounts = [
+      testAmount,
+      testAmount * BigInt(10),
+      testAmount * BigInt(100),
+      testAmount * BigInt(1000),
+      BigInt(10 ** 6),
+      BigInt(10 ** 9),
+      BigInt(10 ** 12),
+      BigInt(10 ** 15),
+      BigInt(10 ** 18),
+    ];
     
-    console.log(`[DEXPairQuery]   Calling router.getAmountsOut(${testAmount.toString()}, [${path.join(', ')}])`);
+    const uniqueTestAmounts = Array.from(new Set(testAmounts.filter(a => a > BigInt(0))));
     
-    const amounts = await publicClient.readContract({
-      address: routerAddress,
-      abi: ROUTER_ABI,
-      functionName: 'getAmountsOut',
-      args: [testAmount, path],
-    }) as bigint[];
-    
-    console.log(`[DEXPairQuery]   Router response:`, amounts?.map(a => a.toString()).join(' → '));
-    
-    // If we get a valid output amount > 0, pair works
-    if (amounts && amounts.length === 2 && amounts[1] > BigInt(0)) {
-      console.log(`[DEXPairQuery]   ✅ Output amount > 0: ${amounts[1].toString()}`);
-      return { outputAmount: amounts[1] };
-    } else {
-      console.log(`[DEXPairQuery]   ❌ Invalid output: ${amounts?.[1]?.toString() || 'null'}`);
-      return null;
+    for (const amount of uniqueTestAmounts) {
+      try {
+        console.log(`[DEXPairQuery]   Calling router.getAmountsOut(${amount.toString()}, [${path.join(', ')}])`);
+        
+        const amounts = await publicClient.readContract({
+          address: routerAddress,
+          abi: ROUTER_ABI,
+          functionName: 'getAmountsOut',
+          args: [amount, path],
+        }) as bigint[];
+        
+        console.log(`[DEXPairQuery]   Router response:`, amounts?.map(a => a.toString()).join(' → '));
+        
+        // If we get a valid output amount > 0, pair works
+        if (amounts && amounts.length === 2 && amounts[1] > BigInt(0)) {
+          console.log(`[DEXPairQuery]   ✅ Output amount > 0: ${amounts[1].toString()}`);
+          return { outputAmount: amounts[1] };
+        }
+      } catch (error: any) {
+        const errorMsg = error?.message || error?.toString() || '';
+        if (
+          errorMsg.includes('K') ||
+          errorMsg.includes('constant product') ||
+          errorMsg.includes('insufficient') ||
+          errorMsg.includes('INSUFFICIENT')
+        ) {
+          // Try another test amount
+          continue;
+        }
+      }
     }
+    
+    console.log(`[DEXPairQuery]   ❌ Invalid output: 0`);
+    return null;
   } catch (error: any) {
     console.error(`[DEXPairQuery]   ❌ Router verification error:`, error.message);
     return null;
