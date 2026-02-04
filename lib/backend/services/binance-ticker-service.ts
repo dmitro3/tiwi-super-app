@@ -1,6 +1,7 @@
 /**
  * Binance Ticker Service
  * Fetches 24hr ticker data from Binance for spot and perpetual futures markets.
+ * Uses multiple fallback endpoints for reliability.
  * Provides caching and category-based filtering/sorting.
  */
 
@@ -33,8 +34,25 @@ export interface BinanceTicker {
 export type TickerCategory = 'top' | 'new' | 'gainers' | 'losers';
 
 // ============================================================================
-// Cache
+// Endpoints & Cache
 // ============================================================================
+
+// Binance spot API endpoints (try in order)
+const SPOT_ENDPOINTS = [
+  'https://api.binance.com',
+  'https://api1.binance.com',
+  'https://api2.binance.com',
+  'https://api3.binance.com',
+  'https://api4.binance.com',
+  'https://data-api.binance.vision',
+];
+
+// Binance futures API endpoints (try in order)
+const FUTURES_ENDPOINTS = [
+  'https://fapi.binance.com',
+  'https://fapi1.binance.com',
+  'https://fapi2.binance.com',
+];
 
 interface CacheEntry {
   data: BinanceTicker[];
@@ -46,6 +64,35 @@ const CACHE_TTL = 30_000; // 30 seconds
 
 // Leveraged/exotic token suffixes to exclude
 const EXCLUDED_PATTERNS = ['UP', 'DOWN', 'BULL', 'BEAR'];
+
+// ============================================================================
+// Helpers
+// ============================================================================
+
+/**
+ * Try fetching from multiple endpoints, return the first successful response
+ */
+async function fetchWithFallback(
+  endpoints: string[],
+  path: string,
+): Promise<Response> {
+  let lastError: Error | null = null;
+
+  for (const base of endpoints) {
+    try {
+      const response = await fetch(`${base}${path}`, {
+        headers: { 'Accept': 'application/json' },
+        signal: AbortSignal.timeout(10000),
+      });
+      if (response.ok) return response;
+      lastError = new Error(`${base}${path} returned ${response.status}`);
+    } catch (err: any) {
+      lastError = err;
+    }
+  }
+
+  throw lastError || new Error(`All endpoints failed for ${path}`);
+}
 
 // ============================================================================
 // Fetchers
@@ -62,15 +109,7 @@ async function fetchSpotTickers(): Promise<BinanceTicker[]> {
   }
 
   console.log('[BinanceTickerService] Fetching spot tickers...');
-  const response = await fetch('https://api.binance.com/api/v3/ticker/24hr', {
-    headers: { 'Accept': 'application/json' },
-  });
-
-  if (!response.ok) {
-    console.error('[BinanceTickerService] Spot ticker error:', response.status);
-    throw new Error(`Binance spot API error: ${response.status}`);
-  }
-
+  const response = await fetchWithFallback(SPOT_ENDPOINTS, '/api/v3/ticker/24hr');
   const rawTickers: any[] = await response.json();
 
   // Filter to USDT pairs only, exclude leveraged tokens
@@ -78,9 +117,7 @@ async function fetchSpotTickers(): Promise<BinanceTicker[]> {
     .filter((t: any) => {
       if (!t.symbol.endsWith('USDT')) return false;
       const base = t.symbol.replace('USDT', '');
-      // Exclude leveraged tokens
       if (EXCLUDED_PATTERNS.some(p => base.endsWith(p))) return false;
-      // Exclude very low volume pairs (dust)
       if (parseFloat(t.quoteVolume) < 1000) return false;
       return true;
     })
@@ -125,18 +162,9 @@ async function fetchFuturesTickers(): Promise<BinanceTicker[]> {
 
   // Fetch tickers and funding rates in parallel
   const [tickerResponse, fundingResponse] = await Promise.all([
-    fetch('https://fapi.binance.com/fapi/v1/ticker/24hr', {
-      headers: { 'Accept': 'application/json' },
-    }),
-    fetch('https://fapi.binance.com/fapi/v1/premiumIndex', {
-      headers: { 'Accept': 'application/json' },
-    }).catch(() => null),
+    fetchWithFallback(FUTURES_ENDPOINTS, '/fapi/v1/ticker/24hr'),
+    fetchWithFallback(FUTURES_ENDPOINTS, '/fapi/v1/premiumIndex').catch(() => null),
   ]);
-
-  if (!tickerResponse.ok) {
-    console.error('[BinanceTickerService] Futures ticker error:', tickerResponse.status);
-    throw new Error(`Binance futures API error: ${tickerResponse.status}`);
-  }
 
   const rawTickers: any[] = await tickerResponse.json();
 
@@ -208,23 +236,19 @@ export async function getBinanceTickers(
 
   switch (category) {
     case 'top':
-      // Sort by USDT volume descending
       filtered = [...allTickers].sort((a, b) => b.quoteVolume - a.quoteVolume);
       break;
     case 'gainers':
-      // Positive change, sorted by highest % gain
       filtered = allTickers
         .filter(t => t.priceChangePercent > 0)
         .sort((a, b) => b.priceChangePercent - a.priceChangePercent);
       break;
     case 'losers':
-      // Negative change, sorted by most negative
       filtered = allTickers
         .filter(t => t.priceChangePercent < 0)
         .sort((a, b) => a.priceChangePercent - b.priceChangePercent);
       break;
     case 'new':
-      // Sort by lowest trade count (proxy for newer listings)
       filtered = [...allTickers].sort((a, b) => a.count - b.count);
       break;
     default:
