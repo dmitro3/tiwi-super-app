@@ -155,7 +155,6 @@ export default function SwapPage() {
     fromToken,
     toToken,
     recipient: recipientAddress, // Pass recipient address for routing
-    fromAddress: walletAddress, // Use app wallet as fromAddress for LiFi
   });
 
   // Fetch token balances for fromToken and toToken

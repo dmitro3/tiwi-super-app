@@ -17,7 +17,6 @@ import { PancakeSwapExecutor } from './pancakeswap-executor';
 import { UniswapExecutor } from './uniswap-executor';
 import { ensureCorrectChain } from '../utils/wallet-helpers';
 import { ensureTokenApproval } from '../services/approval-handler';
-import { toSmallestUnit } from '../utils/amount-converter';
 import type { Address } from 'viem';
 
 // Router addresses per chain for approval
@@ -109,7 +108,6 @@ export class MultiStepExecutor implements SwapRouterExecutor {
       let currentChain = fromToken.chainId || route.fromToken.chainId;
       const allTxHashes: string[] = [];
       let lastTxHash: string | undefined;
-      const decimalsByAddress = (route.raw?.decimalsByAddress || {}) as Record<string, number>;
 
       for (let i = 0; i < totalSteps; i++) {
         const step = route.steps[i] as RouteStep;
@@ -158,9 +156,7 @@ export class MultiStepExecutor implements SwapRouterExecutor {
               userAddress,
               onStatusUpdate,
               stepNumber,
-              totalSteps,
-              decimalsByAddress,
-              route
+              totalSteps
             );
             break;
 
@@ -182,9 +178,7 @@ export class MultiStepExecutor implements SwapRouterExecutor {
               currentAmount,
               stepChainId,
               userAddress,
-              onStatusUpdate,
-              decimalsByAddress,
-              route
+              onStatusUpdate
             );
             break;
 
@@ -252,16 +246,12 @@ export class MultiStepExecutor implements SwapRouterExecutor {
     userAddress: string,
     onStatusUpdate?: (status: any) => void,
     stepNumber?: number,
-    totalSteps?: number,
-    decimalsByAddress?: Record<string, number>,
-    parentRoute?: RouterRoute
+    totalSteps?: number
   ): Promise<{ success: boolean; amountOut: string; txHash?: string; error?: string }> {
     try {
       const fromTokenAddress = step.fromToken.address;
       const toTokenAddress = step.toToken.address;
       const protocol = step.protocol || '';
-      const fromDecimals = this.resolveTokenDecimals(fromTokenAddress, decimalsByAddress, parentRoute?.fromToken);
-      const toDecimals = this.resolveTokenDecimals(toTokenAddress, decimalsByAddress, parentRoute?.toToken);
 
       console.log(`[MultiStepExecutor] 🔄 Swap step: ${fromTokenAddress.slice(0, 10)} → ${toTokenAddress.slice(0, 10)} via ${protocol}`);
 
@@ -277,13 +267,11 @@ export class MultiStepExecutor implements SwapRouterExecutor {
 
           console.log(`[MultiStepExecutor] Checking/approving token ${fromTokenAddress} for router ${routerAddress}`);
 
-          const approvalAmount = toSmallestUnit(currentAmount, fromDecimals);
-
           await ensureTokenApproval(
             fromTokenAddress,
             userAddress,
             routerAddress,
-            approvalAmount, // Amount to approve (smallest unit)
+            currentAmount, // Amount to approve
             chainId,
             (msg) => {
               onStatusUpdate?.({
@@ -329,14 +317,14 @@ export class MultiStepExecutor implements SwapRouterExecutor {
           address: fromTokenAddress,
           symbol: step.fromToken.symbol || '',
           amount: currentAmount,
-          decimals: fromDecimals,
+          decimals: 18,
         },
         toToken: {
           chainId,
           address: toTokenAddress,
           symbol: step.toToken.symbol || '',
           amount: step.toToken.amount || '0',
-          decimals: toDecimals,
+          decimals: 18,
         },
         exchangeRate: '0',
         priceImpact: '0',
@@ -353,7 +341,6 @@ export class MultiStepExecutor implements SwapRouterExecutor {
         raw: {
           path: [fromTokenAddress, toTokenAddress],
           isMultiHopStep: true,
-          decimalsByAddress: decimalsByAddress || {},
         },
       };
 
@@ -551,9 +538,7 @@ export class MultiStepExecutor implements SwapRouterExecutor {
     currentAmount: string,
     chainId: number,
     userAddress: string,
-    onStatusUpdate?: (status: any) => void,
-    decimalsByAddress?: Record<string, number>,
-    parentRoute?: RouterRoute
+    onStatusUpdate?: (status: any) => void
   ): Promise<{ success: boolean; amountOut: string; txHash?: string; error?: string }> {
     try {
       // WETH unwrap transaction
@@ -591,8 +576,7 @@ export class MultiStepExecutor implements SwapRouterExecutor {
         message: 'Sign unwrap transaction...',
       });
 
-      const fromDecimals = this.resolveTokenDecimals(step.fromToken.address, decimalsByAddress, parentRoute?.toToken);
-      const amountIn = BigInt(toSmallestUnit(currentAmount, fromDecimals));
+      const amountIn = BigInt(currentAmount);
       const hash = await walletClient.writeContract({
         address: wethAddress,
         abi: WETH_ABI,
@@ -609,7 +593,7 @@ export class MultiStepExecutor implements SwapRouterExecutor {
 
       return {
         success: true,
-        amountOut: currentAmount, // 1:1 unwrap (human-readable)
+        amountOut: currentAmount, // 1:1 unwrap
         txHash: hash,
       };
     } catch (error: any) {
@@ -649,20 +633,5 @@ export class MultiStepExecutor implements SwapRouterExecutor {
       8453: 'Base',
     };
     return names[chainId] || `Chain ${chainId}`;
-  }
-
-  private resolveTokenDecimals(
-    address: string,
-    decimalsByAddress?: Record<string, number>,
-    fallbackToken?: { address: string; decimals?: number }
-  ): number {
-    const lower = address.toLowerCase();
-    if (decimalsByAddress && typeof decimalsByAddress[lower] === 'number') {
-      return decimalsByAddress[lower];
-    }
-    if (fallbackToken && fallbackToken.address.toLowerCase() === lower && fallbackToken.decimals) {
-      return fallbackToken.decimals;
-    }
-    return 18;
   }
 }

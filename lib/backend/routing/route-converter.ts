@@ -115,13 +115,6 @@ export async function convertSameChainRouteToRouterRoute(
     steps,
     estimatedTime: 30, // 30 seconds for same-chain
     expiresAt: Date.now() + 60000, // 1 minute expiry
-    raw: {
-      path: route.path.map(addr => addr.toLowerCase()),
-      routerAddress: getRouterAddress(chainId, route.dexId)?.toLowerCase(),
-      tokenIn: fromToken.address.toLowerCase(),
-      tokenOut: toToken.address.toLowerCase(),
-      amountOut: route.outputAmount.toString(),
-    },
   };
 }
 
@@ -254,8 +247,6 @@ export async function convertCrossChainRouteToRouterRoute(
       sourceRoute: route.sourceRoute,
       bridge: route.bridge,
       destRoute: route.destRoute,
-      path: route.sourceRoute.path?.map(addr => addr.toLowerCase()),
-      amountOut: route.totalOutput.toString(),
     },
   };
 }

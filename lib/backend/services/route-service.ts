@@ -358,11 +358,7 @@ export class RouteService {
       // Build user-friendly error message (updated to reflect parallel execution)
       let errorMessage: string;
       if (hasNoRouteError) {
-        if (request.fromToken.chainId !== request.toToken.chainId) {
-          errorMessage = `No cross-chain route available for this token pair. We tried ${routerNames} and the enhanced routing system in parallel, but none of them support this swap. Cross-chain routes often require larger amounts to meet bridge minimums.`;
-        } else {
-          errorMessage = `No swap route available for this token pair. We tried ${routerNames} and the enhanced routing system in parallel, but none of them support this swap.`;
-        }
+        errorMessage = `No swap route available for this token pair. We tried ${routerNames} and the enhanced routing system in parallel, but none of them support this swap.`;
       } else if (hasLiquidityError) {
         errorMessage = `Insufficient liquidity for this swap. We tried ${routerNames} and the enhanced routing system in parallel, but there isn't enough liquidity available.`;
       } else {

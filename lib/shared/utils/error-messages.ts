@@ -23,19 +23,6 @@ export function parseRouteError(error: Error | string): RouteErrorInfo {
   const errorMessage = typeof error === 'string' ? error : error.message || 'Unknown error';
   const lowerMessage = errorMessage.toLowerCase();
 
-  // Cross-chain route failures (often bridge minimums)
-  if (lowerMessage.includes('cross-chain route')) {
-    return {
-      title: 'Bridge minimum not met',
-      message: 'Cross-chain routes need a larger amount to meet bridge minimums.',
-      nextSteps: [
-        'Try a larger swap amount',
-        'Swap to a same-chain token (e.g., WBNB on BSC)',
-        'If you need ETH on Ethereum, bridge a larger amount first',
-      ],
-    };
-  }
-
   // No route found errors
   if (lowerMessage.includes('no route found') || lowerMessage.includes('no route available')) {
     return {

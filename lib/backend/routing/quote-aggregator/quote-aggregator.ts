@@ -96,7 +96,6 @@ export class QuoteAggregator {
     
     let routingFromToken = fromToken;
     let routingToToken = toToken;
-    const originalToToken = toToken;
     let needsUnwrap = false;
     
     // Check if toToken is native (needs unwrap at end)
@@ -144,7 +143,6 @@ export class QuoteAggregator {
             inputTokenPriceUSD,
             outputTokenPriceUSD,
             needsUnwrap, // Pass flag so route can add unwrap step if needed
-            originalToToken,
             recipient: options.recipient,
             fromAddress: options.fromAddress,
             toChainId: options.toChainId, // Pass toChainId for cross-chain detection
@@ -193,7 +191,6 @@ export class QuoteAggregator {
       inputTokenPriceUSD?: number;
       outputTokenPriceUSD?: number;
       needsUnwrap?: boolean; // If true, add unwrap step at end
-      originalToToken?: Address; // Original token (before wrapping)
       recipient?: Address; // Recipient address (for cross-chain)
       fromAddress?: Address; // User's wallet address (for LiFi)
       toChainId?: number; // Destination chain ID (for cross-chain)
@@ -407,11 +404,7 @@ export class QuoteAggregator {
           chainId,
           toTokenChainId,
           amountIn.toString(),
-          options.fromAddress,
-          {
-            needsUnwrap: options.needsUnwrap,
-            originalToToken: options.originalToToken,
-          }
+          options.fromAddress
         );
 
         if (multiHopRoute) {

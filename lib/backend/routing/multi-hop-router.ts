@@ -8,9 +8,6 @@
 import type { Address } from 'viem';
 import type { RouterRoute, RouterParams } from '../routers/types';
 import { getRouterRegistry } from '../routers/registry';
-import { getIntermediaries, getWrappedNativeToken } from './intermediaries';
-import { getTokenDecimalsFetcher } from '@/lib/backend/utils/token-decimals-fetcher';
-import { toSmallestUnit } from '@/lib/backend/routers/transformers/amount-transformer';
 
 /**
  * Common intermediate tokens for multi-hop routing
@@ -80,7 +77,6 @@ export interface MultiHopRoute {
  */
 export class MultiHopRouter {
   private registry = getRouterRegistry();
-  private decimalsFetcher = getTokenDecimalsFetcher();
 
   /**
    * Find multi-hop route through intermediate tokens
@@ -100,11 +96,7 @@ export class MultiHopRouter {
     fromChainId: number,
     toChainId: number,
     amountIn: string,
-    fromAddress?: Address,
-    options?: {
-      needsUnwrap?: boolean;
-      originalToToken?: Address;
-    }
+    fromAddress?: Address
   ): Promise<MultiHopRoute | null> {
     // Detect if this is a cross-chain swap
     if (fromChainId !== toChainId) {
@@ -176,35 +168,17 @@ export class MultiHopRouter {
     console.log('[MultiHopRouter] ToToken pairs with', toTokenPartners.size, 'tokens');
 
     // Find common tokens (intermediate tokens)
-    const commonTokens: string[] = [];
+    const intermediateTokens: string[] = [];
     fromTokenPartners.forEach(token => {
       if (toTokenPartners.has(token)) {
-        commonTokens.push(token);
+        intermediateTokens.push(token);
       }
     });
 
-    // Prioritize popular intermediaries (WBNB/USDT/USDC/etc.)
-    const priorityIntermediaries = getIntermediaries(chainId)
-      .map((token) => token.address.toLowerCase())
-      .filter((token) => token !== fromToken.toLowerCase() && token !== toToken.toLowerCase());
-
-    const prioritizedCommon = priorityIntermediaries.filter((token) => commonTokens.includes(token));
-    const remainingCommon = commonTokens.filter((token) => !prioritizedCommon.includes(token));
-
-    let intermediateTokens: string[] = [...prioritizedCommon, ...remainingCommon];
-
-    // If no common tokens found, fall back to popular intermediaries only
-    if (intermediateTokens.length === 0) {
-      intermediateTokens = priorityIntermediaries;
-    }
-
-    // Limit search to avoid excessive routing attempts
-    intermediateTokens = intermediateTokens.slice(0, 12);
-
-    console.log('[MultiHopRouter] Found', intermediateTokens.length, 'intermediate tokens (prioritized):', intermediateTokens);
+    console.log('[MultiHopRouter] Found', intermediateTokens.length, 'intermediate tokens:', intermediateTokens);
 
     if (intermediateTokens.length === 0) {
-      console.warn('[MultiHopRouter] ❌ No intermediate tokens available');
+      console.warn('[MultiHopRouter] ❌ No common intermediate tokens found');
       return null;
     }
 
@@ -219,18 +193,6 @@ export class MultiHopRouter {
         const routers = await this.registry.getEligibleRouters(chainId, chainId);
         console.log('[MultiHopRouter] Found', routers.length, 'eligible routers');
 
-        // Resolve decimals for this intermediate hop
-        const fromDecimals = await this.decimalsFetcher.getTokenDecimals(fromToken, chainId);
-        const intermediateDecimals = await this.decimalsFetcher.getTokenDecimals(intermediate, chainId);
-        const toDecimals = await this.decimalsFetcher.getTokenDecimals(toToken, chainId);
-
-        // Track decimals for execution
-        const decimalsByAddress: Record<string, number> = {
-          [fromToken.toLowerCase()]: fromDecimals,
-          [intermediate.toLowerCase()]: intermediateDecimals,
-          [toToken.toLowerCase()]: toDecimals,
-        };
-
         // Try to get route for first hop (fromToken → intermediate)
         let hop1Route: RouterRoute | null = null;
         for (const router of routers) {
@@ -240,10 +202,10 @@ export class MultiHopRouter {
               fromChainId: chainId,
               fromToken: fromToken as string,
               fromAmount: amountIn,
-              fromDecimals,
+              fromDecimals: 18,
               toChainId: chainId,
               toToken: intermediate as string,
-              toDecimals: intermediateDecimals,
+              toDecimals: 18,
               fromAddress: fromAddress,
               slippage: 0.5,
             };
@@ -264,14 +226,9 @@ export class MultiHopRouter {
           continue;
         }
 
-        // Get output amount from hop1 (smallest unit)
-        const hop1Output = await this.getRouteOutputAmountSmallest(
-          hop1Route,
-          intermediate as Address,
-          chainId,
-          decimalsByAddress
-        );
-        console.log('[MultiHopRouter] Hop1 output amount (smallest):', hop1Output);
+        // Get output amount from hop1
+        const hop1Output = hop1Route.toToken.amount;
+        console.log('[MultiHopRouter] Hop1 output amount:', hop1Output);
 
         // Try to get route for second hop (intermediate → toToken)
         let hop2Route: RouterRoute | null = null;
@@ -282,10 +239,10 @@ export class MultiHopRouter {
               fromChainId: chainId,
               fromToken: intermediate as string,
               fromAmount: hop1Output,
-              fromDecimals: intermediateDecimals,
+              fromDecimals: 18,
               toChainId: chainId,
               toToken: toToken as string,
-              toDecimals,
+              toDecimals: 18,
               fromAddress: fromAddress,
               slippage: 0.5,
             };
@@ -323,10 +280,7 @@ export class MultiHopRouter {
           toToken,
           chainId,
           amountIn,
-          totalOutput,
-          decimalsByAddress,
-          options?.needsUnwrap,
-          options?.originalToToken
+          totalOutput
         );
 
         return {
@@ -477,16 +431,6 @@ export class MultiHopRouter {
       try {
         console.log('[MultiHopRouter] Trying bridge token:', bridgeToken.symbol, bridgeToken.address);
 
-        const destBridgeToken = this.resolveBridgeTokenOnDest(bridgeToken.symbol, toChainId);
-        if (!destBridgeToken) {
-          console.log('[MultiHopRouter] ❌ No destination mapping for bridge token', bridgeToken.symbol);
-          continue;
-        }
-        const fromTokenDecimals = await this.decimalsFetcher.getTokenDecimals(fromToken, fromChainId);
-        const bridgeTokenDecimals = await this.decimalsFetcher.getTokenDecimals(bridgeToken.address, fromChainId);
-        const destBridgeTokenDecimals = await this.decimalsFetcher.getTokenDecimals(destBridgeToken, toChainId);
-        const toTokenDecimals = await this.decimalsFetcher.getTokenDecimals(toToken, toChainId);
-
         // Step 4a: Get route for first hop on source chain (fromToken → bridgeToken)
         // Try direct route first, if that fails, try multi-hop on source chain
         console.log('[MultiHopRouter] 📍 Step 4a: Finding hop1 route on source chain...');
@@ -504,10 +448,10 @@ export class MultiHopRouter {
               fromChainId,
               fromToken: fromToken as string,
               fromAmount: amountIn,
-              fromDecimals: fromTokenDecimals,
+              fromDecimals: 18,
               toChainId: fromChainId,
               toToken: bridgeToken.address as string,
-              toDecimals: bridgeTokenDecimals,
+              toDecimals: 18,
               fromAddress: fromAddress,
               slippage: 0.5,
             };
@@ -559,7 +503,6 @@ export class MultiHopRouter {
           // Try each intermediate
           for (const intermediate of sourceChainIntermediateTokens) {
             console.log('[MultiHopRouter] Trying source chain intermediate:', intermediate);
-            const intermediateDecimals = await this.decimalsFetcher.getTokenDecimals(intermediate, fromChainId);
 
             // Get route: fromToken → intermediate
             let intermediateRoute1: RouterRoute | null = null;
@@ -569,10 +512,10 @@ export class MultiHopRouter {
                   fromChainId,
                   fromToken: fromToken as string,
                   fromAmount: amountIn,
-                  fromDecimals: fromTokenDecimals,
+                  fromDecimals: 18,
                   toChainId: fromChainId,
                   toToken: intermediate as string,
-                  toDecimals: intermediateDecimals,
+                  toDecimals: 18,
                   fromAddress: fromAddress,
                   slippage: 0.5,
                 };
@@ -589,11 +532,7 @@ export class MultiHopRouter {
 
             if (!intermediateRoute1) continue;
 
-            const intermediateOutput = await this.getRouteOutputAmountSmallest(
-              intermediateRoute1,
-              intermediate as Address,
-              fromChainId
-            );
+            const intermediateOutput = intermediateRoute1.toToken.amount;
 
             // Get route: intermediate → bridgeToken
             let intermediateRoute2: RouterRoute | null = null;
@@ -603,10 +542,10 @@ export class MultiHopRouter {
                   fromChainId,
                   fromToken: intermediate as string,
                   fromAmount: intermediateOutput,
-                  fromDecimals: intermediateDecimals,
+                  fromDecimals: 18,
                   toChainId: fromChainId,
                   toToken: bridgeToken.address as string,
-                  toDecimals: bridgeTokenDecimals,
+                  toDecimals: 18,
                   fromAddress: fromAddress,
                   slippage: 0.5,
                 };
@@ -636,12 +575,8 @@ export class MultiHopRouter {
           continue;
         }
 
-        const hop1Output = await this.getRouteOutputAmountSmallest(
-          hop1Route,
-          bridgeToken.address as Address,
-          fromChainId
-        );
-        console.log('[MultiHopRouter] Hop1 output amount (smallest):', hop1Output);
+        const hop1Output = hop1Route.toToken.amount;
+        console.log('[MultiHopRouter] Hop1 output amount:', hop1Output);
 
         // Step 4b: Get bridge route (bridgeToken source → bridgeToken destination)
         console.log('[MultiHopRouter] 📍 Step 4b: Finding bridge route...');
@@ -655,10 +590,10 @@ export class MultiHopRouter {
               fromChainId,
               fromToken: bridgeToken.address as string,
               fromAmount: hop1Output,
-              fromDecimals: bridgeTokenDecimals,
+              fromDecimals: 18,
               toChainId,
-              toToken: destBridgeToken as string, // Bridge to mapped token on dest chain
-              toDecimals: destBridgeTokenDecimals,
+              toToken: bridgeToken.address as string, // Bridge to same token on dest chain
+              toDecimals: 18,
               fromAddress: fromAddress,
               slippage: 0.5,
             };
@@ -679,12 +614,8 @@ export class MultiHopRouter {
           continue;
         }
 
-        const bridgeOutput = await this.getRouteOutputAmountSmallest(
-          bridgeRoute,
-          destBridgeToken,
-          toChainId
-        );
-        console.log('[MultiHopRouter] Bridge output amount (smallest):', bridgeOutput);
+        const bridgeOutput = bridgeRoute.toToken.amount;
+        console.log('[MultiHopRouter] Bridge output amount:', bridgeOutput);
 
         // Step 4c: Get route for second hop on destination chain (bridgeToken → toToken)
         // Try direct route first, if that fails, try multi-hop on destination chain
@@ -701,12 +632,12 @@ export class MultiHopRouter {
             console.log('[MultiHopRouter] Trying router', router.name, 'for direct hop2 on destination chain');
             const params: RouterParams = {
               fromChainId: toChainId,
-              fromToken: destBridgeToken as string,
+              fromToken: bridgeToken.address as string,
               fromAmount: bridgeOutput,
-              fromDecimals: destBridgeTokenDecimals,
+              fromDecimals: 18,
               toChainId,
               toToken: toToken as string,
-              toDecimals: toTokenDecimals,
+              toDecimals: 18,
               fromAddress: fromAddress,
               slippage: 0.5,
             };
@@ -727,10 +658,10 @@ export class MultiHopRouter {
           console.log('[MultiHopRouter] No direct route found, trying multi-hop on destination chain...');
 
           // Find tokens that pair with the bridge token on destination chain
-          const bridgeTokenPairsDest = await getTokenPairs(destBridgeToken as Address, toChainId);
+          const bridgeTokenPairsDest = await getTokenPairs(bridgeToken.address as Address, toChainId);
           const bridgeTokenPartnersDest = new Set<string>();
           bridgeTokenPairsDest.forEach(pair => {
-            const partner = pair.baseToken.address.toLowerCase() === destBridgeToken.toLowerCase()
+            const partner = pair.baseToken.address.toLowerCase() === bridgeToken.address.toLowerCase()
               ? pair.quoteToken.address
               : pair.baseToken.address;
             bridgeTokenPartnersDest.add(partner.toLowerCase());
@@ -742,7 +673,7 @@ export class MultiHopRouter {
           // Find common intermediates
           const destChainIntermediateTokens: string[] = [];
           bridgeTokenPartnersDest.forEach(token => {
-            if (toTokenPartnersDest.has(token) && token !== destBridgeToken.toLowerCase()) {
+            if (toTokenPartnersDest.has(token) && token !== bridgeToken.address.toLowerCase()) {
               destChainIntermediateTokens.push(token);
             }
           });
@@ -752,7 +683,6 @@ export class MultiHopRouter {
           // Try each intermediate
           for (const intermediate of destChainIntermediateTokens) {
             console.log('[MultiHopRouter] Trying destination chain intermediate:', intermediate);
-            const intermediateDecimals = await this.decimalsFetcher.getTokenDecimals(intermediate, toChainId);
 
             // Get route: bridgeToken → intermediate
             let intermediateRoute1: RouterRoute | null = null;
@@ -760,12 +690,12 @@ export class MultiHopRouter {
               try {
                 const params: RouterParams = {
                   fromChainId: toChainId,
-                  fromToken: destBridgeToken as string,
+                  fromToken: bridgeToken.address as string,
                   fromAmount: bridgeOutput,
-                  fromDecimals: destBridgeTokenDecimals,
+                  fromDecimals: 18,
                   toChainId,
                   toToken: intermediate as string,
-                  toDecimals: intermediateDecimals,
+                  toDecimals: 18,
                   fromAddress: fromAddress,
                   slippage: 0.5,
                 };
@@ -782,11 +712,7 @@ export class MultiHopRouter {
 
             if (!intermediateRoute1) continue;
 
-            const intermediateOutput = await this.getRouteOutputAmountSmallest(
-              intermediateRoute1,
-              intermediate as Address,
-              toChainId
-            );
+            const intermediateOutput = intermediateRoute1.toToken.amount;
 
             // Get route: intermediate → toToken
             let intermediateRoute2: RouterRoute | null = null;
@@ -796,10 +722,10 @@ export class MultiHopRouter {
                   fromChainId: toChainId,
                   fromToken: intermediate as string,
                   fromAmount: intermediateOutput,
-                  fromDecimals: intermediateDecimals,
+                  fromDecimals: 18,
                   toChainId,
                   toToken: toToken as string,
-                  toDecimals: toTokenDecimals,
+                  toDecimals: 18,
                   fromAddress: fromAddress,
                   slippage: 0.5,
                 };
@@ -897,10 +823,7 @@ export class MultiHopRouter {
     toToken: Address,
     chainId: number,
     amountIn: string,
-    totalOutput: string,
-    decimalsByAddress: Record<string, number>,
-    needsUnwrap?: boolean,
-    originalToToken?: Address
+    totalOutput: string
   ): RouterRoute {
     // Create properly formatted swap steps for multi-step executor
     const steps = [];
@@ -941,28 +864,6 @@ export class MultiHopRouter {
       description: `Swap via ${hop2.router}`,
     });
 
-    // Optional unwrap step (e.g., WBNB/WETH -> native)
-    if (needsUnwrap && originalToToken) {
-      steps.push({
-        type: 'unwrap' as const,
-        chainId,
-        fromToken: {
-          address: hop2.toToken.address,
-          amount: hop2.toToken.amount,
-          symbol: hop2.toToken.symbol,
-        },
-        toToken: {
-          address: originalToToken,
-          amount: hop2.toToken.amount,
-          symbol: 'NATIVE',
-        },
-        protocol: 'unwrap',
-        description: 'Unwrap to native token',
-      });
-    }
-
-    const finalToTokenAddress = needsUnwrap && originalToToken ? originalToToken : toToken;
-
     return {
       router: 'multi-hop',
       routeId: `multi-hop-${Date.now()}`,
@@ -974,7 +875,7 @@ export class MultiHopRouter {
         amount: amountIn,
       },
       toToken: {
-        address: finalToTokenAddress,
+        address: toToken,
         chainId,
         symbol: hop2.toToken.symbol,
         decimals: hop2.toToken.decimals,
@@ -997,9 +898,6 @@ export class MultiHopRouter {
         hop2: hop2.raw,
         intermediateToken: hop1.toToken.address,
         isMultiHop: true,
-        decimalsByAddress,
-        needsUnwrap: !!needsUnwrap,
-        originalToToken: originalToToken?.toLowerCase(),
       },
     };
   }
@@ -1200,39 +1098,6 @@ export class MultiHopRouter {
         isCrossChain: true,
       },
     };
-  }
-
-  private async getRouteOutputAmountSmallest(
-    route: RouterRoute,
-    tokenAddress: Address,
-    chainId: number,
-    decimalsByAddress?: Record<string, number>
-  ): Promise<string> {
-    if (route.raw?.amountOut && route.raw.amountOut !== '0') {
-      return route.raw.amountOut;
-    }
-
-    const lower = tokenAddress.toLowerCase();
-    const decimals =
-      decimalsByAddress?.[lower] ?? (await this.decimalsFetcher.getTokenDecimals(tokenAddress, chainId));
-
-    return toSmallestUnit(route.toToken.amount || '0', decimals);
-  }
-
-  private resolveBridgeTokenOnDest(symbol: string, toChainId: number): Address | null {
-    const normalized = symbol.trim().toLowerCase();
-    const intermediaries = getIntermediaries(toChainId);
-
-    const exact = intermediaries.find((token) => token.symbol.toLowerCase() === normalized);
-    if (exact) {
-      return exact.address;
-    }
-
-    if (normalized === 'eth') {
-      return getWrappedNativeToken(toChainId);
-    }
-
-    return null;
   }
 }
 

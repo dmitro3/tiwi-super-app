@@ -16,7 +16,6 @@ interface UseSwapQuoteOptions {
   fromToken: Token | null;
   toToken: Token | null;
   recipient?: string | null; // Recipient address (toAddress) - user-provided or connected wallet
-  fromAddress?: string | null; // Optional override for fromAddress (wallet system)
   delay?: number; // Debounce delay in ms (default: 500)
 }
 
@@ -33,7 +32,6 @@ export function useSwapQuote({
   fromToken,
   toToken,
   recipient,
-  fromAddress,
   delay = 500,
 }: UseSwapQuoteOptions): void {
   const setRoute = useSwapStore((state) => state.setRoute);
@@ -173,16 +171,14 @@ export function useSwapQuote({
         // Determine addresses for routing with chain compatibility validation
         // fromAddress: Must be compatible with fromToken.chainId
         // recipient: Must be compatible with toToken.chainId
-        let resolvedFromAddress: string | undefined = undefined;
+        let fromAddress: string | undefined = undefined;
         let recipientAddress: string | undefined = undefined;
         
-        // Prefer explicit fromAddress override (wallet system), fall back to wagmi
-        if (fromToken?.chainId) {
-          if (fromAddress && isAddressChainCompatible(fromAddress, fromToken.chainId)) {
-            resolvedFromAddress = fromAddress;
-          } else if (isConnected && connectedAddress && isAddressChainCompatible(connectedAddress, fromToken.chainId)) {
-            resolvedFromAddress = connectedAddress;
-          } else if (fromAddress || (isConnected && connectedAddress)) {
+        // Validate fromAddress against fromToken chain
+        if (isConnected && connectedAddress && fromToken?.chainId) {
+          if (isAddressChainCompatible(connectedAddress, fromToken.chainId)) {
+            fromAddress = connectedAddress;
+          } else {
             console.log('[useSwapQuote] Connected address is not compatible with fromToken chain, skipping fromAddress');
           }
         }
@@ -223,7 +219,7 @@ export function useSwapQuote({
           },
           // Use reverse routing if activeInput is 'to'
           ...(isReverseRouting ? { toAmount: inputAmount } : { fromAmount: inputAmount }),
-          fromAddress: resolvedFromAddress, // Connected wallet address (improves routing speed with LiFi getQuote)
+          fromAddress, // Connected wallet address (improves routing speed with LiFi getQuote)
           recipient: recipientAddress, // Recipient address (toAddress) - user-provided or connected wallet
           slippage: slippageMode === 'fixed' ? slippageTolerance : undefined, // Use user's fixed slippage or let backend handle auto
           slippageMode: slippageMode,
@@ -367,7 +363,6 @@ export function useSwapQuote({
     slippageMode, 
     slippageTolerance, 
     recipient,
-    fromAddress,
     // Note: Store functions (updateFromAmount, updateToAmount, setRoute, etc.) are stable
     // and don't need to be in dependency array, but including them is safe
   ]);
