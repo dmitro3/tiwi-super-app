@@ -50,6 +50,30 @@ function getRpcUrl(chainId: number): string {
 }
 
 /**
+ * Cached public clients per chain - avoids recreating on every verification call.
+ * This is critical when verifying 40+ paths in parallel.
+ */
+const clientCache = new Map<number, any>();
+
+function getPublicClient(chainId: number) {
+  const cached = clientCache.get(chainId);
+  if (cached) return cached;
+
+  const chain = getChain(chainId);
+  if (!chain) return null;
+
+  const client = createPublicClient({
+    chain,
+    transport: http(getRpcUrl(chainId), {
+      retryCount: 2,
+      timeout: 15_000,   // 15s timeout instead of default 30s
+    }),
+  });
+  clientCache.set(chainId, client);
+  return client;
+}
+
+/**
  * Verified Route
  */
 export interface VerifiedRoute {
@@ -90,34 +114,17 @@ export async function verifyRoute(
       return null;
     }
 
-    // Get chain and RPC URL
-    const chain = getChain(chainId);
-    if (!chain) {
+    // Get cached public client (shared across all parallel verifications)
+    const publicClient = getPublicClient(chainId);
+    if (!publicClient) {
       console.warn(`[RouteVerifier] Chain ${chainId} not supported`);
       return null;
     }
 
     const rpcUrl = getRpcUrl(chainId);
 
-    // Create public client
-    const publicClient = createPublicClient({
-      chain,
-      transport: http(rpcUrl),
-    });
-
-    // Call router.getAmountsOut
-    console.log(`[RouteVerifier] ========================================`);
-    console.log(`[RouteVerifier] 🔄 VERIFYING ROUTE`);
-    console.log(`[RouteVerifier] DEX: ${dexId}`);
-    console.log(`[RouteVerifier] Chain: ${chainId}`);
-    console.log(`[RouteVerifier] Router: ${dexConfig.routerAddress}`);
-    console.log(`[RouteVerifier] Path (${path.length} tokens):`);
-    path.forEach((token, idx) => {
-      console.log(`[RouteVerifier]   ${idx + 1}. ${token}`);
-    });
-    console.log(`[RouteVerifier] Amount In: ${amountIn.toString()}`);
-    console.log(`[RouteVerifier] RPC: ${rpcUrl}`);
-    console.log(`[RouteVerifier] ========================================`);
+    // Call router.getAmountsOut (minimal logging for parallel speed)
+    console.log(`[RouteVerifier] Verifying ${path.length}-token path on ${dexId} (chain ${chainId})`);
 
     // Helper to try getAmountsOut with a specific amount
     const tryGetAmountsOut = async (testAmount: bigint): Promise<bigint[] | null> => {
@@ -211,19 +218,11 @@ export async function verifyRoute(
 
     // Check if we have valid amounts
     if (!amounts || amounts.length === 0) {
-      console.warn(`[RouteVerifier] ❌ VERIFICATION FAILED (took ${verifyTime}ms) - No valid amounts`);
-      if (lastError) {
-        console.error(`[RouteVerifier] Last error: ${lastError.message}`);
-      }
-      console.error(`[RouteVerifier] ========================================\n`);
+      // Quiet fail - these are expected during parallel path testing
       return null;
     }
 
-    console.log(`[RouteVerifier] ⏱️ Verification took ${verifyTime}ms`);
-    console.log(`[RouteVerifier] 📊 Amounts returned: ${amounts.length} values`);
-    amounts.forEach((amt, idx) => {
-      console.log(`[RouteVerifier]   Step ${idx + 1}: ${amt.toString()}`);
-    });
+    console.log(`[RouteVerifier] Verified in ${verifyTime}ms (${amounts.length} steps)`);
 
     // Check if route is valid
     if (amounts.length !== path.length) {
@@ -242,12 +241,7 @@ export async function verifyRoute(
       return null;
     }
 
-    const exchangeRate = Number(outputAmount) / Number(amountIn);
-    console.log(`[RouteVerifier] ✅ ROUTE VERIFIED`);
-    console.log(`[RouteVerifier] Input: ${amountIn.toString()}`);
-    console.log(`[RouteVerifier] Output: ${outputAmount.toString()}`);
-    console.log(`[RouteVerifier] Exchange Rate: ${exchangeRate.toFixed(6)}`);
-    console.log(`[RouteVerifier] ========================================\n`);
+    console.log(`[RouteVerifier] ✅ Verified: output=${outputAmount.toString()} (${verifyTime}ms)`);
 
     return {
       path,

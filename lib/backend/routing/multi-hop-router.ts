@@ -109,125 +109,123 @@ export class MultiHopRouter {
       return null;
     }
 
-    // STEP 2: Try each intermediate token to build a complete route
-    console.log('[MultiHopRouter] 📍 STEP 2: Building routes through intermediates...');
+    // STEP 2: Get eligible routers ONCE (not inside loop)
+    const routers = await this.registry.getEligibleRouters(chainId, chainId);
+    console.log('[MultiHopRouter] Found', routers.length, 'eligible routers');
 
-    for (const intermediate of intermediateTokens) {
-      try {
-        console.log('[MultiHopRouter] Trying intermediate:', intermediate);
+    if (routers.length === 0) {
+      console.warn('[MultiHopRouter] ❌ No eligible routers');
+      return null;
+    }
 
-        // Get eligible routers for this chain
-        const routers = await this.registry.getEligibleRouters(chainId, chainId);
-        console.log('[MultiHopRouter] Found', routers.length, 'eligible routers');
+    // STEP 3: Fire ALL hop1 attempts in parallel (all intermediates × first router)
+    console.log('[MultiHopRouter] 📍 STEP 3: Finding hop1 routes in parallel for all intermediates...');
+    const startTime = Date.now();
 
-        // Try to get route for first hop (fromToken → intermediate)
-        let hop1Route: RouterRoute | null = null;
-        for (const router of routers) {
-          try {
-            console.log('[MultiHopRouter] Trying router', router.name, 'for hop1');
-            const params: RouterParams = {
-              fromChainId: chainId,
-              fromToken: fromToken as string,
-              fromAmount: amountIn,
-              fromDecimals: 18,
-              toChainId: chainId,
-              toToken: intermediate as string,
-              toDecimals: 18,
-              fromAddress: fromAddress,
-              slippage: 0.5,
-            };
-            const route = await router.getRoute(params);
+    // Helper: try all routers for a single hop, return first success
+    const tryRoutersForHop = async (params: RouterParams): Promise<RouterRoute | null> => {
+      // Try all routers in parallel, pick first success
+      const results = await Promise.allSettled(
+        routers.map(router => router.getRoute(params))
+      );
+      for (const result of results) {
+        if (result.status === 'fulfilled' && result.value) return result.value;
+      }
+      return null;
+    };
 
-            if (route) {
-              hop1Route = route;
-              console.log('[MultiHopRouter] ✅ Found hop1 route via', router.name);
-              break;
-            }
-          } catch (error: any) {
-            console.warn('[MultiHopRouter] Router', router.name, 'failed for hop1:', error?.message || error);
-          }
-        }
+    // Fire all hop1 attempts in parallel
+    const hop1Results = await Promise.allSettled(
+      intermediateTokens.map(intermediate =>
+        tryRoutersForHop({
+          fromChainId: chainId,
+          fromToken: fromToken as string,
+          fromAmount: amountIn,
+          fromDecimals: 18,
+          toChainId: chainId,
+          toToken: intermediate as string,
+          toDecimals: 18,
+          fromAddress: fromAddress,
+          slippage: 0.5,
+        })
+      )
+    );
+    console.log(`[MultiHopRouter] ⚡ Parallel hop1 scan took ${Date.now() - startTime}ms`);
 
-        if (!hop1Route) {
-          console.log('[MultiHopRouter] ❌ No route found for hop1 with intermediate', intermediate);
-          continue;
-        }
+    // STEP 4: For each successful hop1, fire hop2 in parallel
+    const hop2Candidates: Array<{ intermediate: string; hop1Route: RouterRoute; hop1Output: string; hop1Decimals: number }> = [];
+    for (let i = 0; i < hop1Results.length; i++) {
+      const result = hop1Results[i];
+      if (result.status !== 'fulfilled' || !result.value) continue;
+      const hop1Route = result.value;
+      const hop1OutputHuman = hop1Route.toToken.amount;
+      const hop1Decimals = hop1Route.toToken.decimals || 18;
+      const hop1Output = toWei(hop1OutputHuman, hop1Decimals);
+      hop2Candidates.push({ intermediate: intermediateTokens[i], hop1Route, hop1Output, hop1Decimals });
+    }
 
-        // Get output amount from hop1 and convert to smallest unit
-        // RouterRoute.toToken.amount is human-readable, but RouterParams.fromAmount needs smallest unit (wei)
-        const hop1OutputHuman = hop1Route.toToken.amount;
-        const hop1Decimals = hop1Route.toToken.decimals || 18;
-        const hop1Output = toWei(hop1OutputHuman, hop1Decimals);
-        console.log('[MultiHopRouter] Hop1 output amount:', hop1OutputHuman, '→ wei:', hop1Output);
+    if (hop2Candidates.length === 0) {
+      console.log('[MultiHopRouter] ❌ No hop1 routes found for any intermediate');
+      return null;
+    }
 
-        // Try to get route for second hop (intermediate → toToken)
-        let hop2Route: RouterRoute | null = null;
-        for (const router of routers) {
-          try {
-            console.log('[MultiHopRouter] Trying router', router.name, 'for hop2');
-            const params: RouterParams = {
-              fromChainId: chainId,
-              fromToken: intermediate as string,
-              fromAmount: hop1Output,
-              fromDecimals: hop1Decimals,
-              toChainId: chainId,
-              toToken: toToken as string,
-              toDecimals: 18,
-              fromAddress: fromAddress,
-              slippage: 0.5,
-            };
-            const route = await router.getRoute(params);
+    console.log(`[MultiHopRouter] 📍 STEP 4: Found ${hop2Candidates.length} hop1 routes, finding hop2 in parallel...`);
+    const hop2Start = Date.now();
 
-            if (route) {
-              hop2Route = route;
-              console.log('[MultiHopRouter] ✅ Found hop2 route via', router.name);
-              break;
-            }
-          } catch (error: any) {
-            console.warn('[MultiHopRouter] Router', router.name, 'failed for hop2:', error?.message || error);
-          }
-        }
+    const hop2Results = await Promise.allSettled(
+      hop2Candidates.map(({ hop1Output, hop1Decimals, intermediate }) =>
+        tryRoutersForHop({
+          fromChainId: chainId,
+          fromToken: intermediate as string,
+          fromAmount: hop1Output,
+          fromDecimals: hop1Decimals,
+          toChainId: chainId,
+          toToken: toToken as string,
+          toDecimals: 18,
+          fromAddress: fromAddress,
+          slippage: 0.5,
+        })
+      )
+    );
+    console.log(`[MultiHopRouter] ⚡ Parallel hop2 scan took ${Date.now() - hop2Start}ms`);
 
-        if (!hop2Route) {
-          console.log('[MultiHopRouter] ❌ No route found for hop2 with intermediate', intermediate);
-          continue;
-        }
+    // STEP 5: Pick best complete route (highest output)
+    let bestResult: MultiHopRoute | null = null;
+    let bestOutput = 0;
 
-        // Success! We found a complete multi-hop route
-        const totalOutput = hop2Route.toToken.amount;
+    for (let i = 0; i < hop2Results.length; i++) {
+      const result = hop2Results[i];
+      if (result.status !== 'fulfilled' || !result.value) continue;
+      const hop2Route = result.value;
+      const { hop1Route, intermediate } = hop2Candidates[i];
+      const totalOutput = hop2Route.toToken.amount;
+      const outputNum = parseFloat(totalOutput);
 
-        console.log('[MultiHopRouter] ✅✅✅ SUCCESS! Found multi-hop route:', {
-          hop1: `${fromToken.slice(0, 10)}... → ${intermediate.slice(0, 10)}...`,
-          hop2: `${intermediate.slice(0, 10)}... → ${toToken.slice(0, 10)}...`,
-          totalOutput,
-        });
-
-        // Create combined route
+      if (outputNum > bestOutput) {
+        bestOutput = outputNum;
         const combinedRoute = this.createCombinedRoute(
-          hop1Route,
-          hop2Route,
-          fromToken,
-          toToken,
-          chainId,
-          amountIn,
-          totalOutput
+          hop1Route, hop2Route, fromToken, toToken, chainId, amountIn, totalOutput
         );
-
-        return {
+        bestResult = {
           hop1: hop1Route,
           hop2: hop2Route,
           intermediateToken: intermediate as Address,
           totalOutputAmount: totalOutput,
           combinedRoute,
         };
-      } catch (error) {
-        console.error('[MultiHopRouter] Error trying intermediate', intermediate, ':', error);
-        continue;
       }
     }
 
-    console.log('[MultiHopRouter] ❌ No multi-hop route found after trying all intermediates');
-    return null;
+    if (bestResult) {
+      console.log(`[MultiHopRouter] ✅ Best multi-hop route found (total: ${Date.now() - startTime}ms)`, {
+        intermediate: bestResult.intermediateToken.slice(0, 10) + '...',
+        output: bestResult.totalOutputAmount,
+      });
+    } else {
+      console.log('[MultiHopRouter] ❌ No complete multi-hop route found');
+    }
+
+    return bestResult;
   }
 
   /**
@@ -283,270 +281,115 @@ export class MultiHopRouter {
       return null;
     }
 
-    // STEP 2: Try each potential bridge token
-    console.log('[MultiHopRouter] 📍 STEP 2: Trying each bridge token for cross-chain route...');
+    // STEP 2: Pre-resolve all bridge token destinations and fetch routers ONCE
+    const amountInBigInt = BigInt(amountIn);
+    const sameChainFinder = getSameChainRouteFinder();
+    const bridgeRouters = await this.registry.getEligibleRouters(fromChainId, toChainId);
 
-    for (const bridgeToken of potentialBridgeTokens) {
-      try {
-        console.log('[MultiHopRouter] Trying bridge token:', bridgeToken.symbol, bridgeToken.address);
+    // Filter bridge tokens that have valid destination mappings
+    const validBridgeTokens = potentialBridgeTokens
+      .map(bt => ({
+        ...bt,
+        destToken: this.resolveBridgeTokenOnDest(bt.address, fromChainId, toChainId),
+      }))
+      .filter((bt): bt is typeof bt & { destToken: Address } => bt.destToken !== null);
 
-        const destBridgeToken = this.resolveBridgeTokenOnDest(bridgeToken.address, fromChainId, toChainId);
-        if (!destBridgeToken) {
-          console.log(`[MultiHopRouter] ❌ No destination mapping for bridge token ${bridgeToken.symbol} (${bridgeToken.address})`);
-          continue;
-        }
+    if (validBridgeTokens.length === 0) {
+      console.warn('[MultiHopRouter] ❌ No bridge tokens with valid destination mappings');
+      return null;
+    }
 
-        const amountInBigInt = BigInt(amountIn);
-        const sameChainFinder = getSameChainRouteFinder();
+    console.log('[MultiHopRouter] 📍 STEP 2: Trying', validBridgeTokens.length, 'bridge tokens in PARALLEL...');
+    const startTime = Date.now();
+
+    // STEP 3: Try ALL bridge tokens in parallel
+    const bridgeAttempts = await Promise.allSettled(
+      validBridgeTokens.map(async (bridgeToken) => {
+        // Hop 1: fromToken → bridgeToken on source chain
         const sourceRoute = await sameChainFinder.findRoute(
-          fromToken,
-          bridgeToken.address as Address,
-          fromChainId,
-          amountInBigInt
+          fromToken, bridgeToken.address, fromChainId, amountInBigInt
         );
-
-        if (!sourceRoute) {
-          console.log('[MultiHopRouter] ❌ No route found for hop1 with bridge token', bridgeToken.symbol);
-          continue;
-        }
+        if (!sourceRoute) return null;
 
         const hop1Route = await convertSameChainRouteToRouterRoute(
           sourceRoute,
           { address: fromToken },
-          { address: bridgeToken.address as Address },
+          { address: bridgeToken.address },
           amountInBigInt,
           fromChainId
         );
 
         const hop1Output = sourceRoute.outputAmount.toString();
-        const bridgeTokenDecimals = await this.decimalsFetcher.getTokenDecimals(bridgeToken.address, fromChainId);
-        const destBridgeTokenDecimals = await this.decimalsFetcher.getTokenDecimals(destBridgeToken, toChainId);
-        console.log('[MultiHopRouter] Hop1 output amount (smallest):', hop1Output);
 
-        // Step 4b: Get bridge route (bridgeToken source → bridgeToken destination)
-        console.log('[MultiHopRouter] 📍 Step 4b: Finding bridge route...');
-        const bridgeRouters = await this.registry.getEligibleRouters(fromChainId, toChainId);
+        // Fetch decimals in parallel
+        const [bridgeTokenDecimals, destBridgeTokenDecimals] = await Promise.all([
+          this.decimalsFetcher.getTokenDecimals(bridgeToken.address, fromChainId),
+          this.decimalsFetcher.getTokenDecimals(bridgeToken.destToken, toChainId),
+        ]);
 
-        let bridgeRoute: RouterRoute | null = null;
-        for (const router of bridgeRouters) {
-          try {
-            console.log('[MultiHopRouter] Trying router', router.name, 'for bridge');
-            const params: RouterParams = {
+        // Bridge: try all bridge routers in parallel, pick first success
+        const bridgeResults = await Promise.allSettled(
+          bridgeRouters.map(router =>
+            router.getRoute({
               fromChainId,
               fromToken: bridgeToken.address as string,
               fromAmount: hop1Output,
               fromDecimals: bridgeTokenDecimals,
               toChainId,
-              toToken: destBridgeToken as string,
+              toToken: bridgeToken.destToken as string,
               toDecimals: destBridgeTokenDecimals,
               fromAddress: fromAddress,
               slippage: 0.5,
-            };
-            const route = await router.getRoute(params);
-
-            if (route) {
-              bridgeRoute = route;
-              console.log('[MultiHopRouter] ✅ Found bridge route via', router.name);
-              break;
-            }
-          } catch (error: any) {
-            console.warn('[MultiHopRouter] Router', router.name, 'failed for bridge:', error?.message || error);
-          }
+            })
+          )
+        );
+        let bridgeRoute: RouterRoute | null = null;
+        for (const r of bridgeResults) {
+          if (r.status === 'fulfilled' && r.value) { bridgeRoute = r.value; break; }
         }
+        if (!bridgeRoute) return null;
 
-        if (!bridgeRoute) {
-          console.log('[MultiHopRouter] ❌ No bridge route found for', bridgeToken.symbol);
-          continue;
-        }
-
-        // Convert human-readable bridge output to smallest unit for destination chain
+        // Convert bridge output to wei
         const bridgeOutputHuman = bridgeRoute.toToken.amount;
         const bridgeDecimals = bridgeRoute.toToken.decimals || 18;
         const bridgeOutput = toWei(bridgeOutputHuman, bridgeDecimals);
-        console.log('[MultiHopRouter] Bridge output amount:', bridgeOutputHuman, '→ wei:', bridgeOutput);
 
-        /*
-        // Step 4c: Get route for second hop on destination chain (bridgeToken → toToken)
-        // Try direct route first, if that fails, try multi-hop on destination chain
-        console.log('[MultiHopRouter] 📍 Step 4c: Finding hop2 route on destination chain...');
-        console.log('[MultiHopRouter] Trying direct route: bridgeToken → toToken');
-        const destRouters = await this.registry.getEligibleRouters(toChainId, toChainId);
-
-        let hop2Route: RouterRoute | null = null;
-        let destChainIntermediates: RouterRoute[] = []; // Track intermediate hops on destination chain
-
-        // Try direct route first
-        for (const router of destRouters) {
-          try {
-            console.log('[MultiHopRouter] Trying router', router.name, 'for direct hop2 on destination chain');
-            const params: RouterParams = {
-              fromChainId: toChainId,
-              fromToken: bridgeToken.address as string,
-              fromAmount: bridgeOutput,
-              fromDecimals: bridgeDecimals,
-              toChainId,
-              toToken: toToken as string,
-              toDecimals: 18,
-              fromAddress: fromAddress,
-              slippage: 0.5,
-            };
-            const route = await router.getRoute(params);
-
-            if (route) {
-              hop2Route = route;
-              console.log('[MultiHopRouter] ✅ Found direct hop2 route via', router.name);
-              break;
-            }
-          } catch (error: any) {
-            console.warn('[MultiHopRouter] Router', router.name, 'failed for direct hop2:', error?.message || error);
-          }
-        }
-
-        // If no direct route, try multi-hop on destination chain (bridgeToken → intermediate → toToken)
-        if (!hop2Route) {
-          console.log('[MultiHopRouter] No direct route found, trying multi-hop on destination chain...');
-
-          // Find tokens that pair with the bridge token on destination chain
-          const bridgeTokenPairsDest = await getTokenPairs(bridgeToken.address as Address, toChainId);
-          const bridgeTokenPartnersDest = new Set<string>();
-          bridgeTokenPairsDest.forEach(pair => {
-            const partner = pair.baseToken.address.toLowerCase() === bridgeToken.address.toLowerCase()
-              ? pair.quoteToken.address
-              : pair.baseToken.address;
-            bridgeTokenPartnersDest.add(partner.toLowerCase());
-          });
-
-          // toTokenPartners already extracted earlier (destChainTokens)
-          const toTokenPartnersDest = destChainTokens;
-
-          // Find common intermediates
-          const destChainIntermediateTokens: string[] = [];
-          bridgeTokenPartnersDest.forEach(token => {
-            if (toTokenPartnersDest.has(token) && token !== bridgeToken.address.toLowerCase()) {
-              destChainIntermediateTokens.push(token);
-            }
-          });
-
-          console.log('[MultiHopRouter] Found', destChainIntermediateTokens.length, 'intermediates on destination chain');
-
-          // Try each intermediate
-          for (const intermediate of destChainIntermediateTokens) {
-            console.log('[MultiHopRouter] Trying destination chain intermediate:', intermediate);
-
-            // Get route: bridgeToken → intermediate
-            let intermediateRoute1: RouterRoute | null = null;
-            for (const router of destRouters) {
-              try {
-                const params: RouterParams = {
-                  fromChainId: toChainId,
-                  fromToken: bridgeToken.address as string,
-                  fromAmount: bridgeOutput,
-                  fromDecimals: bridgeDecimals,
-                  toChainId,
-                  toToken: intermediate as string,
-                  toDecimals: 18,
-                  fromAddress: fromAddress,
-                  slippage: 0.5,
-                };
-                const route = await router.getRoute(params);
-                if (route) {
-                  intermediateRoute1 = route;
-                  console.log('[MultiHopRouter] ✅ Found route: bridgeToken → intermediate via', router.name);
-                  break;
-                }
-              } catch (error: any) {
-                console.warn('[MultiHopRouter] Router failed:', error?.message || error);
-              }
-            }
-
-            if (!intermediateRoute1) continue;
-
-            // Convert human-readable output to smallest unit for next hop
-            const destIntermediateHuman = intermediateRoute1.toToken.amount;
-            const destIntermediateDecimals = intermediateRoute1.toToken.decimals || 18;
-            const intermediateOutput = toWei(destIntermediateHuman, destIntermediateDecimals);
-
-            // Get route: intermediate → toToken
-            let intermediateRoute2: RouterRoute | null = null;
-            for (const router of destRouters) {
-              try {
-                const params: RouterParams = {
-                  fromChainId: toChainId,
-                  fromToken: intermediate as string,
-                  fromAmount: intermediateOutput,
-                  fromDecimals: destIntermediateDecimals,
-                  toChainId,
-                  toToken: toToken as string,
-                  toDecimals: 18,
-                  fromAddress: fromAddress,
-                  slippage: 0.5,
-                };
-                const route = await router.getRoute(params);
-                if (route) {
-                  intermediateRoute2 = route;
-                  console.log('[MultiHopRouter] ✅ Found route: intermediate → toToken via', router.name);
-                  break;
-                }
-              } catch (error: any) {
-                console.warn('[MultiHopRouter] Router failed:', error?.message || error);
-              }
-            }
-
-            if (intermediateRoute2) {
-              // Success! We have a multi-hop route on destination chain
-              console.log('[MultiHopRouter] ✅ Found multi-hop route on destination chain');
-              destChainIntermediates = [intermediateRoute1, intermediateRoute2];
-              hop2Route = intermediateRoute2; // Use the final route's output
-              break;
-            }
-          }
-        }
-
-        */
+        // Hop 2: destBridgeToken → toToken on destination chain
         const destRoute = await sameChainFinder.findRoute(
-          destBridgeToken,
-          toToken,
-          toChainId,
-          BigInt(bridgeOutput)
+          bridgeToken.destToken, toToken, toChainId, BigInt(bridgeOutput)
         );
-
-        if (!destRoute) {
-          console.log('[MultiHopRouter] ❌ No route found on destination chain');
-          continue;
-        }
+        if (!destRoute) return null;
 
         const hop2Route = await convertSameChainRouteToRouterRoute(
           destRoute,
-          { address: destBridgeToken },
+          { address: bridgeToken.destToken },
           { address: toToken },
           BigInt(bridgeOutput),
           toChainId
         );
 
-        // Success! We found a complete cross-chain multi-hop route
-        const totalOutput = hop2Route.toToken.amount;
+        return { hop1Route, bridgeRoute, hop2Route, bridgeToken };
+      })
+    );
+    console.log(`[MultiHopRouter] ⚡ Parallel bridge token scan took ${Date.now() - startTime}ms`);
 
-        console.log('[MultiHopRouter] ✅✅✅ SUCCESS! Found cross-chain multi-hop route:', {
-          path: `${fromToken.slice(0, 10)}... → ${bridgeToken.symbol} (Chain ${fromChainId}) → [BRIDGE] → ${bridgeToken.symbol} → ${toToken.slice(0, 10)}... (Chain ${toChainId})`,
-          bridge: `${bridgeToken.symbol}`,
-          totalOutput,
-        });
+    // STEP 4: Pick the best result (highest output)
+    let bestResult: MultiHopRoute | null = null;
+    let bestOutput = 0;
 
+    for (const attempt of bridgeAttempts) {
+      if (attempt.status !== 'fulfilled' || !attempt.value) continue;
+      const { hop1Route, bridgeRoute, hop2Route, bridgeToken } = attempt.value;
+      const totalOutput = hop2Route.toToken.amount;
+      const outputNum = parseFloat(totalOutput);
+
+      if (outputNum > bestOutput) {
+        bestOutput = outputNum;
         const combinedRoute = this.createCrossChainCombinedRoute(
-          hop1Route,
-          bridgeRoute,
-          hop2Route,
-          fromToken,
-          toToken,
-          fromChainId,
-          toChainId,
-          amountIn,
-          totalOutput,
-          [],
-          []
+          hop1Route, bridgeRoute, hop2Route, fromToken, toToken,
+          fromChainId, toChainId, amountIn, totalOutput, [], []
         );
-
-        return {
+        bestResult = {
           hop1: hop1Route,
           bridgeRoute,
           hop2: hop2Route,
@@ -554,14 +397,19 @@ export class MultiHopRouter {
           totalOutputAmount: totalOutput,
           combinedRoute,
         };
-      } catch (error) {
-        console.error('[MultiHopRouter] Error trying bridge token', bridgeToken.symbol, ':', error);
-        continue;
       }
     }
 
-    console.log('[MultiHopRouter] ❌ No cross-chain multi-hop route found after trying all bridge tokens');
-    return null;
+    if (bestResult) {
+      console.log(`[MultiHopRouter] ✅ Best cross-chain route found (total: ${Date.now() - startTime}ms)`, {
+        bridge: bestResult.intermediateToken.slice(0, 10) + '...',
+        output: bestResult.totalOutputAmount,
+      });
+    } else {
+      console.log('[MultiHopRouter] ❌ No cross-chain multi-hop route found');
+    }
+
+    return bestResult;
   }
 
   /**

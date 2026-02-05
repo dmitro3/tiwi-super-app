@@ -11,7 +11,7 @@
  */
 
 import type { Address } from 'viem';
-import { getIntermediaries, getWrappedNativeToken } from './intermediaries';
+import { getIntermediaries } from './intermediaries';
 import { verifyRoute } from './route-verifier';
 import { getSupportedDEXes } from './dex-registry';
 
@@ -105,7 +105,7 @@ export class SameChainRouteFinder {
       if (result.status !== 'fulfilled' || !result.value) continue;
 
       const verified = result.value;
-      if (verified.outputAmount <= 0n) continue;
+      if (verified.outputAmount <= BigInt(0)) continue;
 
       const path = paths[idx];
       const route: SameChainRoute = {

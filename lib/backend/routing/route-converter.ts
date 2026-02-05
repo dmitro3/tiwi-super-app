@@ -24,9 +24,11 @@ export async function convertSameChainRouteToRouterRoute(
   amountIn: bigint,
   chainId: number
 ): Promise<RouterRoute> {
-  // Get decimals if not provided
-  const fromDecimals = fromToken.decimals ?? await decimalsFetcher.getTokenDecimals(fromToken.address, chainId);
-  const toDecimals = toToken.decimals ?? await decimalsFetcher.getTokenDecimals(toToken.address, chainId);
+  // Get decimals in parallel if not provided
+  const [fromDecimals, toDecimals] = await Promise.all([
+    fromToken.decimals != null ? fromToken.decimals : decimalsFetcher.getTokenDecimals(fromToken.address, chainId),
+    toToken.decimals != null ? toToken.decimals : decimalsFetcher.getTokenDecimals(toToken.address, chainId),
+  ]);
 
   // Format amounts
   const fromAmount = formatAmount(amountIn, fromDecimals);
@@ -59,17 +61,24 @@ export async function convertSameChainRouteToRouterRoute(
       description: `Swap ${fromToken.symbol || 'Token'} → ${toToken.symbol || 'Token'}`,
     });
   } else {
-    // Multi-hop swap
+    // Multi-hop swap - batch fetch ALL intermediate decimals in parallel upfront
+    const intermediateAddrs = route.path.slice(1, -1); // exclude first and last (already have decimals)
+    const intermediateDecimals = await Promise.all(
+      intermediateAddrs.map(addr => decimalsFetcher.getTokenDecimals(addr, chainId))
+    );
+
+    // Build decimals map: index 0 = fromDecimals, last = toDecimals, middle = fetched
+    const pathDecimals: number[] = [fromDecimals, ...intermediateDecimals, toDecimals];
+
     for (let i = 0; i < route.path.length - 1; i++) {
       const stepFromAddr = route.path[i];
       const stepToAddr = route.path[i + 1];
-
-      const stepFromDecimals = i === 0 ? fromDecimals : await decimalsFetcher.getTokenDecimals(stepFromAddr, chainId);
-      const stepToDecimals = i === route.path.length - 2 ? toDecimals : await decimalsFetcher.getTokenDecimals(stepToAddr, chainId);
+      const stepFromDecimals = pathDecimals[i];
+      const stepToDecimals = pathDecimals[i + 1];
 
       // Estimate intermediate amounts (simplified)
-      const stepAmountIn = i === 0 ? amountIn : route.outputAmount; // Simplified
-      const stepAmountOut = i === route.path.length - 2 ? route.outputAmount : route.outputAmount; // Simplified
+      const stepAmountIn = i === 0 ? amountIn : route.outputAmount;
+      const stepAmountOut = i === route.path.length - 2 ? route.outputAmount : route.outputAmount;
 
       steps.push({
         type: 'swap',
@@ -135,9 +144,13 @@ export async function convertCrossChainRouteToRouterRoute(
   amountIn: bigint,
   recipient?: Address
 ): Promise<RouterRoute> {
-  // Get decimals
-  const fromDecimals = fromToken.decimals ?? await decimalsFetcher.getTokenDecimals(fromToken.address, route.sourceRoute.chainId);
-  const toDecimals = toToken.decimals ?? await decimalsFetcher.getTokenDecimals(toToken.address, route.chainId);
+  // Fetch ALL decimals in parallel upfront (from, to, bridge from, bridge to)
+  const [fromDecimals, toDecimals, bridgeFromDecimals, bridgeToDecimals] = await Promise.all([
+    fromToken.decimals != null ? fromToken.decimals : decimalsFetcher.getTokenDecimals(fromToken.address, route.sourceRoute.chainId),
+    toToken.decimals != null ? toToken.decimals : decimalsFetcher.getTokenDecimals(toToken.address, route.chainId),
+    decimalsFetcher.getTokenDecimals(route.bridge.fromToken as Address, route.bridge.fromChain),
+    decimalsFetcher.getTokenDecimals(route.bridge.toToken as Address, route.bridge.toChain),
+  ]);
 
   // Format amounts
   const fromAmount = formatAmount(amountIn, fromDecimals);
@@ -162,9 +175,8 @@ export async function convertCrossChainRouteToRouterRoute(
       },
       toToken: {
         address: route.sourceRoute.path[1],
-        amount: formatAmount(route.sourceRoute.outputAmount, fromDecimals), // Use same decimals as fromDecimals for simplicity or fetch
-        symbol: await getTokenSymbol(route.sourceRoute.path[1], route.sourceRoute.chainId),
-        decimals: fromDecimals, // Usually the same for source chain pairs
+        amount: formatAmount(route.sourceRoute.outputAmount, fromDecimals),
+        decimals: fromDecimals,
       },
       protocol: getProtocolName(route.sourceRoute.dexId),
       description: `Swap on ${getChainName(route.sourceRoute.chainId)}`,
@@ -190,10 +202,7 @@ export async function convertCrossChainRouteToRouterRoute(
     });
   }
 
-  // Step 2: Bridge
-  // Fetch bridge decimals for precise mapping
-  const bridgeFromDecimals = await decimalsFetcher.getTokenDecimals(route.bridge.fromToken as Address, route.bridge.fromChain);
-  const bridgeToDecimals = await decimalsFetcher.getTokenDecimals(route.bridge.toToken as Address, route.bridge.toChain);
+  // Step 2: Bridge (decimals already fetched in parallel above)
 
   steps.push({
     type: 'bridge',
