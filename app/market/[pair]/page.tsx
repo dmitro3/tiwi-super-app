@@ -14,6 +14,7 @@ import OrderbookSkeleton from "@/components/market/skeletons/orderbook-skeleton"
 import TradingFormSkeleton from "@/components/market/skeletons/trading-form-skeleton";
 import OrdersTableSkeleton from "@/components/market/skeletons/orders-table-skeleton";
 import Image from "next/image";
+import { Lock } from "lucide-react";
 
 /**
  * Trading Page - Market Spot/Perp Active Trade with Chart
@@ -107,35 +108,42 @@ export default function TradingPage() {
           setTokenData(cached);
         }
 
-        const response = await fetch(`/api/v1/market/${pairToFetch}/price`);
+        const response = await fetch(`/api/v1/market/${pairToFetch}`);
         if (response.ok) {
-          const priceData = await response.json();
-          console.log("🚀 ~ fetchMarketData ~ priceData:", priceData)
+          const json = await response.json();
+          const priceData = json.data;
 
           const newTokenData = {
-            symbol: priceData.baseToken.symbol,
+            symbol: priceData.symbol || priceData.baseToken?.symbol || baseSymbol,
             pair: priceData.pair,
-            icon: priceData.baseToken.logo || '',
-            name: priceData.baseToken.name || priceData.baseToken.symbol,
-            address: priceData.baseToken.address || '',
-            chainId: priceData.baseToken.chainId,
-            quoteSymbol: priceData.quoteToken.symbol,
-            quoteIcon: priceData.quoteToken.logo || '',
-            marketCap: priceData.baseToken.marketCap,
-            liquidity: priceData.baseToken.liquidity, // This is now enriched OB liquidity
-            circulatingSupply: priceData.baseToken.circulatingSupply,
-            currentPrice: priceData.priceUSD, // Fixed mapping
+            icon: priceData.metadata?.logo || priceData.baseToken?.logo || '',
+            name: priceData.metadata?.name || priceData.baseToken?.name || baseSymbol,
+            address: priceData.baseToken?.address || '',
+            chainId: priceData.chainId || priceData.baseToken?.chainId,
+            quoteSymbol: priceData.quoteToken?.symbol || parts[1] || 'USD',
+            quoteIcon: priceData.quoteToken?.logo || '',
+            marketCap: priceData.marketCap,
+            fdv: priceData.fdv,
+            liquidity: priceData.liquidity,
+            circulatingSupply: priceData.circulatingSupply,
+            totalSupply: priceData.totalSupply,
+            currentPrice: priceData.price || priceData.priceUSD,
             volume24h: priceData.volume24h || null,
-            description: priceData.description || null,
-            socials: priceData.baseToken.socials || [],
-            website: priceData.baseToken.website || null,
-            decimals: priceData.baseToken.decimals,
+            description: priceData.metadata?.description || priceData.description || null,
+            socials: priceData.metadata?.socials || priceData.baseToken?.socials || [],
+            website: priceData.metadata?.website || priceData.baseToken?.website || null,
+            websites: priceData.metadata?.websites || priceData.baseToken?.websites || [],
+            decimals: priceData.decimals || priceData.baseToken?.decimals,
+            baseToken: priceData.baseToken,
+            quoteToken: priceData.quoteToken,
+            marketType: priceData.marketType,
+            provider: priceData.provider,
           };
 
           setTokenData(newTokenData);
           setMarketDetail(baseSymbol, newTokenData);
 
-          const pairPrice = priceData.priceUSD || 0;
+          const pairPrice = priceData.price || priceData.priceUSD || 0;
           const priceChange = priceData.priceChange24h || 0;
           const vol24h = priceData.volume24h || 0;
           const high = priceData.high24h || 0;
@@ -287,15 +295,34 @@ export default function TradingPage() {
                   </button>
                   <button
                     onClick={() => setActiveMarketTab("Perp")}
-                    className="flex flex-col gap-4 lg:gap-3 xl:gap-3.5 2xl:gap-4 items-center cursor-pointer"
+                    className="flex flex-col gap-4 lg:gap-3 xl:gap-3.5 2xl:gap-4 items-center cursor-pointer group"
                   >
-                    <span className={`text-lg lg:text-sm xl:text-base 2xl:text-lg font-medium leading-normal text-center whitespace-nowrap ${activeMarketTab === "Perp" ? "text-[#b1f128]" : "text-[#b5b5b5]"
-                      }`}>
-                      Perp
-                    </span>
+                    <div className="flex items-center gap-1.5 px-1">
+                      <span className={`text-lg lg:text-sm xl:text-base 2xl:text-lg font-medium leading-normal text-center whitespace-nowrap ${activeMarketTab === "Perp" ? "text-[#b1f128]" : "text-[#b5b5b5]"
+                        }`}>
+                        Perp
+                      </span>
+                      <div className="flex items-center bg-[#1f261e] px-1.5 py-0.5 rounded text-[10px] text-[#7c7c7c]">
+                        <Lock size={10} className="mr-1" />
+                        <span>Soon</span>
+                      </div>
+                    </div>
                     {activeMarketTab === "Perp" && (
                       <div className="h-0 w-full border-t border-[#b1f128]"></div>
                     )}
+                  </button>
+                  <button
+                    className="flex flex-col gap-4 lg:gap-3 xl:gap-3.5 2xl:gap-4 items-center cursor-not-allowed group opacity-60"
+                  >
+                    <div className="flex items-center gap-1.5 px-1">
+                      <span className="text-lg lg:text-sm xl:text-base 2xl:text-lg font-medium leading-normal text-center whitespace-nowrap text-[#b5b5b5]">
+                        Cross
+                      </span>
+                      <div className="flex items-center bg-[#1f261e] px-1.5 py-0.5 rounded text-[10px] text-[#7c7c7c]">
+                        <Lock size={10} className="mr-1" />
+                        <span>Soon</span>
+                      </div>
+                    </div>
                   </button>
                 </div>
 

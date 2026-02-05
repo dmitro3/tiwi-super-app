@@ -26,26 +26,39 @@ type TabKey = "Favourite" | "Hot" | "New" | "Gainers" | "Losers";
 type SortKey = 'volume' | 'rank' | 'performance' | 'none';
 
 interface MarketTableProps {
-  activeTab?: TabKey;
+  tokens: Token[];
+  isLoading: boolean;
+  total: number;
+  currentPage: number;
+  onPageChange: (page: number) => void;
   searchQuery?: string;
   sortBy?: SortKey;
   onSortChange?: (sort: SortKey) => void;
+  activeTab?: TabKey;
 }
 
-export function MarketTable({ activeTab = "Hot", searchQuery = "", sortBy = 'none', onSortChange }: MarketTableProps) {
+export function MarketTable({
+  tokens: inputTokens,
+  isLoading,
+  total,
+  currentPage,
+  onPageChange,
+  searchQuery = "",
+  sortBy = 'none',
+  onSortChange,
+  activeTab
+}: MarketTableProps) {
   useLocaleStore((s) => `${s.language}|${s.currency}`); // re-render when locale changes
   const [favourites, setFavourites] = useState<string[]>([]);
   const [hoveredRowIndex, setHoveredRowIndex] = useState<number | null>(null);
   const tableRef = useRef<HTMLTableElement | null>(null);
   const scrollYContainerRef = useRef<HTMLDivElement | null>(null);
-  const [currentPage, setCurrentPage] = useState(1);
-  const rowsPerPage = 20;
   const router = useRouter();
 
   const setFromToken = useSwapStore((state) => state.setFromToken);
   const setToToken = useSwapStore((state) => state.setToToken);
 
-  // Load favourites from localStorage and add TWC as default favorite
+  // Load favourites from localStorage
   useEffect(() => {
     const TWC_ADDRESS = '0xDA1060158F7D593667cCE0a15DB346BB3FfB3596';
     const TWC_CHAIN_ID = 56; // BNB Chain
@@ -62,195 +75,48 @@ export function MarketTable({ activeTab = "Hot", searchQuery = "", sortBy = 'non
       }
     }
 
-    // Add TWC as default favorite if not already in list
     if (!favouritesList.includes(TWC_ID)) {
-      favouritesList.unshift(TWC_ID); // Add to beginning
+      favouritesList.unshift(TWC_ID);
       localStorage.setItem('favouriteTokens', JSON.stringify(favouritesList));
     }
 
     setFavourites(favouritesList);
   }, []);
 
-  // Map tabs to Binance categories
-  const categoryMap: Record<TabKey, 'top' | 'new' | 'gainers' | 'losers' | null> = {
-    Hot: 'top',
-    New: 'new',
-    Gainers: 'gainers',
-    Losers: 'losers',
-    Favourite: null,
-  };
-
-  const activeCategory = categoryMap[activeTab];
-
-  // Reset to page 1 when category changes
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [activeCategory]);
-
-  // Category-based tokens from Binance - fetched via TanStack Query
-  const {
-    data: categoryTokensData = [],
-    isLoading: isCategoryLoading,
-  } = useBinanceTickersQuery({
-    params: {
-      marketType: 'spot',
-      category: activeCategory || 'top',
-    },
-    enabled: !!activeCategory,
-  });
-
-  // Category tokens are already single tokens, no transformation needed
-  const categoryTokens: Token[] = useMemo(() => {
-    if (!activeCategory || categoryTokensData.length === 0) return [];
-    return categoryTokensData;
-  }, [categoryTokensData, activeCategory]);
-
-  // Favourite tokens fetched separately (address-based for now)
-  const [favouriteTokens, setFavouriteTokens] = useState<Token[]>([]);
-  const [isFavouriteLoading, setIsFavouriteLoading] = useState(false);
-
-  useEffect(() => {
-    if (activeTab !== "Favourite") return;
-
-    const loadFavouriteTokens = async () => {
-      setIsFavouriteLoading(true);
-      try {
-        const stored = localStorage.getItem("favouriteTokens");
-        const favouriteIds: string[] = stored ? JSON.parse(stored) : [];
-
-        if (favouriteIds.length === 0) {
-          setFavouriteTokens([]);
-          return;
-        }
-
-        // Fetch all Binance tickers to match favourites against
-        const allTickers = await fetchBinanceTickers({ marketType: 'spot', category: 'top', limit: 500 });
-
-        // Match favourites by ID format "chainId-address"
-        const matched = favouriteIds
-          .map((id) => {
-            const token = allTickers.find(t => t.id === id);
-            return token || null;
-          })
-          .filter(Boolean) as Token[];
-
-        setFavouriteTokens(matched);
-      } catch (error) {
-        console.error("[MarketTable] Error fetching favourite tokens:", error);
-        setFavouriteTokens([]);
-      } finally {
-        setIsFavouriteLoading(false);
-      }
-    };
-
-    loadFavouriteTokens();
-  }, [activeTab]);
-
-  // Derive base token list for the active tab
-  const rawTokens: Token[] = useMemo(() => {
-    if (activeTab === "Favourite") {
-      return favouriteTokens;
-    }
-    return categoryTokens as Token[];
-  }, [activeTab, categoryTokens, favouriteTokens]);
-
-  // Compute loading state
-  const isLoading = activeTab === "Favourite" ? isFavouriteLoading : isCategoryLoading;
-
-  // Transform, filter, and sort tokens for homepage display (unpaginated)
+  // Transform input tokens to homepage format
   const homepageTokens: HomepageToken[] = useMemo(() => {
-    let working: Token[] = [...rawTokens];
+    return inputTokens.map(token => formatTokenForHomepage(token));
+  }, [inputTokens]);
 
-    // Client-side search
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase();
-      working = working.filter((token) => {
-        const symbol = token.symbol?.toLowerCase() || "";
-        const name = token.name?.toLowerCase() || "";
-        const address = token.address?.toLowerCase() || "";
-        return (
-          symbol.includes(query) ||
-          name.includes(query) ||
-          address.includes(query)
-        );
-      });
-    }
-
-    // Map to homepage tokens
-    let formatted = working.map((token) => formatTokenForHomepage(token));
-
-    // Sorting (volume, rank, performance)
-    if (sortBy !== "none") {
-      formatted = [...formatted].sort((a, b) => {
-        switch (sortBy) {
-          case "volume":
-            return (b.token.volume24h || 0) - (a.token.volume24h || 0);
-          case "rank":
-            // Lower rank = better (e.g., #1 is better than #100)
-            const rankA = (a.token as any).marketCapRank ?? 999999;
-            const rankB = (b.token as any).marketCapRank ?? 999999;
-            return rankA - rankB;
-          case "performance":
-            return (
-              (b.token.priceChange24h || 0) - (a.token.priceChange24h || 0)
-            );
-          default:
-            return 0;
-        }
-      });
-    }
-
-    // Return full list; pagination handled separately
-    return formatted;
-  }, [rawTokens, searchQuery, sortBy]);
+  const rowsPerPage = 20;
+  const totalPages = Math.ceil(total / rowsPerPage);
 
   // Pagination logic - calculate which pages to show
   const getVisiblePages = (): number[] => {
     const pages: number[] = [];
-    const totalPages = Math.ceil(homepageTokens.length / rowsPerPage);
-
     if (totalPages <= 5) {
-      // Show all pages if 5 or fewer
-      for (let i = 1; i <= totalPages; i++) {
-        pages.push(i);
-      }
+      for (let i = 1; i <= totalPages; i++) pages.push(i);
     } else {
-      // Always show page 1
       pages.push(1);
-
       if (currentPage <= 3) {
-        // Show 1, 2, 3, 4, ... if on early pages
         pages.push(2, 3, 4);
       } else if (currentPage >= totalPages - 2) {
-        // Show ..., n-3, n-2, n-1, n if on late pages
         pages.push(totalPages - 3, totalPages - 2, totalPages - 1, totalPages);
       } else {
-        // Show ..., current-1, current, current+1, ... if in middle
         pages.push(currentPage - 1, currentPage, currentPage + 1);
       }
-
-      // Always show last page if not already included
-      if (!pages.includes(totalPages)) {
-        pages.push(totalPages);
-      }
+      if (!pages.includes(totalPages)) pages.push(totalPages);
     }
-
-    // Remove duplicates and sort
     return [...new Set(pages)].sort((a, b) => a - b);
   };
 
   const visiblePages = getVisiblePages();
-  const totalPages = Math.ceil(homepageTokens.length / rowsPerPage);
-  const paginatedTokens = homepageTokens.slice(
-    (currentPage - 1) * rowsPerPage,
-    currentPage * rowsPerPage
-  );
-  const hasAnyTokens = homepageTokens.length > 0;
 
-  // Reset to page 1 when tokens change (e.g., switching tabs or search)
   useEffect(() => {
-    setCurrentPage(1);
-  }, [activeTab, searchQuery]);
+    if (onPageChange && total > 0 && currentPage > totalPages) {
+      onPageChange(1);
+    }
+  }, [total, activeTab, searchQuery]);
 
   const handleTradeClick = (rowToken: HomepageToken, event: MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
@@ -274,7 +140,7 @@ export function MarketTable({ activeTab = "Hot", searchQuery = "", sortBy = 'non
   const changePage = (page: number) => {
     const clamped = Math.max(page, 1);
     if (clamped === currentPage) return;
-    setCurrentPage(clamped);
+    onPageChange(clamped);
     if (scrollYContainerRef.current) {
       scrollYContainerRef.current.scrollTo({ top: 0, behavior: "smooth" });
     }
@@ -283,14 +149,14 @@ export function MarketTable({ activeTab = "Hot", searchQuery = "", sortBy = 'non
 
   return (
     <div className="w-full h-full flex flex-col overflow-hidden relative">
-      {/* Vertical scroll container - both tables scroll together */}
+      {/* Scroll container for both vertical and horizontal overflow */}
       <div
         ref={scrollYContainerRef}
-        className="flex-1 overflow-y-auto overflow-x-hidden market-table-scrollbar min-h-0"
+        className="flex-1 overflow-y-auto overflow-x-auto market-table-scrollbar min-h-0"
       >
-        {/* Single table container - no horizontal scroll */}
-        <div className="w-full">
-          <Table ref={tableRef} className="w-full table-auto">
+        {/* Table container with min-width to ensure horizontal scroll when needed */}
+        <div className="w-full min-w-max">
+          <Table ref={tableRef} className="w-full table-auto min-w-[800px]">
             <TableHeader className="sticky top-0 z-20 bg-[#010501]">
               <TableRow className="border-b border-[#1f261e]/80 hover:bg-transparent">
                 <TableHead className="z-20 px-3 lg:px-4 xl:px-5 2xl:px-6 py-1.5 lg:py-2 text-left text-[10px] lg:text-xs xl:text-sm text-[#7c7c7c] font-semibold bg-[#010501]">
@@ -331,16 +197,16 @@ export function MarketTable({ activeTab = "Hot", searchQuery = "", sortBy = 'non
                     No tokens found
                   </TableCell>
                 </TableRow>
-              ) : !isCategoryLoading && !hasAnyTokens ? (
+              ) : homepageTokens.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={8} className="text-center py-8 text-[#b5b5b5]">
                     No tokens available
                   </TableCell>
                 </TableRow>
               ) : (
-                paginatedTokens.map((token: HomepageToken, idx: number) => (
+                homepageTokens.map((token: HomepageToken, idx: number) => (
                   <TableRow
-                    key={token.token.id}
+                    key={`${token.token.id}-${idx}`}
                     onClick={() => router.push(`/market/${token.token.symbol}-USDT`)}
                     className="group border-b border-[#1f261e]/60 hover:bg-[#0b0f0a] transition-colors cursor-pointer"
                   >
@@ -349,7 +215,6 @@ export function MarketTable({ activeTab = "Hot", searchQuery = "", sortBy = 'non
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            // Toggle favourite
                             const tokenId = `${token.token.chainId}-${token.token.address.toLowerCase()}`;
                             const newFavourites = [...favourites];
                             const index = newFavourites.indexOf(tokenId);
@@ -375,7 +240,6 @@ export function MarketTable({ activeTab = "Hot", searchQuery = "", sortBy = 'non
                             className="w-4 h-4 lg:w-4 lg:h-4 xl:w-4.5 xl:h-4.5 shrink-0"
                           />
                         </button>
-                        {/* Display single token */}
                         <TokenImage
                           src={token.icon}
                           alt={token.symbol}
@@ -400,10 +264,10 @@ export function MarketTable({ activeTab = "Hot", searchQuery = "", sortBy = 'non
                       {token.vol}
                     </TableCell>
                     <TableCell className="px-3 lg:px-4 xl:px-5 2xl:px-6 py-2.5 lg:py-3 xl:py-4 text-right text-white text-[10px] lg:text-xs xl:text-base font-medium">
-                      {formatPrice((token.token as any).high24h?.toString())}
+                      {formatPrice((token.token as any).high24h?.toString() || (token.token as any).highPrice?.toString())}
                     </TableCell>
                     <TableCell className="px-3 lg:px-4 xl:px-5 2xl:px-6 py-2.5 lg:py-3 xl:py-4 text-right text-white text-[10px] lg:text-xs xl:text-base font-medium">
-                      {formatPrice((token.token as any).low24h?.toString())}
+                      {formatPrice((token.token as any).low24h?.toString() || (token.token as any).lowPrice?.toString())}
                     </TableCell>
                     <TableCell className="px-3 lg:px-4 xl:px-5 2xl:px-6 py-2.5 lg:py-3 xl:py-4 text-center">
                       <div className="flex justify-center items-center">
@@ -433,7 +297,7 @@ export function MarketTable({ activeTab = "Hot", searchQuery = "", sortBy = 'non
       </div>
 
       {/* Pagination Controls */}
-      {!isLoading && hasAnyTokens && (
+      {!isLoading && total > 0 && (
         <div className="flex items-center justify-center gap-2 lg:gap-2 xl:gap-2.5 2xl:gap-2.5 px-3 lg:px-4 xl:px-5 2xl:px-6 py-2 lg:py-2.5 xl:py-2.5 2xl:py-3 bg-[#010501]">
           <button
             onClick={() => changePage(currentPage - 1)}
@@ -449,7 +313,6 @@ export function MarketTable({ activeTab = "Hot", searchQuery = "", sortBy = 'non
           {/* Page Numbers */}
           <div className="flex items-center gap-1.5 lg:gap-2 xl:gap-2.5 2xl:gap-2.5">
             {visiblePages.map((page, index) => {
-              // Show ellipsis before this page if there's a gap
               const showEllipsisBefore = index > 0 && page - visiblePages[index - 1] > 1;
 
               return (
@@ -462,8 +325,8 @@ export function MarketTable({ activeTab = "Hot", searchQuery = "", sortBy = 'non
                   <button
                     onClick={() => changePage(page)}
                     className={`flex items-center justify-center p-1.5 lg:p-1.5 xl:p-2 2xl:p-2 rounded-lg text-xs lg:text-sm xl:text-base 2xl:text-base transition-colors min-w-[20px] lg:min-w-[22px] xl:min-w-[24px] 2xl:min-w-[24px] h-[20px] lg:h-[22px] xl:h-[24px] 2xl:h-[24px] ${currentPage === page
-                        ? "bg-[#b1f128] text-[#010501] font-semibold"
-                        : "bg-[#0b0f0a] border border-[#1f261e] text-[#b5b5b5] font-medium hover:bg-[#081f02]"
+                      ? "bg-[#b1f128] text-[#010501] font-semibold"
+                      : "bg-[#0b0f0a] border border-[#1f261e] text-[#b5b5b5] font-medium hover:bg-[#081f02]"
                       }`}
                   >
                     {page}

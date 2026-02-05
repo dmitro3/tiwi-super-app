@@ -24,11 +24,13 @@ export interface Token {
   low24h?: number;           // 24h low price
   liquidity?: number;        // Liquidity in USD
   marketCap?: number;        // Market capitalization
+  fdv?: number;              // Fully diluted valuation
   holders?: number;          // Number of token holders (from Chainbase or fallback)
   transactionCount?: number; // 24h transaction count
   // Accessible metrics from CoinGecko
   marketCapRank?: number;   // Market cap rank (lower = better, e.g., #1 Bitcoin)
   circulatingSupply?: number; // Circulating supply (number of tokens in circulation)
+  totalSupply?: number;       // Total supply (fully diluted)
   socials?: any[];          // Social links (Twitter, etc)
   website?: string;         // Official website URL
   description?: string;     // Token description

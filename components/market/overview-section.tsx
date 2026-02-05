@@ -1,5 +1,5 @@
 "use client";
-
+import { Globe } from 'lucide-react';
 import { useState } from "react";
 import Image from "next/image";
 
@@ -66,6 +66,8 @@ export default function OverviewSection({ pair, tokenData: tokenInfo }: Overview
     website: tokenInfo?.website || null,
   };
 
+  console.log("tokenData", tokenData)
+
   return (
     <div className="flex h-[550px] lg:h-[400px] xl:h-[450px] 2xl:h-[550px] items-start overflow-y-auto px-0 py-6 lg:py-4 xl:py-5 2xl:py-6 w-[924px] lg:w-[671px] xl:w-[755px] 2xl:w-[924px]">
       {/* About Section - Left Side */}
@@ -74,10 +76,10 @@ export default function OverviewSection({ pair, tokenData: tokenInfo }: Overview
           <p className="font-semibold leading-normal relative shrink-0 text-xl lg:text-base xl:text-lg 2xl:text-xl text-center text-white">
             About
           </p>
-          <div className="flex gap-3 items-center">
+          {/* <div className="flex gap-3 items-center">
             {tokenData.website && (
               <a href={tokenData.website} target="_blank" rel="noopener noreferrer" className="hover:opacity-80 transition-opacity">
-                <Image src="/assets/icons/home/globe.svg" alt="Website" width={20} height={20} className="opacity-60 hover:opacity-100" />
+                <Globe className="opacity-60 hover:opacity-100" />
               </a>
             )}
             {tokenData.socials.map((social: any, i: number) => (
@@ -91,7 +93,7 @@ export default function OverviewSection({ pair, tokenData: tokenInfo }: Overview
                 />
               </a>
             ))}
-          </div>
+          </div> */}
         </div>
         <p className="font-medium leading-[1.478] min-w-full relative shrink-0 text-sm lg:text-xs xl:text-xs 2xl:text-sm tracking-[0.56px] whitespace-pre-wrap">
           {tokenData.about}
@@ -127,7 +129,7 @@ export default function OverviewSection({ pair, tokenData: tokenInfo }: Overview
           </div>
 
           {/* Network */}
-          <div className="flex items-start justify-between w-full">
+          {/* <div className="flex items-start justify-between w-full">
             <div className="flex gap-2 lg:gap-1.5 xl:gap-1.5 2xl:gap-2 items-center">
               <div className="relative shrink-0 size-6 lg:size-4 xl:size-5 2xl:size-6">
                 <Image
@@ -145,7 +147,7 @@ export default function OverviewSection({ pair, tokenData: tokenInfo }: Overview
             <p className="font-medium leading-normal relative shrink-0 text-base lg:text-sm xl:text-sm 2xl:text-base text-center text-white">
               {tokenData.network}
             </p>
-          </div>
+          </div> */}
 
           {/* Contract */}
           <div className="flex items-start justify-between w-full">
@@ -160,7 +162,7 @@ export default function OverviewSection({ pair, tokenData: tokenInfo }: Overview
                 />
               </div>
               <p className="font-medium leading-normal relative shrink-0 text-base lg:text-sm xl:text-sm 2xl:text-base text-center text-[#b5b5b5]">
-                Contract
+                Symbol
               </p>
             </div>
             <div className="flex gap-2 lg:gap-1.5 xl:gap-1.5 2xl:gap-2 items-center">
@@ -189,15 +191,6 @@ export default function OverviewSection({ pair, tokenData: tokenInfo }: Overview
                   </div>
                 </div>
               </div>
-              <button className="relative shrink-0 size-4 lg:size-3 xl:size-3.5 2xl:size-4 cursor-pointer hover:opacity-80 transition-opacity">
-                <Image
-                  src="/assets/icons/market/share-04.svg"
-                  alt="Share"
-                  width={16}
-                  height={16}
-                  className="w-full h-full object-contain"
-                />
-              </button>
             </div>
           </div>
 
@@ -214,13 +207,73 @@ export default function OverviewSection({ pair, tokenData: tokenInfo }: Overview
                 />
               </div>
               <p className="font-medium leading-normal relative shrink-0 text-base lg:text-sm xl:text-sm 2xl:text-base text-center text-[#b5b5b5]">
-                Symbol
+                Official X
               </p>
             </div>
-            <p className="font-medium leading-normal relative shrink-0 text-base lg:text-sm xl:text-sm 2xl:text-base text-center text-white">
-              {tokenSymbol}
-            </p>
+            <div className="flex flex-end items-center gap-2">
+              <p className="font-medium leading-normal relative shrink-0 text-base lg:text-sm xl:text-sm 2xl:text-base text-center text-white">
+                {tokenName}
+              </p>
+              <a
+                href={
+                  tokenData.socials?.filter((s) => s.type === "twitter").length === 1
+                    ? tokenData.socials.find((s) => s.type === "twitter")?.url
+                    : `https://x.com/search?q=${encodeURIComponent(tokenData.tokenName)}`
+                }
+                target="_blank"
+                rel="noopener noreferrer"
+                className="relative shrink-0 size-4 lg:size-3 xl:size-3.5 2xl:size-4 cursor-pointer hover:opacity-80 transition-opacity"
+              >
+                <Image
+                  src="/assets/icons/market/share-04.svg"
+                  alt="Share"
+                  width={16}
+                  height={16}
+                  className="w-full h-full object-contain"
+                />
+              </a>
+            </div>
           </div>
+          {/* Website */}
+          {/* <div className="flex items-start justify-between w-full">
+            <div className="flex gap-2 lg:gap-1.5 xl:gap-1.5 2xl:gap-2 items-center">
+              <div className="relative shrink-0 size-6 lg:size-4 xl:size-5 2xl:size-6">
+                <Image
+                  src="/assets/icons/market/new-twitter.svg"
+                  alt="Symbol"
+                  width={24}
+                  height={24}
+                  className="w-full h-full object-contain"
+                />
+              </div>
+              <p className="font-medium leading-normal relative shrink-0 text-base lg:text-sm xl:text-sm 2xl:text-base text-center text-[#b5b5b5]">
+                Website
+              </p>
+            </div>
+            <div className="flex flex-end items-center gap-2">
+              <p className="font-medium leading-normal relative shrink-0 text-base lg:text-sm xl:text-sm 2xl:text-base text-center text-white">
+                {tokenSymbol}
+              </p>
+              <a
+                href={
+                  tokenData.socials?.filter((s) => s.type === "website").length === 1
+                    ? tokenData.socials.find((s) => s.type === "website")?.url
+                    : `https://x.com/search?q=${encodeURIComponent(tokenData.tokenName)}`
+                }
+                target="_blank"
+                rel="noopener noreferrer"
+                className="relative shrink-0 size-4 lg:size-3 xl:size-3.5 2xl:size-4 cursor-pointer hover:opacity-80 transition-opacity"
+              >
+                <Image
+                  src="/assets/icons/market/share-04.svg"
+                  alt="Share"
+                  width={16}
+                  height={16}
+                  className="w-full h-full object-contain"
+                />
+              </a>
+            </div>
+          </div> */}
         </div>
 
         {/* Divider */}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Sidebar } from "@/components/home/sidebar";
 import { MetricStrip } from "@/components/home/metric-strip";
 import { HeroBanner } from "@/components/home/hero-banner";
@@ -17,19 +17,128 @@ import { NetworkSelector } from "@/components/home/network-selector";
 import Image from "next/image";
 
 import { usePrefetchMarkets } from "@/hooks/usePrefetchMarkets";
+import { useEnrichedMarkets } from "@/hooks/useEnrichedMarkets";
+import type { Token } from "@/lib/frontend/types/tokens";
+import { formatTokenForHomepage } from "@/lib/home/token-formatter";
 
 type TabKey = "Favourite" | "Hot" | "New" | "Gainers" | "Losers";
 type MobileTabKey = "Favourite" | "Top" | "Spotlight" | "New" | "Gainers" | "Losers";
 
 export default function HomePage() {
-
   usePrefetchMarkets();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   const [activeTab, setActiveTab] = useState<TabKey>("Hot");
   const [activeMobileTab, setActiveMobileTab] = useState<MobileTabKey>("Top");
   const [searchQuery, setSearchQuery] = useState("");
-  const [sortBy, setSortBy] = useState<'volume' | 'liquidity' | 'performance' | 'none'>('none');
+  const [sortBy, setSortBy] = useState<'volume' | 'rank' | 'performance' | 'none'>('none');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [favourites, setFavourites] = useState<string[]>([]);
+  const rowsPerPage = 20;
+
+  // Load favourites from localStorage
+  useEffect(() => {
+    const TWC_ADDRESS = '0xDA1060158F7D593667cCE0a15DB346BB3FfB3596';
+    const TWC_CHAIN_ID = 56; // BNB Chain
+    const TWC_ID = `${TWC_CHAIN_ID}-${TWC_ADDRESS.toLowerCase()}`;
+
+    const stored = localStorage.getItem('favouriteTokens');
+    let favouritesList: string[] = [];
+
+    if (stored) {
+      try {
+        favouritesList = JSON.parse(stored);
+      } catch (e) {
+        console.error('[HomePage] Error parsing favourites:', e);
+      }
+    }
+
+    if (!favouritesList.includes(TWC_ID)) {
+      favouritesList.unshift(TWC_ID);
+      localStorage.setItem('favouriteTokens', JSON.stringify(favouritesList));
+    }
+
+    setFavourites(favouritesList);
+  }, []);
+
+  // Fetch unified enriched markets (Spot only for Home)
+  const {
+    data: allEnrichedTokens = [],
+    isLoading,
+  } = useEnrichedMarkets({
+    marketType: 'spot',
+  });
+
+  // Determine filtering based on activeTab or activeMobileTab
+  const getFilteredTokens = (tab: string) => {
+    let list = Array.isArray(allEnrichedTokens) ? [...allEnrichedTokens] : [];
+
+    if (tab === "Gainers") {
+      return list.filter(t => t.priceChange24h > 0).sort((a, b) => b.priceChange24h - a.priceChange24h);
+    }
+    if (tab === "Losers") {
+      return list.filter(t => t.priceChange24h < 0).sort((a, b) => a.priceChange24h - b.priceChange24h);
+    }
+    if (tab === "New") {
+      // Sort by something that represents 'newness' or just return list
+      return list;
+    }
+    if (tab === "Favourite") {
+      return list.filter(t => favourites.includes(t.id));
+    }
+    if (tab === "Spotlight") {
+      return list;
+    }
+
+    return list; // Default to Hot/Top
+  };
+
+  const desktopFiltered = useMemo(() => getFilteredTokens(activeTab), [allEnrichedTokens, activeTab, favourites]);
+  const mobileFiltered = useMemo(() => getFilteredTokens(activeMobileTab), [allEnrichedTokens, activeMobileTab, favourites]);
+
+  // Transform, filter, sort for Desktop
+  const tokens = useMemo(() => {
+    let result: Token[] = [...desktopFiltered];
+
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      result = result.filter(
+        t => t.symbol?.toLowerCase().includes(query) || t.name?.toLowerCase().includes(query)
+      );
+    }
+
+    if (sortBy !== 'none') {
+      result.sort((a, b) => {
+        if (sortBy === 'volume') return (b.volume24h || 0) - (a.volume24h || 0);
+        if (sortBy === 'rank') {
+          const rankA = a.marketCapRank ?? 999999;
+          const rankB = b.marketCapRank ?? 999999;
+          return rankA - rankB;
+        }
+        if (sortBy === 'performance') return (b.priceChange24h || 0) - (a.priceChange24h || 0);
+        return 0;
+      });
+    }
+
+    return result;
+  }, [desktopFiltered, searchQuery, sortBy]);
+
+  // Transform for Mobile
+  const mobileTokens = useMemo(() => {
+    const list = mobileFiltered.slice(0, 5).map(t => formatTokenForHomepage(t));
+    return list;
+  }, [mobileFiltered]);
+
+  const total = tokens.length;
+  const paginatedTokens = tokens.slice(
+    (currentPage - 1) * rowsPerPage,
+    currentPage * rowsPerPage
+  );
+
+  // Reset page when tab changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [activeTab]);
 
   return (
     <div className="bg-[#010501] text-white flex flex-col" style={{ height: '110vh', overflow: 'hidden' }}>
@@ -49,7 +158,17 @@ export default function HomePage() {
           </div>
 
           <div className="flex-1 border border-[#1f261e] rounded-xl overflow-hidden flex flex-col min-h-0">
-            <MarketTable activeTab={activeTab} searchQuery={searchQuery} sortBy={sortBy} onSortChange={setSortBy} />
+            <MarketTable
+              tokens={paginatedTokens}
+              isLoading={isLoading}
+              total={total}
+              currentPage={currentPage}
+              onPageChange={setCurrentPage}
+              activeTab={activeTab}
+              searchQuery={searchQuery}
+              sortBy={sortBy}
+              onSortChange={setSortBy}
+            />
           </div>
         </main>
 
@@ -127,7 +246,12 @@ export default function HomePage() {
 
         {/* Market List */}
         <div className="px-[18px] py-2">
-          <MobileMarketList activeTab={activeMobileTab} onTabChange={setActiveMobileTab} />
+          <MobileMarketList
+            tokens={mobileTokens}
+            isLoading={isLoading}
+            activeTab={activeMobileTab}
+            onTabChange={setActiveMobileTab}
+          />
         </div>
 
         {/* Stats Grid */}

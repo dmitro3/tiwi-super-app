@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Lock } from "lucide-react";
 
 interface TradingFormProps {
   marketType?: "spot" | "perp";
@@ -40,7 +41,7 @@ export default function TradingForm({ marketType = "spot", baseSymbol = '', quot
   const calculateOrderDetails = () => {
     const value = parseFloat(orderValue) || 0;
     const price = parseFloat(limitPrice) || 0;
-    
+
     // For Limit orders: Quantity = Amount / Limit Price
     // For Market orders: Quantity would be calculated from current market price
     let quantity = "-";
@@ -49,7 +50,7 @@ export default function TradingForm({ marketType = "spot", baseSymbol = '', quot
     } else if (orderType === "Market" && value > 0 && currentPrice > 0) {
       quantity = (value / currentPrice).toFixed(8);
     }
-    
+
     return {
       value: value > 0 ? `$${value.toFixed(2)}` : "-",
       quantity: quantity,
@@ -75,14 +76,14 @@ export default function TradingForm({ marketType = "spot", baseSymbol = '', quot
     // 2. Show wallet confirmation modal
     // 3. Execute trade
     // 4. Track for analytics
-    console.log("Execute trade:", { 
-      side, 
-      orderType, 
-      orderValue, 
+    console.log("Execute trade:", {
+      side,
+      orderType,
+      orderValue,
       limitPrice: orderType === "Limit" ? limitPrice : undefined,
-      marketType 
+      marketType
     });
-    
+
     // Placeholder for wallet confirmation
     // In real implementation:
     // - Check wallet connection
@@ -108,35 +109,32 @@ export default function TradingForm({ marketType = "spot", baseSymbol = '', quot
       <div className="bg-[#0b0f0a] flex items-center p-1 lg:p-0.5 xl:p-0.5 2xl:p-1 rounded-lg lg:rounded-md xl:rounded-md 2xl:rounded-lg w-full">
         <button
           onClick={() => setSide("Buy")}
-          className={`flex-1 flex items-end justify-center px-4 lg:px-3 xl:px-3.5 2xl:px-4 py-2.25 lg:py-1.75 xl:py-2 2xl:py-2.25 rounded-md lg:rounded-sm xl:rounded-sm 2xl:rounded-md transition-colors cursor-pointer ${
-            side === "Buy"
-              ? "bg-[#b1f128] text-[#010501] font-semibold"
-              : "text-[#b5b5b5] font-semibold hover:text-white"
-          }`}
+          className={`flex-1 flex items-end justify-center px-4 lg:px-3 xl:px-3.5 2xl:px-4 py-2.25 lg:py-1.75 xl:py-2 2xl:py-2.25 rounded-md lg:rounded-sm xl:rounded-sm 2xl:rounded-md transition-colors cursor-pointer ${side === "Buy"
+            ? "bg-[#b1f128] text-[#010501] font-semibold"
+            : "text-[#b5b5b5] font-semibold hover:text-white"
+            }`}
         >
           <span className="text-base lg:text-sm xl:text-sm 2xl:text-base leading-normal">Buy</span>
         </button>
         <button
           onClick={() => setSide("Sell")}
-          className={`flex-1 flex items-end justify-center px-4 lg:px-3 xl:px-3.5 2xl:px-4 py-2.25 lg:py-1.75 xl:py-2 2xl:py-2.25 rounded-md lg:rounded-sm xl:rounded-sm 2xl:rounded-md transition-colors cursor-pointer ${
-            side === "Sell"
-              ? "bg-[#ff5c5c] text-white font-semibold"
-              : "text-[#b5b5b5] font-semibold hover:text-white"
-          }`}
+          className={`flex-1 flex items-end justify-center px-4 lg:px-3 xl:px-3.5 2xl:px-4 py-2.25 lg:py-1.75 xl:py-2 2xl:py-2.25 rounded-md lg:rounded-sm xl:rounded-sm 2xl:rounded-md transition-colors cursor-pointer ${side === "Sell"
+            ? "bg-[#ff5c5c] text-white font-semibold"
+            : "text-[#b5b5b5] font-semibold hover:text-white"
+            }`}
         >
           <span className="text-base lg:text-sm xl:text-sm 2xl:text-base leading-normal">Sell</span>
         </button>
       </div>
 
       {/* Market/Limit Tabs */}
-      <div className="flex gap-4 lg:gap-3 xl:gap-3.5 2xl:gap-4 items-center w-full">
+      <div className="flex gap-4 lg:gap-3 xl:gap-3.5 2xl:gap-4 items-center w-full px-1">
         <button
           onClick={() => setOrderType("Market")}
-          className={`flex items-end justify-center py-1.25 lg:py-1 xl:py-1 2xl:py-1.25 transition-colors cursor-pointer ${
-            orderType === "Market"
-              ? `text-[${currentColors.active}] font-semibold`
+          className={`flex items-end justify-center py-1.25 lg:py-1 xl:py-1 2xl:py-1.25 transition-colors cursor-pointer ${orderType === "Market"
+              ? `text-[${currentColors.active}] font-semibold underline decoration-2 underline-offset-8`
               : "text-[#8f8f8f] font-semibold hover:text-[#b5b5b5]"
-          }`}
+            }`}
           style={{
             color: orderType === "Market" ? currentColors.active : undefined
           }}
@@ -145,16 +143,37 @@ export default function TradingForm({ marketType = "spot", baseSymbol = '', quot
         </button>
         <button
           onClick={() => setOrderType("Limit")}
-          className={`flex items-end justify-center py-1.25 lg:py-1 xl:py-1 2xl:py-1.25 transition-colors cursor-pointer ${
-            orderType === "Limit"
-              ? `text-[${currentColors.active}] font-semibold`
+          className={`flex items-center gap-1.5 justify-center py-1.25 lg:py-1 xl:py-1 2xl:py-1.25 transition-colors cursor-pointer group ${orderType === "Limit"
+              ? `text-[${currentColors.active}] font-semibold underline decoration-2 underline-offset-8`
               : "text-[#8f8f8f] font-semibold hover:text-[#b5b5b5]"
-          }`}
+            }`}
           style={{
             color: orderType === "Limit" ? currentColors.active : undefined
           }}
         >
           <span className="text-base lg:text-sm xl:text-sm 2xl:text-base leading-normal">Limit</span>
+          <div className="flex items-center bg-[#0b0f0a] px-1 py-0.5 rounded text-[10px] text-[#7c7c7c]">
+            <Lock size={10} className="mr-1" />
+            <span>Soon</span>
+          </div>
+        </button>
+        <button
+          className="flex items-center gap-1.5 justify-center py-1.25 lg:py-1 xl:py-1 2xl:py-1.25 transition-colors cursor-not-allowed group opacity-60"
+        >
+          <span className="text-base lg:text-sm xl:text-sm 2xl:text-base leading-normal text-[#555555]">Stop</span>
+          <div className="flex items-center bg-[#0b0f0a] px-1 py-0.5 rounded text-[10px] text-[#555555]">
+            <Lock size={10} className="mr-1" />
+            <span>Soon</span>
+          </div>
+        </button>
+        <button
+          className="flex items-center gap-1.5 justify-center py-1.25 lg:py-1 xl:py-1 2xl:py-1.25 transition-colors cursor-not-allowed group opacity-40"
+        >
+          <span className="text-base lg:text-sm xl:text-sm 2xl:text-base leading-normal text-[#555555]">Trail</span>
+          <div className="flex items-center bg-[#0b0f0a] px-1 py-0.5 rounded text-[10px] text-[#555555]">
+            <Lock size={10} className="mr-1" />
+            <span>Soon</span>
+          </div>
         </button>
       </div>
 
@@ -192,7 +211,7 @@ export default function TradingForm({ marketType = "spot", baseSymbol = '', quot
           />
           <span className="text-[#b5b5b5] text-base lg:text-sm xl:text-sm 2xl:text-base font-medium">{quoteSymbol}</span>
         </div>
-        
+
         {/* Available Balance */}
         <div className="flex items-center justify-between w-full">
           <span className="text-[#8f8f8f] text-sm lg:text-xs xl:text-xs 2xl:text-sm font-medium">Available</span>
@@ -220,16 +239,16 @@ export default function TradingForm({ marketType = "spot", baseSymbol = '', quot
             className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20"
             style={{ WebkitAppearance: 'none', appearance: 'none' }}
           />
-          
+
           {/* Visual track fill */}
           <div
             className="absolute left-0 top-0 h-full rounded-2xl xl:rounded-xl 2xl:rounded-2xl transition-all duration-150"
-            style={{ 
+            style={{
               width: `${percentage}%`,
               backgroundColor: currentColors.active
             }}
           />
-          
+
           {/* Slider markers - positioned at exact percentages */}
           <div className="absolute left-0 top-1/2 -translate-y-1/2 w-full pointer-events-none">
             {[0, 25, 50, 75, 100].map((percent) => {
@@ -237,22 +256,21 @@ export default function TradingForm({ marketType = "spot", baseSymbol = '', quot
               const isAtPosition = Math.abs(percentage - percent) < 2; // Within 2% of marker position
               // Hide marker if thumb is exactly at this position to avoid overlap
               const shouldShowMarker = !isAtPosition;
-              
+
               return (
                 <div
                   key={percent}
                   className="absolute flex items-center justify-center"
-                  style={{ 
+                  style={{
                     left: `${percent}%`,
                     transform: 'translateX(-50%) translateY(-50%)'
                   }}
                 >
                   <div
-                    className={`rounded-full shrink-0 transition-all ${
-                      isActive
-                        ? `border-2 lg:border-[1.5px] xl:border-[1.5px] 2xl:border-2 size-[18px] lg:size-[13px] xl:size-[14px] 2xl:size-[18px]`
-                        : "bg-[#1f261e] border-2 lg:border-[1.5px] xl:border-[1.5px] 2xl:border-2 border-[#010501] size-[14px] lg:size-[10px] xl:size-[11px] 2xl:size-[14px]"
-                    } ${shouldShowMarker ? 'opacity-100' : 'opacity-0'}`}
+                    className={`rounded-full shrink-0 transition-all ${isActive
+                      ? `border-2 lg:border-[1.5px] xl:border-[1.5px] 2xl:border-2 size-[18px] lg:size-[13px] xl:size-[14px] 2xl:size-[18px]`
+                      : "bg-[#1f261e] border-2 lg:border-[1.5px] xl:border-[1.5px] 2xl:border-2 border-[#010501] size-[14px] lg:size-[10px] xl:size-[11px] 2xl:size-[14px]"
+                      } ${shouldShowMarker ? 'opacity-100' : 'opacity-0'}`}
                     style={isActive ? {
                       backgroundColor: currentColors.active,
                       borderColor: currentColors.border
@@ -262,11 +280,11 @@ export default function TradingForm({ marketType = "spot", baseSymbol = '', quot
               );
             })}
           </div>
-          
+
           {/* Active percentage indicator (thumb) - Same size as active markers, positioned at percentage */}
           <div
             className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 border-2 lg:border-[1.5px] xl:border-[1.5px] 2xl:border-2 rounded-full pointer-events-none z-10 transition-all duration-150 size-[18px] lg:size-[13px] xl:size-[14px] 2xl:size-[18px]"
-            style={{ 
+            style={{
               left: `${percentage}%`,
               backgroundColor: currentColors.active,
               borderColor: currentColors.border
@@ -294,9 +312,8 @@ export default function TradingForm({ marketType = "spot", baseSymbol = '', quot
       {/* Buy/Sell Button */}
       <button
         onClick={handleTrade}
-        className={`flex h-12 lg:h-10 xl:h-11 2xl:h-12 items-center justify-center px-6 lg:px-5 xl:px-5 2xl:px-6 py-2.875 lg:py-2.5 xl:py-2.75 2xl:py-2.875 rounded-full w-full cursor-pointer hover:opacity-90 transition-opacity ${
-          isOrderValid() ? "" : "opacity-50 cursor-not-allowed"
-        }`}
+        className={`flex h-12 lg:h-10 xl:h-11 2xl:h-12 items-center justify-center px-6 lg:px-5 xl:px-5 2xl:px-6 py-2.875 lg:py-2.5 xl:py-2.75 2xl:py-2.875 rounded-full w-full cursor-pointer hover:opacity-90 transition-opacity ${isOrderValid() ? "" : "opacity-50 cursor-not-allowed"
+          }`}
         disabled={!isOrderValid()}
         style={{
           backgroundColor: currentColors.button

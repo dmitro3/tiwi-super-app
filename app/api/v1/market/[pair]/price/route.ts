@@ -5,6 +5,7 @@ import { getTokenPrice } from '@/lib/backend/providers/price-provider';
 import { convertPairToWrapped } from '@/lib/backend/utils/token-address-helper';
 import { getBinanceTickers } from '@/lib/backend/services/binance-ticker-service';
 import { getCryptoMetadata } from '@/lib/backend/data/crypto-metadata';
+import { getEnrichedMetadata } from '@/lib/backend/services/enrichment-service';
 
 /**
  * GET /api/v1/market/[pair]/price
@@ -57,27 +58,37 @@ export async function GET(
         const ticker = tickers.find(t => t.symbol === binanceSymbol);
 
         if (ticker) {
-          const baseMeta = getCryptoMetadata(baseSymbol);
+          const meta = await getEnrichedMetadata(baseSymbol);
           const quoteMeta = getCryptoMetadata(quoteSymbol);
+
+          const currentPrice = ticker.lastPrice;
+          const circulatingSupply = meta.marketCap ? meta.marketCap / currentPrice : null;
+          const totalSupply = meta.fdv ? meta.fdv / currentPrice : (circulatingSupply || null);
+
           return NextResponse.json({
             pair: `${baseSymbol}/${quoteSymbol}`,
-            price: ticker.lastPrice,
-            priceUSD: ticker.lastPrice,
+            price: currentPrice,
+            priceUSD: currentPrice,
             priceChange24h: ticker.priceChangePercent,
             high24h: ticker.highPrice,
             low24h: ticker.lowPrice,
             volume24h: ticker.quoteVolume,
-            description: baseMeta.description || null,
+            description: meta.description || null,
             baseToken: {
               symbol: baseSymbol,
-              name: baseMeta.name,
+              name: meta.name,
               address: '',
               chainId: 0,
-              priceUSD: ticker.lastPrice,
-              logo: baseMeta.logo,
-              marketCap: null,
-              liquidity: null,
-              circulatingSupply: null,
+              priceUSD: currentPrice,
+              logo: meta.logo,
+              marketCap: meta.marketCap,
+              fdv: meta.fdv,
+              liquidity: meta.liquidity,
+              socials: meta.socials,
+              websites: meta.websites,
+              website: meta.website,
+              circulatingSupply,
+              totalSupply,
             },
             quoteToken: {
               symbol: quoteSymbol,
@@ -114,6 +125,9 @@ export async function GET(
           const priceChange = parseFloat(ticker.priceChange24H || '0');
           const priceChangePct = (tickerPrice > 0 && tickerPrice !== priceChange) ? (priceChange / (tickerPrice - priceChange)) * 100 : 0;
 
+          const circulatingSupply = detail.marketCap ? detail.marketCap / tickerPrice : null;
+          const totalSupply = detail.fdv ? detail.fdv / tickerPrice : (circulatingSupply || null);
+
           return NextResponse.json({
             pair: `${baseSymbol}/${quoteSymbol}`,
             price: tickerPrice,
@@ -131,10 +145,13 @@ export async function GET(
               priceUSD: tickerPrice,
               logo: detail.metadata.logo,
               marketCap: detail.marketCap,
-              liquidity: detail.orderbookLiquidity, // Use calculated OB Liquidity
+              fdv: detail.fdv,
+              liquidity: detail.orderbookLiquidity,
               socials: detail.metadata.socials,
+              websites: detail.metadata.websites,
               website: detail.metadata.website,
-              circulatingSupply: null,
+              circulatingSupply,
+              totalSupply,
               decimals: Math.abs(parseFloat(ticker.atomicResolution || '-8')),
             },
             quoteToken: {
@@ -252,6 +269,10 @@ export async function GET(
       volume24h = baseToken.volume24h;
     }
 
+    const meta = await getEnrichedMetadata(baseToken.symbol);
+    const circulatingSupply = meta.marketCap ? meta.marketCap / currentPrice : null;
+    const totalSupply = meta.fdv ? meta.fdv / currentPrice : (circulatingSupply || null);
+
     return NextResponse.json({
       pair: `${baseToken.symbol}/${quoteToken.symbol}`,
       price: currentPrice,
@@ -260,16 +281,22 @@ export async function GET(
       high24h,
       low24h,
       volume24h,
+      description: meta.description || null,
       baseToken: {
         symbol: baseToken.symbol,
-        name: baseToken.name || baseToken.symbol,
+        name: meta.name || baseToken.name,
         address: baseAddress,
         chainId,
         priceUSD: basePriceUSD,
-        logo: baseToken.logoURI || '',
-        marketCap: baseToken.marketCap ?? null,
-        liquidity: baseToken.liquidity ?? null,
-        circulatingSupply: baseToken.circulatingSupply ?? null,
+        logo: meta.logo || baseToken.logoURI || '',
+        marketCap: meta.marketCap || baseToken.marketCap,
+        fdv: meta.fdv,
+        liquidity: meta.liquidity || baseToken.liquidity,
+        socials: meta.socials,
+        websites: meta.websites,
+        website: meta.website,
+        circulatingSupply,
+        totalSupply,
       },
       quoteToken: {
         symbol: quoteToken.symbol,

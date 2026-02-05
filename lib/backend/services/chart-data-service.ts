@@ -8,6 +8,7 @@
 
 import { BitqueryChartProvider } from '@/lib/backend/providers/bitquery-chart-provider';
 import { DexScreenerChartProvider } from '@/lib/backend/providers/dexscreener-chart-provider';
+import { getDydxCandles } from '@/lib/backend/services/dydx-service';
 import { convertPairToWrapped } from '@/lib/backend/utils/token-address-helper';
 import { getCrossChainPriceCalculator } from '@/lib/backend/utils/cross-chain-price-calculator';
 import { getTokenService } from '@/lib/backend/services/token-service';
@@ -53,14 +54,50 @@ export class ChartDataService {
     const quoteChainId = params.quoteChainId || params.chainId;
     const isCrossChain = baseChainId !== quoteChainId;
 
+    // ============================================================
+    // 0. Try dYdX (Chain ID 4)
+    // ============================================================
+    if (baseChainId === 4) {
+      try {
+        const dydxResolutionMap: Record<string, string> = {
+          '1': '1MIN',
+          '5': '5MIN',
+          '15': '15MIN',
+          '30': '30MIN',
+          '60': '1HOUR',
+          '240': '4HOUR',
+          '1D': '1DAY',
+        };
+        const res = dydxResolutionMap[params.resolution] || '1DAY';
+        const symbol = `${params.baseToken}-${params.quoteToken}`;
+        const limit = params.countback || 100;
+
+        const candles = await getDydxCandles(symbol, res, limit);
+
+        if (candles && candles.length > 0) {
+          console.log(`[ChartDataService] Successfully fetched dYdX candles: ${candles.length} bars`);
+          return candles.map((c: any) => ({
+            time: new Date(c.startedAt).getTime(),
+            open: parseFloat(c.open),
+            high: parseFloat(c.high),
+            low: parseFloat(c.low),
+            close: parseFloat(c.close),
+            volume: parseFloat(c.baseTokenVolume)
+          }));
+        }
+      } catch (error: any) {
+        console.warn(`[ChartDataService] dYdX fetch failed: ${error.message}`);
+      }
+    }
+
     if (isCrossChain) {
       // CROSS-CHAIN: Calculate pair price from individual token prices
       console.log(`[ChartDataService] Cross-chain pair detected: baseChainId=${baseChainId}, quoteChainId=${quoteChainId}`);
-      
+
       if (!baseChainId || !quoteChainId) {
         throw new Error('Cross-chain pair requires both baseChainId and quoteChainId');
       }
-      
+
       const calculator = getCrossChainPriceCalculator();
       return await calculator.calculateCrossChainBars({
         baseToken: params.baseToken,
@@ -75,11 +112,11 @@ export class ChartDataService {
 
     // SAME-CHAIN: Use existing strategy (DexScreener → Bitquery)
     const chainId = params.chainId || baseChainId;
-    
+
     if (!chainId) {
       throw new Error('Chain ID is required for same-chain pairs');
     }
-    
+
     // Convert native tokens to wrapped versions
     const { baseToken, quoteToken } = convertPairToWrapped(
       params.baseToken,
@@ -204,7 +241,7 @@ export class ChartDataService {
    */
   async resolveSymbol(symbolName: string, resolution?: ResolutionString | null): Promise<SymbolInfo> {
     const parts = symbolName.split('-');
-    
+
     let baseAddress: string;
     let quoteAddress: string;
     let baseChainId: number;
@@ -234,7 +271,7 @@ export class ChartDataService {
       quoteAddress = quoteAddressPart;
       baseChainId = parseInt(baseChainIdStr, 10);
       quoteChainId = parseInt(quoteChainIdStr, 10);
-      
+
       if (isNaN(baseChainId) || isNaN(quoteChainId)) {
         throw new Error(`[ChartDataService] Invalid chain IDs: ${baseChainIdStr}, ${quoteChainIdStr}`);
       }
@@ -243,10 +280,57 @@ export class ChartDataService {
       throw new Error(`[ChartDataService] Invalid symbol format: ${symbolName}. Expected: baseAddress-quoteAddress-chainId (same-chain) or baseAddress-baseChainId-quoteAddress-quoteChainId (cross-chain)`);
     }
 
+    // ============================================================
+    // Handle Specialized Providers (dYdX, Binance)
+    // ============================================================
+    if (baseChainId === 4) {
+      return {
+        name: `${baseAddress}/${quoteAddress} on dYdX • ${resolution || '15'} • tiwiprotocol.xyz`,
+        ticker: symbolName,
+        description: `${baseAddress}/${quoteAddress} Perpetual on dYdX`,
+        type: 'crypto',
+        session: '24x7',
+        timezone: 'Etc/UTC',
+        exchange: 'dydx',
+        listed_exchange: 'dydx',
+        minmov: 1,
+        pricescale: 10000000000,
+        has_intraday: true,
+        has_daily: true,
+        has_weekly_and_monthly: true,
+        supported_resolutions: ['1', '5', '15', '30', '60', '240', '1D'],
+        intraday_multipliers: ['1', '5', '15', '30', '60'],
+        volume_precision: 2,
+        data_status: 'endofday',
+      };
+    }
+
+    if (baseChainId === 0) {
+      return {
+        name: `${baseAddress}/${quoteAddress} on Binance • ${resolution || '15'} • tiwiprotocol.xyz`,
+        ticker: symbolName,
+        description: `${baseAddress}/${quoteAddress} on Binance`,
+        type: 'crypto',
+        session: '24x7',
+        timezone: 'Etc/UTC',
+        exchange: 'binance',
+        listed_exchange: 'binance',
+        minmov: 1,
+        pricescale: 100000000,
+        has_intraday: true,
+        has_daily: true,
+        has_weekly_and_monthly: true,
+        supported_resolutions: ['1', '5', '15', '30', '60', '240', '1D'],
+        intraday_multipliers: ['1', '5', '15', '30', '60'],
+        volume_precision: 2,
+        data_status: 'endofday',
+      };
+    }
+
     // Get chain information
     const baseChain = getCanonicalChain(baseChainId);
     const quoteChain = getCanonicalChain(quoteChainId);
-    
+
     if (!baseChain || !quoteChain) {
       throw new Error(`[ChartDataService] Unsupported chain ID: ${baseChainId} or ${quoteChainId}`);
     }
@@ -303,15 +387,15 @@ export class ChartDataService {
     // Format name like DexScreener: "WBNB/TWC on BNB CHAIN • 15 • tiwiprotocol.xyz"
     // Ensure domain is lowercase
     const domain = 'tiwiprotocol.xyz';
-    const chainName = isCrossChain 
-      ? `${baseChain.name.toUpperCase()}/${quoteChain.name.toUpperCase()}` 
+    const chainName = isCrossChain
+      ? `${baseChain.name.toUpperCase()}/${quoteChain.name.toUpperCase()}`
       : baseChain.name.toUpperCase(); // Make chain name uppercase like "BNB CHAIN"
-    
+
     const name = `${baseSymbol}/${quoteSymbol} on ${chainName} • ${resolutionDisplay} • ${domain}`;
 
     // Build description (for tooltip/alt text)
-    const exchange = isCrossChain 
-      ? `${baseChain.name}/${quoteChain.name}` 
+    const exchange = isCrossChain
+      ? `${baseChain.name}/${quoteChain.name}`
       : baseChain.name;
     const description = isCrossChain
       ? `${baseSymbol}/${quoteSymbol} (Cross-Chain: ${baseChain.name} → ${quoteChain.name})`
@@ -344,7 +428,7 @@ export class ChartDataService {
   getConfiguration(): ChartConfiguration {
     return {
       supported_resolutions: this.bitqueryProvider.getSupportedResolutions(),
-      
+
       exchanges: [
         { value: 'BSC', name: 'BNB Chain', desc: 'BNB Chain' },
         { value: 'ETH', name: 'Ethereum', desc: 'Ethereum' },

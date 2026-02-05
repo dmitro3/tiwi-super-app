@@ -45,9 +45,12 @@ export function useEnrichedMarkets({
                 fundingRate: m.fundingRate,
                 openInterest: m.openInterest,
                 marketCap: m.marketCap,
+                fdv: m.fdv,
+                marketCapRank: m.marketCapRank,
                 liquidity: m.liquidity,
                 socials: m.socials,
                 website: m.website,
+                websites: m.websites,
                 decimals: m.decimals,
                 description: m.description,
             } as Token));

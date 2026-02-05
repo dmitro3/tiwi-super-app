@@ -35,7 +35,6 @@ export interface FetchTokensParams {
  * @returns Promise resolving to transformed tokens
  */
 export async function fetchTokens(params: FetchTokensParams = {}): Promise<Token[]> {
-  console.log("🚀 ~ fetchTokens ~ params:", params)
   const { chains, query, limit, address, category, source, marketType } = params;
   
   // Build API URL

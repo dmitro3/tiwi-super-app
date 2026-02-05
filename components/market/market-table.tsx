@@ -240,9 +240,9 @@ export default function MarketTable({
                           </>
                         )}
 
-                        <TableCell className="px-6 py-5 text-center sticky right-0 bg-[#010501] z-30 shadow-[-8px_0_12px_rgba(0,0,0,0.45)]">
+                        <TableCell className="px-0 py-5 text-center sticky right-0 bg-[#010501] z-30 shadow-[-8px_0_12px_rgba(0,0,0,0.45)]">
                           <button
-                            className={`bg-[#081F02] mx-auto flex items-center justify-center rounded-full cursor-pointer transition-all duration-150 w-[46px] h-[36px] hover:opacity-95 ${isHovered ? "w-[90px] gap-2" : ""
+                            className={`bg-[#081F02] mx-auto flex items-center justify-center rounded-full cursor-pointer transition-all duration-150 w-[66px] h-[36px] hover:opacity-95 ${isHovered ? "w-[90px] gap-2" : ""
                               }`}
                           >
                             <Image src="/assets/icons/home/trade.svg" alt="trade" width={22} height={22} />
@@ -275,7 +275,7 @@ export default function MarketTable({
             {visiblePages.map((page, index) => {
               // Show ellipsis before this page if there's a gap
               const showEllipsisBefore = index > 0 && page - visiblePages[index - 1] > 1;
-              
+
               return (
                 <Fragment key={page}>
                   {showEllipsisBefore && (

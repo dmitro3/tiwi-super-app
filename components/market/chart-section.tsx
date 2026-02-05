@@ -63,19 +63,42 @@ export default function ChartSection({ pair, tokenData }: ChartSectionProps) {
       return;
     }
 
-    // If we have token addresses from the page's API call, use them directly
-    // This ensures we get the correct tokens on the correct chain
+    // Priority 1: Use full token objects if provided by the page API
+    if (tokenData?.baseToken && tokenData?.quoteToken) {
+      console.log('[ChartSection] Using full token objects from page:', tokenData.baseToken.symbol, tokenData.quoteToken.symbol);
+      setBaseToken({
+        ...tokenData.baseToken,
+        id: tokenData.baseToken.id || `${tokenData.baseToken.chainId}-${tokenData.baseToken.address}`,
+        logoURI: tokenData.baseToken.logo || '',
+        logo: tokenData.baseToken.logo || '',
+        chain: tokenData.baseToken.chain || (tokenData.baseToken.chainId === 4 ? 'dYdX' : 'Unknown'),
+      } as Token);
+      setQuoteToken({
+        ...tokenData.quoteToken,
+        id: tokenData.quoteToken.id || `${tokenData.quoteToken.chainId}-${tokenData.quoteToken.address}`,
+        logoURI: tokenData.quoteToken.logo || '',
+        logo: tokenData.quoteToken.logo || '',
+        chain: tokenData.quoteToken.chain || (tokenData.quoteToken.chainId === 4 ? 'dYdX' : 'Unknown'),
+      } as Token);
+      setIsLoadingTokens(false);
+      return;
+    }
+
+    // Priority 2: If we have token addresses from the page's API call, use them directly
     if (tokenData?.address && tokenData?.chainId) {
       console.log('[ChartSection] Using tokenData from page:', tokenData.symbol, tokenData.chainId);
 
       // Create Token objects from tokenData
       const baseTokenFromData: Token = {
+        id: `${tokenData.chainId}-${tokenData.address}`,
         address: tokenData.address,
         symbol: tokenData.symbol,
         name: tokenData.name || tokenData.symbol,
         chainId: tokenData.chainId,
         logoURI: tokenData.icon || '',
-        decimals: 18, // Default, will be overridden by chart if needed
+        logo: tokenData.icon || '',
+        chain: tokenData.chainId === 4 ? 'dYdX' : 'Unknown',
+        decimals: 18,
       };
 
       // For quote token, fetch by symbol but filter by the same chainId
@@ -94,11 +117,14 @@ export default function ChartSection({ pair, tokenData }: ChartSectionProps) {
             // Fallback: create a USDT token for the same chain
             console.warn('[ChartSection] Quote token not found, using fallback');
             const fallbackQuote: Token = {
+              id: `${tokenData.chainId}-USDT`,
               address: getUsdtAddress(tokenData.chainId),
               symbol: 'USDT',
               name: 'Tether USD',
               chainId: tokenData.chainId,
               logoURI: '',
+              logo: '',
+              chain: tokenData.chainId === 4 ? 'dYdX' : 'Unknown',
               decimals: 18,
             };
             setBaseToken(baseTokenFromData);
@@ -157,7 +183,7 @@ export default function ChartSection({ pair, tokenData }: ChartSectionProps) {
   }, [baseSymbol, quoteSymbol, tokenData]);
 
   // Map time period to resolution
-  const resolution = useMemo<ResolutionString>(() => {
+  const resolution = useMemo(() => {
     switch (activeTimePeriod) {
       case "15m":
         return "15";
@@ -174,7 +200,7 @@ export default function ChartSection({ pair, tokenData }: ChartSectionProps) {
       default:
         return "1D";
     }
-  }, [activeTimePeriod]);
+  }, [activeTimePeriod]) as any;
 
   const timePeriods: TimePeriod[] = ["15m", "1h", "4h", "6h", "1D", "3D", "More"];
 
@@ -188,9 +214,8 @@ export default function ChartSection({ pair, tokenData }: ChartSectionProps) {
             onClick={() => setActiveTab("Chart")}
             className="flex flex-col gap-2 lg:gap-1.5 xl:gap-1.5 2xl:gap-2 items-center cursor-pointer shrink-0"
           >
-            <span className={`text-lg lg:text-sm xl:text-base 2xl:text-lg font-semibold leading-normal text-center whitespace-nowrap ${
-              activeTab === "Chart" ? "text-[#b1f128]" : "text-[#b5b5b5]"
-            }`}>
+            <span className={`text-lg lg:text-sm xl:text-base 2xl:text-lg font-semibold leading-normal text-center whitespace-nowrap ${activeTab === "Chart" ? "text-[#b1f128]" : "text-[#b5b5b5]"
+              }`}>
               Chart
             </span>
             {activeTab === "Chart" && (
@@ -201,9 +226,8 @@ export default function ChartSection({ pair, tokenData }: ChartSectionProps) {
             onClick={() => setActiveTab("Overview")}
             className="flex flex-col gap-2 lg:gap-1.5 xl:gap-1.5 2xl:gap-2 items-center cursor-pointer shrink-0"
           >
-            <span className={`text-lg lg:text-sm xl:text-base 2xl:text-lg font-medium leading-normal whitespace-nowrap ${
-              activeTab === "Overview" ? "text-[#b1f128]" : "text-[#b5b5b5]"
-            }`}>
+            <span className={`text-lg lg:text-sm xl:text-base 2xl:text-lg font-medium leading-normal whitespace-nowrap ${activeTab === "Overview" ? "text-[#b1f128]" : "text-[#b5b5b5]"
+              }`}>
               Overview
             </span>
             {activeTab === "Overview" && (
@@ -218,23 +242,22 @@ export default function ChartSection({ pair, tokenData }: ChartSectionProps) {
             <button
               key={period}
               onClick={() => period !== "More" && setActiveTimePeriod(period)}
-              className={`flex flex-col items-start justify-center px-0 py-2 lg:py-1.5 xl:py-1.5 2xl:py-2 rounded-lg lg:rounded-md xl:rounded-md 2xl:rounded-lg cursor-pointer shrink-0 ${
-                activeTimePeriod === period && period !== "More"
-                  ? "text-[#b1f128] font-semibold"
-                  : "text-[#b5b5b5] font-medium"
-              }`}
+              className={`flex flex-col items-start justify-center px-0 py-2 lg:py-1.5 xl:py-1.5 2xl:py-2 rounded-lg lg:rounded-md xl:rounded-md 2xl:rounded-lg cursor-pointer shrink-0 ${activeTimePeriod === period && period !== "More"
+                ? "text-[#b1f128] font-semibold"
+                : "text-[#b5b5b5] font-medium"
+                }`}
             >
               <span className="text-base lg:text-xs xl:text-sm 2xl:text-base leading-4 whitespace-nowrap items-center flex">
                 {period}
                 {period === "More" && (
                   <span className="ml-0.5 xl:ml-0.5 2xl:ml-0.5 inline-block size-4">
                     <Image
-                        src="/assets/icons/arrow-down-01.svg"
-                        alt="Dropdown"
-                        width={12}
-                        height={12}
-                        className="w-full h-full object-contain"
-                      />
+                      src="/assets/icons/arrow-down-01.svg"
+                      alt="Dropdown"
+                      width={12}
+                      height={12}
+                      className="w-full h-full object-contain"
+                    />
                   </span>
                 )}
               </span>

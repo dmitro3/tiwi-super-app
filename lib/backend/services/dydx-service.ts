@@ -62,16 +62,11 @@ export async function getDydxMarkets(): Promise<any[]> {
             rawMarkets.map(async (market: any) => {
                 try {
                     const baseSymbol = market.ticker.split('-')[0];
-                    const [meta, candles] = await Promise.all([
-                        getEnrichedMetadata(baseSymbol),
-                        getDydxCandles(market.ticker, '1DAY', 1).catch(() => [])
-                    ]);
+                    const meta = await getEnrichedMetadata(baseSymbol);
 
                     const tickerPrice = parseFloat(market.oraclePrice || '0');
                     const priceChange = parseFloat(market.priceChange24H || '0');
                     const priceChangePct = tickerPrice > 0 ? (priceChange / (tickerPrice - priceChange)) * 100 : 0;
-
-                    const lastCandle = candles[0];
 
                     return {
                         id: `dydx-${market.ticker.toLowerCase()}`,
@@ -82,14 +77,16 @@ export async function getDydxMarkets(): Promise<any[]> {
                         price: tickerPrice,
                         priceChange24h: priceChangePct,
                         volume24h: parseFloat(market.volume24H || '0'),
-                        high24h: lastCandle ? parseFloat(lastCandle.high) : tickerPrice,
-                        low24h: lastCandle ? parseFloat(lastCandle.low) : tickerPrice,
+                        high24h: tickerPrice, // Optimized: Default to current price in list
+                        low24h: tickerPrice,  // Individual detail page will fetch accurate candles
                         fundingRate: parseFloat(market.nextFundingRate || '0'),
                         openInterest: parseFloat(market.openInterest || '0'),
                         marketCap: meta.marketCap,
+                        fdv: meta.fdv,
                         liquidity: meta.liquidity,
                         socials: meta.socials,
                         website: meta.website,
+                        websites: meta.websites,
                         // dYdX atomicResolution is usually negative (e.g. -10 means 10 decimals for price)
                         // Quantum exponent influences quantity
                         decimals: Math.abs(market.atomicResolution || 8),
@@ -223,7 +220,8 @@ export async function getDydxMarketDetail(market: string) {
             ticker: ticker,
             metadata: meta,
             orderbookLiquidity: orderbookLiquidity,
-            marketCap: meta.marketCap || 0, // Fallback to meta mcap
+            marketCap: meta.marketCap || 0,
+            fdv: meta.fdv || 0,
         };
     } catch (err) {
         console.error('[DydxService] Error fetching market detail:', err);

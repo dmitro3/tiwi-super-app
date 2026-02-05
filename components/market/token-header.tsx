@@ -14,6 +14,9 @@ interface TokenHeaderProps {
     socials?: any[];
     website?: string;
     description?: string;
+    fdv?: number;
+    circulatingSupply?: number;
+    totalSupply?: number;
   };
   stats: {
     price: string;
@@ -32,13 +35,22 @@ interface TokenHeaderProps {
 export default function TokenHeader({ token, stats }: TokenHeaderProps) {
   const router = useRouter();
 
-  // Format large values
+  // Format large dollar values
   const formatVal = (val: number | undefined) => {
     if (val === undefined || val === null) return '$--';
     if (val >= 1e9) return `$${(val / 1e9).toFixed(2)}B`;
     if (val >= 1e6) return `$${(val / 1e6).toFixed(2)}M`;
     if (val >= 1e3) return `$${(val / 1e3).toFixed(1)}K`;
     return `$${val.toFixed(2)}`;
+  };
+
+  // Format large supply counts
+  const formatCount = (val: number | undefined) => {
+    if (val === undefined || val === null) return '--';
+    if (val >= 1e9) return `${(val / 1e9).toFixed(2)}B`;
+    if (val >= 1e6) return `${(val / 1e6).toFixed(2)}M`;
+    if (val >= 1e3) return `${(val / 1e3).toFixed(1)}K`;
+    return val.toLocaleString(undefined, { maximumFractionDigits: 0 });
   };
 
   return (
@@ -155,12 +167,51 @@ export default function TokenHeader({ token, stats }: TokenHeaderProps) {
             Liquidity
           </p>
         </div>
+
+        {/* Separator */}
+        <div className="flex h-16 items-center justify-center w-0 border-r border-[#1f261e]"></div>
+
+        {/* FDV */}
+        <div className="flex flex-col font-semibold items-start justify-center leading-normal text-base lg:text-xs xl:text-sm 2xl:text-base">
+          <p className="relative shrink-0 text-white whitespace-nowrap">
+            {formatVal(token.fdv)}
+          </p>
+          <p className="relative shrink-0 text-[#7c7c7c] whitespace-nowrap text-[10px] uppercase tracking-wider">
+            FDV
+          </p>
+        </div>
+
+        {/* Separator */}
+        <div className="flex h-16 items-center justify-center w-0 border-r border-[#1f261e]"></div>
+
+        {/* Circulating Supply */}
+        <div className="flex flex-col font-semibold items-start justify-center leading-normal text-base lg:text-xs xl:text-sm 2xl:text-base">
+          <p className="relative shrink-0 text-white whitespace-nowrap">
+            {formatCount(token.circulatingSupply)}
+          </p>
+          <p className="relative shrink-0 text-[#7c7c7c] whitespace-nowrap text-[10px] uppercase tracking-wider">
+            Circ Supply
+          </p>
+        </div>
+
+        {/* Separator */}
+        <div className="flex h-16 items-center justify-center w-0 border-r border-[#1f261e]"></div>
+
+        {/* Total Supply */}
+        <div className="flex flex-col font-semibold items-start justify-center leading-normal text-base lg:text-xs xl:text-sm 2xl:text-base">
+          <p className="relative shrink-0 text-white whitespace-nowrap">
+            {formatCount(token.totalSupply)}
+          </p>
+          <p className="relative shrink-0 text-[#7c7c7c] whitespace-nowrap text-[10px] uppercase tracking-wider">
+            Total Supply
+          </p>
+        </div>
       </div>
 
       {/* Right: Action Buttons & Socials */}
       <div className="flex gap-4 lg:gap-3 xl:gap-3.5 2xl:gap-4 items-center shrink-0">
         {/* Social Icons */}
-        <div className="flex items-center gap-3 mr-2 border-r border-[#1f261e] pr-4">
+        {/* <div className="flex items-center gap-3 mr-2 border-r border-[#1f261e] pr-4">
           {token.website && (
             <a href={token.website} target="_blank" rel="noopener noreferrer" className="hover:opacity-80 transition-opacity">
               <Image src="/assets/icons/home/globe.svg" alt="Website" width={18} height={18} className="opacity-60 hover:opacity-100 transition-opacity" />
@@ -177,7 +228,7 @@ export default function TokenHeader({ token, stats }: TokenHeaderProps) {
               />
             </a>
           ))}
-        </div>
+        </div> */}
 
         <button
           className="relative w-5 h-5 cursor-pointer hover:opacity-80 transition-opacity"

@@ -72,6 +72,7 @@ export default function MarketPage() {
     marketType: activeTab.toLowerCase() as 'spot' | 'perp',
   });
 
+
   // Fetch spotlight tokens separately as they are DB-driven
   useEffect(() => {
     if (activeSubTab !== "Spotlight") {
@@ -233,6 +234,7 @@ export default function MarketPage() {
     setCurrentPage(1);
   }, [activeSubTab, activeTab]);
 
+  console.log("🚀 ~ MarketPage ~ paginatedTokens:", paginatedTokens)
   return (
     <>
       {/* Desktop Layout */}
