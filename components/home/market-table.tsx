@@ -207,7 +207,9 @@ export function MarketTable({
                 homepageTokens.map((token: HomepageToken, idx: number) => (
                   <TableRow
                     key={`${token.token.id}-${idx}`}
-                    onClick={() => router.push(`/market/${token.token.symbol}-USDT`)}
+                    onClick={() => {
+                      window.open(`/market/${token.token.symbol}`, "_blank")
+                    }}
                     className="group border-b border-[#1f261e]/60 hover:bg-[#0b0f0a] transition-colors cursor-pointer"
                   >
                     <TableCell className="px-3 lg:px-3.5 xl:px-4 2xl:px-5 py-2.5 lg:py-3 xl:py-4 text-white text-[10px] lg:text-xs xl:text-sm font-semibold align-middle">

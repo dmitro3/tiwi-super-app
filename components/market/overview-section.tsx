@@ -66,251 +66,150 @@ export default function OverviewSection({ pair, tokenData: tokenInfo }: Overview
     website: tokenInfo?.website || null,
   };
 
-  console.log("tokenData", tokenData)
 
   return (
-    <div className="flex h-[550px] lg:h-[400px] xl:h-[450px] 2xl:h-[550px] items-start overflow-y-auto px-0 py-6 lg:py-4 xl:py-5 2xl:py-6 w-[924px] lg:w-[671px] xl:w-[755px] 2xl:w-[924px]">
+    <div className="w-full h-full flex flex-col lg:flex-row items-start overflow-y-auto px-0 py-6 lg:py-4 xl:py-5 2xl:py-6 market-table-scrollbar">
       {/* About Section - Left Side */}
-      <div className="flex flex-1 flex-col gap-[18px] lg:gap-[13px] xl:gap-[15px] 2xl:gap-[18px] items-start min-h-0 min-w-0 px-10 lg:px-7 xl:px-8 2xl:px-10 py-0 text-white">
+      <div className="flex-1 flex flex-col gap-[18px] lg:gap-[13px] xl:gap-[15px] 2xl:gap-[18px] items-start min-w-0 px-6 lg:px-7 xl:px-8 2xl:px-10 py-0 text-white">
         <div className="flex justify-between items-center w-full">
-          <p className="font-semibold leading-normal relative shrink-0 text-xl lg:text-base xl:text-lg 2xl:text-xl text-center text-white">
+          <p className="font-semibold leading-normal text-xl lg:text-base xl:text-lg 2xl:text-xl text-white">
             About
           </p>
-          {/* <div className="flex gap-3 items-center">
-            {tokenData.website && (
-              <a href={tokenData.website} target="_blank" rel="noopener noreferrer" className="hover:opacity-80 transition-opacity">
-                <Globe className="opacity-60 hover:opacity-100" />
-              </a>
-            )}
-            {tokenData.socials.map((social: any, i: number) => (
-              <a key={i} href={social.url} target="_blank" rel="noopener noreferrer" className="hover:opacity-80 transition-opacity">
-                <Image
-                  src={social.type === 'twitter' || social.type === 'x' ? '/assets/icons/home/twitter.svg' : '/assets/icons/home/telegram.svg'}
-                  alt={social.type}
-                  width={20}
-                  height={20}
-                  className="opacity-60 hover:opacity-100"
-                />
-              </a>
-            ))}
-          </div> */}
         </div>
-        <p className="font-medium leading-[1.478] min-w-full relative shrink-0 text-sm lg:text-xs xl:text-xs 2xl:text-sm tracking-[0.56px] whitespace-pre-wrap">
+        <p className="font-medium leading-relaxed w-full text-sm lg:text-xs xl:text-xs 2xl:text-sm tracking-wide text-[#b5b5b5] whitespace-pre-wrap">
           {tokenData.about}
         </p>
       </div>
 
+      {/* Spacer/Separator for desktop */}
+      <div className="hidden lg:block w-px h-full bg-[#1f261e]/30 shrink-0 mx-2"></div>
+
       {/* Token Details Section - Right Side */}
-      <div className="flex flex-1 flex-col gap-[18px] lg:gap-[13px] xl:gap-[15px] 2xl:gap-[18px] items-start min-h-0 min-w-0 px-10 lg:px-7 xl:px-8 2xl:px-10 py-0">
-        <p className="font-semibold leading-normal relative shrink-0 text-xl lg:text-base xl:text-lg 2xl:text-xl text-center text-white">
+      <div className="flex-1 flex flex-col gap-[18px] lg:gap-[13px] xl:gap-[15px] 2xl:gap-[18px] items-start min-w-0 px-6 lg:px-7 xl:px-8 2xl:px-10 py-0 mt-8 lg:mt-0">
+        <p className="font-semibold leading-normal text-xl lg:text-base xl:text-lg 2xl:text-xl text-white">
           Token Details
         </p>
 
         <div className="flex flex-col gap-4 lg:gap-3 xl:gap-3.5 2xl:gap-4 items-start w-full">
           {/* Token Name */}
-          <div className="flex items-start justify-between w-full">
-            <div className="flex gap-2 lg:gap-1.5 xl:gap-1.5 2xl:gap-2 items-center">
-              <div className="relative shrink-0 size-6 lg:size-4 xl:size-5 2xl:size-6">
-                <Image
-                  src="/assets/icons/market/identity-card.svg"
-                  alt="Token Name"
-                  width={24}
-                  height={24}
-                  className="w-full h-full object-contain"
-                />
-              </div>
-              <p className="font-medium leading-normal relative shrink-0 text-base lg:text-sm xl:text-sm 2xl:text-base text-center text-[#b5b5b5]">
+          <div className="flex items-center justify-between w-full gap-4">
+            <div className="flex gap-2 lg:gap-1.5 xl:gap-1.5 2xl:gap-2 items-center shrink-0">
+              <Image
+                src="/assets/icons/market/identity-card.svg"
+                alt="Token Name"
+                width={20}
+                height={20}
+                className="opacity-60"
+              />
+              <p className="font-medium text-base lg:text-sm xl:text-sm 2xl:text-base text-[#b5b5b5]">
                 Token Name
               </p>
             </div>
-            <p className="font-medium leading-normal relative shrink-0 text-base lg:text-sm xl:text-sm 2xl:text-base text-center text-white">
+            <p className="font-medium text-base lg:text-sm xl:text-sm 2xl:text-base text-white text-right break-all">
               {tokenData.tokenName}
             </p>
           </div>
 
-          {/* Network */}
-          {/* <div className="flex items-start justify-between w-full">
-            <div className="flex gap-2 lg:gap-1.5 xl:gap-1.5 2xl:gap-2 items-center">
-              <div className="relative shrink-0 size-6 lg:size-4 xl:size-5 2xl:size-6">
-                <Image
-                  src="/assets/icons/market/grid-02.svg"
-                  alt="Network"
-                  width={24}
-                  height={24}
-                  className="w-full h-full object-contain"
-                />
-              </div>
-              <p className="font-medium leading-normal relative shrink-0 text-base lg:text-sm xl:text-sm 2xl:text-base text-center text-[#b5b5b5]">
-                Network
+          {/* Symbol (showing contract truncated) */}
+          <div className="flex items-center justify-between w-full gap-4">
+            <div className="flex gap-2 lg:gap-1.5 xl:gap-1.5 2xl:gap-2 items-center shrink-0">
+              <Image
+                src="/assets/icons/market/align-box-middle-center.svg"
+                alt="Contract"
+                width={20}
+                height={20}
+                className="opacity-60"
+              />
+              <p className="font-medium text-base lg:text-sm xl:text-sm 2xl:text-base text-[#b5b5b5]">
+                Contract
               </p>
             </div>
-            <p className="font-medium leading-normal relative shrink-0 text-base lg:text-sm xl:text-sm 2xl:text-base text-center text-white">
-              {tokenData.network}
-            </p>
-          </div> */}
-
-          {/* Contract */}
-          <div className="flex items-start justify-between w-full">
-            <div className="flex gap-2 lg:gap-1.5 xl:gap-1.5 2xl:gap-2 items-center">
-              <div className="relative shrink-0 size-6 lg:size-4 xl:size-5 2xl:size-6">
-                <Image
-                  src="/assets/icons/market/align-box-middle-center.svg"
-                  alt="Contract"
-                  width={24}
-                  height={24}
-                  className="w-full h-full object-contain"
-                />
-              </div>
-              <p className="font-medium leading-normal relative shrink-0 text-base lg:text-sm xl:text-sm 2xl:text-base text-center text-[#b5b5b5]">
-                Symbol
-              </p>
-            </div>
-            <div className="flex gap-2 lg:gap-1.5 xl:gap-1.5 2xl:gap-2 items-center">
-              <p className="font-medium leading-normal relative shrink-0 text-base lg:text-sm xl:text-sm 2xl:text-base text-center text-white">
+            <div className="flex gap-2 items-center">
+              <span className="font-medium text-base lg:text-sm xl:text-sm 2xl:text-base text-white">
                 {tokenData.contract}
-              </p>
-              <button
-                onClick={handleCopyAddress}
-                className="relative shrink-0 size-4 lg:size-3 xl:size-3.5 2xl:size-4 cursor-pointer hover:opacity-80 transition-opacity"
-                title={copied ? "Copied!" : "Copy address"}
-              >
-                <Image
-                  src="/assets/icons/market/copy-01.svg"
-                  alt={copied ? "Copied" : "Copy"}
-                  width={16}
-                  height={16}
-                  className="w-full h-full object-contain"
-                />
-              </button>
-              <div className="flex h-[18px] lg:h-[13px] xl:h-[15px] 2xl:h-[18px] items-center justify-center relative shrink-0 w-0">
-                <div className="flex-none rotate-90">
-                  <div className="h-0 relative w-[18px] lg:w-[13px] xl:w-[15px] 2xl:w-[18px]">
-                    <div className="absolute inset-[-1px_0_0_0]">
-                      <div className="h-px w-full bg-[#1f261e]"></div>
-                    </div>
-                  </div>
-                </div>
-              </div>
+              </span>
+              {contractAddress && (
+                <button
+                  onClick={handleCopyAddress}
+                  className="p-1 hover:bg-[#1f261e] rounded transition-colors"
+                  title={copied ? "Copied!" : "Copy address"}
+                >
+                  <Image
+                    src="/assets/icons/market/copy-01.svg"
+                    alt="Copy"
+                    width={14}
+                    height={14}
+                  />
+                </button>
+              )}
             </div>
           </div>
 
-          {/* Symbol */}
-          <div className="flex items-start justify-between w-full">
-            <div className="flex gap-2 lg:gap-1.5 xl:gap-1.5 2xl:gap-2 items-center">
-              <div className="relative shrink-0 size-6 lg:size-4 xl:size-5 2xl:size-6">
-                <Image
-                  src="/assets/icons/market/new-twitter.svg"
-                  alt="Symbol"
-                  width={24}
-                  height={24}
-                  className="w-full h-full object-contain"
-                />
-              </div>
-              <p className="font-medium leading-normal relative shrink-0 text-base lg:text-sm xl:text-sm 2xl:text-base text-center text-[#b5b5b5]">
+          {/* Official X */}
+          <div className="flex items-center justify-between w-full gap-4">
+            <div className="flex gap-2 lg:gap-1.5 xl:gap-1.5 2xl:gap-2 items-center shrink-0">
+              <Image
+                src="/assets/icons/market/new-twitter.svg"
+                alt="Twitter"
+                width={20}
+                height={20}
+                className="opacity-60"
+              />
+              <p className="font-medium text-base lg:text-sm xl:text-sm 2xl:text-base text-[#b5b5b5]">
                 Official X
               </p>
             </div>
-            <div className="flex flex-end items-center gap-2">
-              <p className="font-medium leading-normal relative shrink-0 text-base lg:text-sm xl:text-sm 2xl:text-base text-center text-white">
-                {tokenName}
-              </p>
+            <div className="flex items-center gap-2">
+              <span className="font-medium text-base lg:text-sm xl:text-sm 2xl:text-base text-white">
+                @{tokenSymbol}
+              </span>
               <a
                 href={
-                  tokenData.socials?.filter((s) => s.type === "twitter").length === 1
-                    ? tokenData.socials.find((s) => s.type === "twitter")?.url
-                    : `https://x.com/search?q=${encodeURIComponent(tokenData.tokenName)}`
+                  tokenData.socials?.find((s: any) => s.type === "twitter")?.url ||
+                  `https://x.com/search?q=${encodeURIComponent(tokenData.tokenName)}`
                 }
                 target="_blank"
                 rel="noopener noreferrer"
-                className="relative shrink-0 size-4 lg:size-3 xl:size-3.5 2xl:size-4 cursor-pointer hover:opacity-80 transition-opacity"
+                className="p-1 hover:bg-[#1f261e] rounded transition-colors"
               >
                 <Image
                   src="/assets/icons/market/share-04.svg"
-                  alt="Share"
-                  width={16}
-                  height={16}
-                  className="w-full h-full object-contain"
+                  alt="Open"
+                  width={14}
+                  height={14}
                 />
               </a>
             </div>
           </div>
-          {/* Website */}
-          {/* <div className="flex items-start justify-between w-full">
-            <div className="flex gap-2 lg:gap-1.5 xl:gap-1.5 2xl:gap-2 items-center">
-              <div className="relative shrink-0 size-6 lg:size-4 xl:size-5 2xl:size-6">
-                <Image
-                  src="/assets/icons/market/new-twitter.svg"
-                  alt="Symbol"
-                  width={24}
-                  height={24}
-                  className="w-full h-full object-contain"
-                />
-              </div>
-              <p className="font-medium leading-normal relative shrink-0 text-base lg:text-sm xl:text-sm 2xl:text-base text-center text-[#b5b5b5]">
-                Website
-              </p>
-            </div>
-            <div className="flex flex-end items-center gap-2">
-              <p className="font-medium leading-normal relative shrink-0 text-base lg:text-sm xl:text-sm 2xl:text-base text-center text-white">
-                {tokenSymbol}
-              </p>
-              <a
-                href={
-                  tokenData.socials?.filter((s) => s.type === "website").length === 1
-                    ? tokenData.socials.find((s) => s.type === "website")?.url
-                    : `https://x.com/search?q=${encodeURIComponent(tokenData.tokenName)}`
-                }
-                target="_blank"
-                rel="noopener noreferrer"
-                className="relative shrink-0 size-4 lg:size-3 xl:size-3.5 2xl:size-4 cursor-pointer hover:opacity-80 transition-opacity"
-              >
-                <Image
-                  src="/assets/icons/market/share-04.svg"
-                  alt="Share"
-                  width={16}
-                  height={16}
-                  className="w-full h-full object-contain"
-                />
-              </a>
-            </div>
-          </div> */}
         </div>
 
         {/* Divider */}
-        <div className="h-0 relative shrink-0 w-full">
-          <div className="absolute inset-[-1px_0_0_0]">
-            <div className="h-px w-full bg-[#1f261e]"></div>
-          </div>
-        </div>
+        <div className="h-px w-full bg-[#1f261e] my-1"></div>
 
         {/* Market Stats */}
-        <div className="flex flex-col gap-4 lg:gap-3 xl:gap-3.5 2xl:gap-4 items-start w-full">
-          <div className="flex font-medium items-center justify-between leading-normal relative shrink-0 text-base lg:text-sm xl:text-sm 2xl:text-base text-center w-full">
-            <p className="relative shrink-0 text-[#b5b5b5]">Market Cap</p>
-            <p className="relative shrink-0 text-white">{tokenData.marketCap}</p>
+        <div className="flex flex-col gap-4 lg:gap-3 xl:gap-3.5 2xl:gap-4 w-full">
+          <div className="flex items-center justify-between w-full">
+            <p className="text-base lg:text-sm xl:text-sm 2xl:text-base text-[#b5b5b5]">Market Cap</p>
+            <p className="text-base lg:text-sm xl:text-sm 2xl:text-base text-white">{tokenData.marketCap}</p>
           </div>
-          <div className="flex font-medium items-center justify-between leading-normal relative shrink-0 text-base lg:text-sm xl:text-sm 2xl:text-base text-center w-full">
-            <p className="relative shrink-0 text-[#b5b5b5]">Liquidity</p>
-            <p className="relative shrink-0 text-white">{tokenData.liquidity}</p>
+          <div className="flex items-center justify-between w-full">
+            <p className="text-base lg:text-sm xl:text-sm 2xl:text-base text-[#b5b5b5]">Liquidity</p>
+            <p className="text-base lg:text-sm xl:text-sm 2xl:text-base text-white text-[#b1f128]">{tokenData.liquidity}</p>
           </div>
-          <div className="flex font-medium items-center justify-between leading-normal relative shrink-0 text-base lg:text-sm xl:text-sm 2xl:text-base text-center w-full">
-            <p className="relative shrink-0 text-[#b5b5b5]">24h Volume</p>
-            <p className="relative shrink-0 text-white">{tokenData.volume24h}</p>
+          <div className="flex items-center justify-between w-full">
+            <p className="text-base lg:text-sm xl:text-sm 2xl:text-base text-[#b5b5b5]">24h Volume</p>
+            <p className="text-base lg:text-sm xl:text-sm 2xl:text-base text-white">{tokenData.volume24h}</p>
           </div>
         </div>
 
         {/* Divider */}
-        <div className="h-0 relative shrink-0 w-full">
-          <div className="absolute inset-[-1px_0_0_0]">
-            <div className="h-px w-full bg-[#1f261e]"></div>
-          </div>
-        </div>
+        <div className="h-px w-full bg-[#1f261e] my-1"></div>
 
         {/* Supply Stats */}
-        <div className="flex flex-col gap-4 lg:gap-3 xl:gap-3.5 2xl:gap-4 items-start w-full">
-          <div className="flex font-medium items-center justify-between leading-normal relative shrink-0 text-base lg:text-sm xl:text-sm 2xl:text-base text-center w-full">
-            <p className="relative shrink-0 text-[#b5b5b5]">Circulating Supply</p>
-            <p className="relative shrink-0 text-white">{tokenData.circulatingSupply}</p>
+        <div className="flex flex-col gap-4 lg:gap-3 xl:gap-3.5 2xl:gap-4 w-full">
+          <div className="flex items-center justify-between w-full">
+            <p className="text-base lg:text-sm xl:text-sm 2xl:text-base text-[#b5b5b5]">Circulating Supply</p>
+            <p className="text-base lg:text-sm xl:text-sm 2xl:text-base text-white">{tokenData.circulatingSupply}</p>
           </div>
         </div>
       </div>
