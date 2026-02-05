@@ -1,8 +1,13 @@
 /**
  * Route Verifier
- * 
+ *
  * Verifies routes work using router.getAmountsOut.
  * This ensures routes are valid before returning them to users.
+ *
+ * Features:
+ * - Concurrency-limited RPC calls (prevents rate limiting)
+ * - Short-lived result cache (avoids duplicate calls for same path)
+ * - Cached public clients per chain
  */
 
 import type { Address } from 'viem';
@@ -51,7 +56,6 @@ function getRpcUrl(chainId: number): string {
 
 /**
  * Cached public clients per chain - avoids recreating on every verification call.
- * This is critical when verifying 40+ paths in parallel.
  */
 const clientCache = new Map<number, any>();
 
@@ -66,12 +70,85 @@ function getPublicClient(chainId: number) {
     chain,
     transport: http(getRpcUrl(chainId), {
       retryCount: 2,
-      timeout: 15_000,   // 15s timeout instead of default 30s
+      timeout: 12_000,   // 12s timeout for fast failures
     }),
   });
   clientCache.set(chainId, client);
   return client;
 }
+
+// ============================================================================
+// Concurrency Limiter
+// ============================================================================
+
+/**
+ * Run async tasks with limited concurrency.
+ * Returns PromiseSettledResult[] matching the input array order.
+ */
+async function withConcurrency<T>(
+  tasks: (() => Promise<T>)[],
+  limit: number
+): Promise<PromiseSettledResult<T>[]> {
+  const results: PromiseSettledResult<T>[] = new Array(tasks.length);
+  let nextIndex = 0;
+
+  async function worker(): Promise<void> {
+    while (nextIndex < tasks.length) {
+      const i = nextIndex++;
+      try {
+        const value = await tasks[i]();
+        results[i] = { status: 'fulfilled', value };
+      } catch (reason: any) {
+        results[i] = { status: 'rejected', reason };
+      }
+    }
+  }
+
+  const workerCount = Math.min(limit, tasks.length);
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  return results;
+}
+
+// ============================================================================
+// Route Verification Cache (30-second TTL)
+// ============================================================================
+
+interface CacheEntry {
+  result: VerifiedRoute | null;
+  timestamp: number;
+}
+
+const verifyCache = new Map<string, CacheEntry>();
+const CACHE_TTL = 30_000; // 30 seconds
+
+function getCacheKey(path: Address[], chainId: number, dexId: string, amountIn: bigint): string {
+  return `${chainId}:${dexId}:${path.join('-')}:${amountIn.toString()}`;
+}
+
+function getCachedResult(key: string): VerifiedRoute | null | undefined {
+  const entry = verifyCache.get(key);
+  if (!entry) return undefined;
+  if (Date.now() - entry.timestamp > CACHE_TTL) {
+    verifyCache.delete(key);
+    return undefined;
+  }
+  return entry.result;
+}
+
+function setCachedResult(key: string, result: VerifiedRoute | null): void {
+  verifyCache.set(key, { result, timestamp: Date.now() });
+  // Prune old entries every 100 inserts
+  if (verifyCache.size > 500) {
+    const now = Date.now();
+    for (const [k, v] of verifyCache) {
+      if (now - v.timestamp > CACHE_TTL) verifyCache.delete(k);
+    }
+  }
+}
+
+// ============================================================================
+// Route Verification
+// ============================================================================
 
 /**
  * Verified Route
@@ -86,45 +163,31 @@ export interface VerifiedRoute {
 
 /**
  * Verify route using router.getAmountsOut
- * 
- * Matches tiwi-test approach:
+ *
  * - Try full amount first
- * - If fails with "K" error (insufficient liquidity), try progressively smaller amounts
+ * - If fails with liquidity error, try smaller amounts sequentially
  * - Scale output based on test amount that worked
- * - Always return a verified route if any amount works
- * 
- * @param path Array of token addresses (fromToken → ... → toToken)
- * @param chainId Chain ID
- * @param dexId DexScreener dexId
- * @param amountIn Input amount in smallest unit
- * @returns Verified route if valid, null if invalid
+ * - Results cached for 30 seconds
  */
-
 export async function verifyRoute(
   path: Address[],
   chainId: number,
   dexId: string,
   amountIn: bigint
 ): Promise<VerifiedRoute | null> {
+  // Check cache first
+  const cacheKey = getCacheKey(path, chainId, dexId, amountIn);
+  const cached = getCachedResult(cacheKey);
+  if (cached !== undefined) return cached;
+
   try {
     // Get DEX config
     const dexConfig = findDEXByDexId(chainId, dexId);
-    if (!dexConfig) {
-      console.warn(`[RouteVerifier] DEX ${dexId} not supported on chain ${chainId}`);
-      return null;
-    }
+    if (!dexConfig) return null;
 
-    // Get cached public client (shared across all parallel verifications)
+    // Get cached public client
     const publicClient = getPublicClient(chainId);
-    if (!publicClient) {
-      console.warn(`[RouteVerifier] Chain ${chainId} not supported`);
-      return null;
-    }
-
-    const rpcUrl = getRpcUrl(chainId);
-
-    // Call router.getAmountsOut (minimal logging for parallel speed)
-    console.log(`[RouteVerifier] Verifying ${path.length}-token path on ${dexId} (chain ${chainId})`);
+    if (!publicClient) return null;
 
     // Helper to try getAmountsOut with a specific amount
     const tryGetAmountsOut = async (testAmount: bigint): Promise<bigint[] | null> => {
@@ -142,145 +205,122 @@ export async function verifyRoute(
         return null;
       } catch (error: any) {
         const errorMsg = error?.message || error?.toString() || '';
-        // "K" error means insufficient liquidity for this amount
+        // Liquidity errors - try smaller amount
         if (errorMsg.includes('K') || errorMsg.includes('constant product') ||
           errorMsg.includes('insufficient') || errorMsg.includes('INSUFFICIENT')) {
-          return null; // Amount too large, try smaller
+          return null;
         }
-        throw error; // Other errors should be propagated
+        throw error;
       }
     };
 
-    const startTime = Date.now();
     let amounts: bigint[] | null = null;
-    let lastError: any = null;
 
     // Try full amount first
     try {
       amounts = await tryGetAmountsOut(amountIn);
-      if (amounts) {
-        console.log(`[RouteVerifier] ✅ Got quote with full amount`);
-      }
-    } catch (error: any) {
-      lastError = error;
+    } catch {
+      // Full amount failed, will try smaller
     }
 
-    // If full amount failed, try progressively smaller amounts in parallel (tiwi-test approach)
+    // If full amount failed, try smaller amounts SEQUENTIALLY (avoids RPC overload)
     if (!amounts || (amounts.length > 0 && amounts[amounts.length - 1] === BigInt(0))) {
-      console.log(`[RouteVerifier] Full amount failed, trying smaller amounts in parallel...`);
       const testAmounts = [
-        amountIn / BigInt(2),      // 50%
         amountIn / BigInt(10),     // 10%
         amountIn / BigInt(100),    // 1%
         BigInt(10 ** 18),          // 1 token (for 18 decimals)
       ].filter(amt => amt > BigInt(0));
 
-      // Try all test amounts in parallel
-      const testResults = await Promise.allSettled(
-        testAmounts.map(testAmount => tryGetAmountsOut(testAmount))
-      );
+      for (const testAmount of testAmounts) {
+        try {
+          const testResult = await tryGetAmountsOut(testAmount);
+          if (testResult) {
+            const testAmountOut = testResult[testResult.length - 1];
+            const ratio = amountIn / testAmount;
 
-      // Find first successful result
-      for (let i = 0; i < testResults.length; i++) {
-        const result = testResults[i];
-        if (result.status === 'fulfilled' && result.value) {
-          const testAmount = testAmounts[i];
-          const testAmountsResult = result.value;
-          const testAmountOut = testAmountsResult[testAmountsResult.length - 1];
-          const ratio = amountIn / testAmount;
+            let scaleFactor = BigInt(100);
+            if (ratio > BigInt(100)) scaleFactor = BigInt(75);
+            else if (ratio > BigInt(10)) scaleFactor = BigInt(90);
 
-          // Scale factor based on ratio (tiwi-test logic)
-          let scaleFactor = BigInt(100);
-          if (ratio > BigInt(100)) scaleFactor = BigInt(75);
-          else if (ratio > BigInt(10)) scaleFactor = BigInt(90);
+            const estimatedAmountOut = (testAmountOut * ratio * scaleFactor) / BigInt(100);
 
-          // Estimate output for full amount
-          const estimatedAmountOut = (testAmountOut * ratio * scaleFactor) / BigInt(100);
-
-          // Build amounts array
-          amounts = [amountIn];
-          for (let j = 0; j < path.length - 1; j++) {
-            if (j === path.length - 2) {
-              amounts.push(estimatedAmountOut);
-            } else {
-              const intermediateOut = testAmountsResult[j + 1];
-              amounts.push((intermediateOut * ratio * scaleFactor) / BigInt(100));
+            amounts = [amountIn];
+            for (let j = 0; j < path.length - 1; j++) {
+              if (j === path.length - 2) {
+                amounts.push(estimatedAmountOut);
+              } else {
+                const intermediateOut = testResult[j + 1];
+                amounts.push((intermediateOut * ratio * scaleFactor) / BigInt(100));
+              }
             }
+            break; // Found working amount, stop trying
           }
-
-          console.log(`[RouteVerifier] ✅ Got quote using scaled estimation from ${testAmount.toString()}`);
-          break;
+        } catch {
+          // Try next amount
         }
       }
     }
 
-    const verifyTime = Date.now() - startTime;
-
     // Check if we have valid amounts
-    if (!amounts || amounts.length === 0) {
-      // Quiet fail - these are expected during parallel path testing
-      return null;
-    }
-
-    console.log(`[RouteVerifier] Verified in ${verifyTime}ms (${amounts.length} steps)`);
-
-    // Check if route is valid
-    if (amounts.length !== path.length) {
-      console.warn(`[RouteVerifier] ❌ Invalid amounts array length: expected ${path.length}, got ${amounts.length}`);
+    if (!amounts || amounts.length === 0 || amounts.length !== path.length) {
+      setCachedResult(cacheKey, null);
       return null;
     }
 
     if (amounts[0] !== amountIn) {
-      console.warn(`[RouteVerifier] ❌ Input amount mismatch: expected ${amountIn}, got ${amounts[0]}`);
+      setCachedResult(cacheKey, null);
       return null;
     }
 
     const outputAmount = amounts[amounts.length - 1];
     if (outputAmount === BigInt(0)) {
-      console.warn(`[RouteVerifier] ❌ Route returns zero output`);
+      setCachedResult(cacheKey, null);
       return null;
     }
 
-    console.log(`[RouteVerifier] ✅ Verified: output=${outputAmount.toString()} (${verifyTime}ms)`);
-
-    return {
+    const result: VerifiedRoute = {
       path,
       outputAmount,
       dexId,
       chainId,
       valid: true,
     };
+
+    setCachedResult(cacheKey, result);
+    return result;
   } catch (error: any) {
-    // Route doesn't work (pair doesn't exist, insufficient liquidity, etc.)
-    console.warn(`[RouteVerifier] Route verification failed:`, error.message);
+    // Route doesn't work
+    setCachedResult(cacheKey, null);
     return null;
   }
 }
 
 /**
- * Verify multiple routes and return the best one
- * 
+ * Verify multiple routes with concurrency control and return the best one
+ *
  * @param routes Array of routes to verify
  * @param chainId Chain ID
  * @param amountIn Input amount
+ * @param concurrency Max concurrent verifications (default: 8)
  * @returns Best verified route or null
  */
 export async function verifyRoutes(
   routes: Array<{ path: Address[]; dexId: string }>,
   chainId: number,
-  amountIn: bigint
+  amountIn: bigint,
+  concurrency: number = 8
 ): Promise<VerifiedRoute | null> {
-  // Verify all routes in parallel
-  const verifiedRoutes = await Promise.all(
-    routes.map(route => verifyRoute(route.path, chainId, route.dexId, amountIn))
-  );
+  // Verify routes with concurrency limiter
+  const tasks = routes.map(route => () => verifyRoute(route.path, chainId, route.dexId, amountIn));
+  const results = await withConcurrency(tasks, concurrency);
 
   // Filter out null results
-  const validRoutes = verifiedRoutes.filter((r): r is VerifiedRoute => r !== null);
+  const validRoutes = results
+    .filter((r): r is PromiseFulfilledResult<VerifiedRoute | null> =>
+      r.status === 'fulfilled' && r.value !== null)
+    .map(r => r.value!);
 
-  if (validRoutes.length === 0) {
-    return null;
-  }
+  if (validRoutes.length === 0) return null;
 
   // Return route with highest output
   return validRoutes.reduce((best, current) =>
@@ -288,3 +328,7 @@ export async function verifyRoutes(
   );
 }
 
+/**
+ * Exported concurrency helper for use by other modules (e.g., same-chain-finder)
+ */
+export { withConcurrency };

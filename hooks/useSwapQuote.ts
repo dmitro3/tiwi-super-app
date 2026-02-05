@@ -32,7 +32,7 @@ export function useSwapQuote({
   fromToken,
   toToken,
   recipient,
-  delay = 500,
+  delay = 200,
 }: UseSwapQuoteOptions): void {
   const setRoute = useSwapStore((state) => state.setRoute);
   const setToAmount = useSwapStore((state) => state.setToAmount);

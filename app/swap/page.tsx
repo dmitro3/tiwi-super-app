@@ -52,13 +52,13 @@ export const DEFAULT_FROM_TOKEN: Token = {
 };
 
 export const DEFAULT_TO_TOKEN: Token = {
-  id: "56-0x55d398326f99059ff775485246999027b3197955".toLowerCase(),
-  name: "Binance Coin",
+  id: "56-0x0000000000000000000000000000000000000000",
+  name: "BNB",
   symbol: "BNB",
-  address: "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c",
+  address: "0x0000000000000000000000000000000000000000",
   chain: "BNB Chain",
   chainId: 56,
-  logo: "/assets/icons/tokens/tether.svg",
+  logo: "/assets/icons/chains/bsc.svg",
   chainLogo: "/assets/icons/chains/bsc.svg",
   chainBadge: "bsc",
   decimals: 18

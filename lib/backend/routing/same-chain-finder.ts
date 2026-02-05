@@ -1,18 +1,20 @@
 /**
  * Same-Chain Route Finder
- * 
- * Finds routes for swaps on the same chain using a Breadth-First Search (BFS) 
+ *
+ * Finds routes for swaps on the same chain using a Breadth-First Search (BFS)
  * through prioritized intermediaries, verified by on-chain router quotes.
- * 
+ *
  * Algorithm:
- * 1. Direct [From -> To]
- * 2. 2-Hop [From -> Intermediary -> To]
- * 3. 3-Hop [From -> Int1 -> Int2 -> To]
+ * 1. Direct [From -> To] (all DEXes)
+ * 2. 2-Hop [From -> Intermediary -> To] (all DEXes)
+ * 3. 3-Hop [From -> Int1 -> Int2 -> To] (primary DEX only, top 4 intermediaries)
+ *
+ * Uses concurrency-limited verification to avoid RPC rate limiting.
  */
 
 import type { Address } from 'viem';
 import { getIntermediaries } from './intermediaries';
-import { verifyRoute } from './route-verifier';
+import { verifyRoute, withConcurrency } from './route-verifier';
 import { getSupportedDEXes } from './dex-registry';
 
 /**
@@ -33,6 +35,14 @@ export interface SameChainRoute {
 }
 
 /**
+ * Internal type for path + dexId pairing
+ */
+interface PathCandidate {
+  path: Address[];
+  dexId: string;
+}
+
+/**
  * Same-Chain Route Finder
  */
 export class SameChainRouteFinder {
@@ -47,58 +57,59 @@ export class SameChainRouteFinder {
     fromTokenSymbol?: string,
     toTokenSymbol?: string
   ): Promise<SameChainRoute | null> {
-    console.log(`\n[SameChainFinder] 🎯 FINDING ROUTE: ${fromTokenSymbol || fromToken.slice(0, 8)} → ${toTokenSymbol || toToken.slice(0, 8)} (Chain ${chainId})`);
+    console.log(`\n[SameChainFinder] Finding route: ${fromTokenSymbol || fromToken.slice(0, 8)} → ${toTokenSymbol || toToken.slice(0, 8)} (Chain ${chainId})`);
 
     const intermediaries = getIntermediaries(chainId);
     const supportedDEXes = getSupportedDEXes(chainId);
 
     if (supportedDEXes.length === 0) {
-      console.warn(`[SameChainFinder] ❌ No supported DEXes on chain ${chainId}`);
+      console.warn(`[SameChainFinder] No supported DEXes on chain ${chainId}`);
       return null;
     }
 
-    // We use the primary DEX for verification to keep it deterministic
-    const dexId = supportedDEXes[0].dexId;
     const from = fromToken.toLowerCase() as Address;
     const to = toToken.toLowerCase() as Address;
+    const dexIds = supportedDEXes.map(d => d.dexId);
 
-    // Build candidate paths
-    const paths: Address[][] = [];
+    // Build candidate paths with DEX pairings
+    const candidates: PathCandidate[] = [];
 
-    // 1. Direct path
-    paths.push([from, to]);
+    // 1. Direct path - try ALL DEXes
+    for (const dexId of dexIds) {
+      candidates.push({ path: [from, to], dexId });
+    }
 
-    // 2. 2-Hop paths (From -> Intermediary -> To)
+    // 2. 2-Hop paths - try ALL DEXes
     for (const intermediary of intermediaries) {
       const intAddr = intermediary.address.toLowerCase() as Address;
       if (intAddr === from || intAddr === to) continue;
-      paths.push([from, intAddr, to]);
+      for (const dexId of dexIds) {
+        candidates.push({ path: [from, intAddr, to], dexId });
+      }
     }
 
-    // 3. 3-Hop paths (From -> Int1 -> Int2 -> To)
-    // We limit this to the top 5 intermediaries to avoid massive RPC load
-    const topIntermediaries = intermediaries.slice(0, 6);
+    // 3. 3-Hop paths - primary DEX only, top 4 intermediaries (reduces RPC load)
+    const primaryDexId = dexIds[0];
+    const topIntermediaries = intermediaries.slice(0, 4);
     for (let i = 0; i < topIntermediaries.length; i++) {
       for (let j = 0; j < topIntermediaries.length; j++) {
         if (i === j) continue;
         const int1 = topIntermediaries[i].address.toLowerCase() as Address;
         const int2 = topIntermediaries[j].address.toLowerCase() as Address;
-
         if (int1 === from || int1 === to || int2 === from || int2 === to) continue;
-        paths.push([from, int1, int2, to]);
+        candidates.push({ path: [from, int1, int2, to], dexId: primaryDexId });
       }
     }
 
-    console.log(`[SameChainFinder]   Generated ${paths.length} candidate paths for verification`);
+    console.log(`[SameChainFinder]   ${candidates.length} candidates (${dexIds.length} DEXes, ${intermediaries.length} intermediaries)`);
+
+    // Verify with concurrency limit of 8 to avoid RPC rate limiting
+    const startTime = Date.now();
+    const tasks = candidates.map(c => () => verifyRoute(c.path, chainId, c.dexId, amountIn));
+    const results = await withConcurrency(tasks, 8);
+    console.log(`[SameChainFinder]   Verification took ${Date.now() - startTime}ms`);
 
     let bestRoute: SameChainRoute | null = null;
-
-    // Verify ALL paths in parallel for maximum speed
-    const startTime = Date.now();
-    const results = await Promise.allSettled(
-      paths.map(path => verifyRoute(path, chainId, dexId, amountIn))
-    );
-    console.log(`[SameChainFinder]   ⚡ Parallel verification of ${paths.length} paths took ${Date.now() - startTime}ms`);
 
     for (let idx = 0; idx < results.length; idx++) {
       const result = results[idx];
@@ -107,33 +118,30 @@ export class SameChainRouteFinder {
       const verified = result.value;
       if (verified.outputAmount <= BigInt(0)) continue;
 
-      const path = paths[idx];
+      const candidate = candidates[idx];
       const route: SameChainRoute = {
         path: verified.path,
         outputAmount: verified.outputAmount,
         dexId: verified.dexId,
         chainId: verified.chainId,
-        hops: path.length - 1,
+        hops: candidate.path.length - 1,
         verified: true,
-        pairs: path.slice(0, -1).map((token, i) => ({
+        pairs: candidate.path.slice(0, -1).map((token, i) => ({
           tokenA: token,
-          tokenB: path[i + 1],
-          dexId,
+          tokenB: candidate.path[i + 1],
+          dexId: candidate.dexId,
         }))
       };
 
-      // Pick route with highest output
       if (!bestRoute || route.outputAmount > bestRoute.outputAmount) {
         bestRoute = route;
       }
     }
 
     if (bestRoute) {
-      console.log(`[SameChainFinder]   ✅ SUCCESS: Found ${bestRoute.hops}-hop route via ${bestRoute.dexId}`);
-      console.log(`[SameChainFinder]   Path: ${bestRoute.path.join(' → ')}`);
-      console.log(`[SameChainFinder]   Output: ${bestRoute.outputAmount.toString()}`);
+      console.log(`[SameChainFinder]   Found ${bestRoute.hops}-hop route via ${bestRoute.dexId} (${Date.now() - startTime}ms)`);
     } else {
-      console.log(`[SameChainFinder]   ❌ No route found on chain ${chainId}`);
+      console.log(`[SameChainFinder]   No route found on chain ${chainId}`);
     }
 
     return bestRoute;
