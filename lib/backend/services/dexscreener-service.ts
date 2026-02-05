@@ -10,7 +10,7 @@ interface DexScreenerProfile {
     name: string;
     logoUrl?: string;
     description?: string;
-    fdv?: number;
+    marketCap?: number;
     liquidity?: number;
     socials?: { type: string; url: string }[];
     websites?: { label: string; url: string }[];
@@ -38,6 +38,7 @@ export async function searchTokenProfile(symbol: string): Promise<DexScreenerPro
         if (!response.ok) return null;
 
         const data = await response.json();
+        // console.log("🚀 ~ searchTokenProfile ~ data:", data.pairs[0])
 
         if (!data.pairs || data.pairs.length === 0) return null;
 
@@ -45,17 +46,33 @@ export async function searchTokenProfile(symbol: string): Promise<DexScreenerPro
         const bestPair = data.pairs.sort((a: any, b: any) =>
             (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0)
         )[0];
+        console.log("🚀 ~ searchTokenProfile ~ bestPair:", bestPair.info.websites, bestPair.info.socials)
 
         const profile: DexScreenerProfile = {
             symbol: bestPair.baseToken.symbol,
             name: bestPair.baseToken.name,
             logoUrl: bestPair.info?.imageUrl,
             description: bestPair.info?.description,
-            fdv: bestPair.fdv || bestPair.marketCap,
+            marketCap: bestPair.marketCap || bestPair.fdv,
             liquidity: bestPair.liquidity?.usd,
-            socials: bestPair.info?.socials || [],
-            websites: bestPair.info?.websites || [],
+            socials: (bestPair.info?.socials || []).map((s: any) => ({
+                type: s.type,
+                url: s.url
+            })),
+            websites: (bestPair.info?.websites || []).map((w: any) => ({
+                label: w.label,
+                url: w.url
+            })),
         };
+
+        // If no X/Twitter social exists, add a placeholder search redirect
+        const hasTwitter = profile.socials?.some(s => s.type === 'twitter' || s.type === 'x');
+        if (!hasTwitter) {
+            profile.socials?.push({
+                type: 'twitter',
+                url: `https://x.com/search?q=${symbol}+token`
+            });
+        }
 
         // Cache the result
         metadataCache.set(cacheKey, {

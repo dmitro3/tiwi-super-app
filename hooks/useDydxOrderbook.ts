@@ -1,15 +1,15 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { OrderbookState, OrderBookLevel } from "./useBinanceOrderbook";
+import { OrderbookState } from "./useBinanceOrderbook";
+import { useDydxPollingOrderbook } from "./useDydxPollingOrderbook";
 
 /**
- * Custom hook for real-time dYdX v4 orderbook via Indexer WebSocket
+ * Hybrid dYdX Orderbook Hook
+ * Tries WebSocket first, falls back to server-side polling if connection fails.
  */
-export function useDydxOrderbook(
-    market: string,
-): OrderbookState {
-    const [state, setState] = useState<OrderbookState>({
+export function useDydxOrderbook(market: string): OrderbookState {
+    const [wsState, setWsState] = useState<OrderbookState>({
         bids: [],
         asks: [],
         currentPrice: 0,
@@ -19,92 +19,45 @@ export function useDydxOrderbook(
         supported: true,
     });
 
-    const bidsMap = useRef<Map<string, string>>(new Map());
-    const asksMap = useRef<Map<string, string>>(new Map());
+    const [isFallbackActive, setIsFallbackActive] = useState(false);
     const wsRef = useRef<WebSocket | null>(null);
-    const updateThrottle = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const connectionTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-    // dYdX Indexer WS uses markets like "BTC-USD"
-    const dydxMarket = market.toUpperCase().includes('-') ? market.toUpperCase() : `${market.toUpperCase().replace('USDT', '')}-USD`;
+    // Normalize market
+    let dydxMarket = market.toUpperCase().replace('_', '-').replace('/', '-');
+    if (dydxMarket.includes('USDT')) {
+        dydxMarket = dydxMarket.replace('USDT', 'USD');
+    }
+    if (dydxMarket && !dydxMarket.includes('-')) {
+        dydxMarket = `${dydxMarket}-USD`;
+    }
 
-    const scheduleUpdate = useCallback(() => {
-        if (updateThrottle.current) return;
-        updateThrottle.current = setTimeout(() => {
-            updateThrottle.current = null;
+    // Use the polling hook (always running but we only use its state if fallback is active)
+    const pollingState = useDydxPollingOrderbook(market, isFallbackActive);
 
-            const formatPrice = (p: number) => p.toFixed(2);
-            const formatQty = (q: number) => q.toFixed(4);
-
-            const bids = Array.from(bidsMap.current.entries())
-                .map(([price, size]) => ({
-                    priceNum: parseFloat(price),
-                    qtyNum: parseFloat(size),
-                }))
-                .filter(l => l.qtyNum > 0)
-                .sort((a, b) => b.priceNum - a.priceNum)
-                .slice(0, 12)
-                .map(l => ({
-                    price: formatPrice(l.priceNum),
-                    quantity: formatQty(l.qtyNum),
-                    total: formatPrice(l.priceNum * l.qtyNum)
-                }));
-
-            const asks = Array.from(asksMap.current.entries())
-                .map(([price, size]) => ({
-                    priceNum: parseFloat(price),
-                    qtyNum: parseFloat(size),
-                }))
-                .filter(l => l.qtyNum > 0)
-                .sort((a, b) => a.priceNum - b.priceNum)
-                .slice(0, 12)
-                .map(l => ({
-                    price: formatPrice(l.priceNum),
-                    quantity: formatQty(l.qtyNum),
-                    total: formatPrice(l.priceNum * l.qtyNum)
-                }));
-
-            // Invert asks for UI (highest at top)
-            asks.reverse();
-
-            let currentPrice = 0;
-            if (bids.length > 0 && asks.length > 0) {
-                currentPrice = (parseFloat(bids[0].price) + parseFloat(asks[asks.length - 1].price)) / 2;
-            }
-
-            setState((prev) => ({
-                ...prev,
-                bids,
-                asks,
-                currentPrice,
-                isLoading: false,
-            }));
-        }, 250);
-    }, []);
-
-    const applyUpdates = useCallback((bids: [string, string][], asks: [string, string][]) => {
-        for (const [price, size] of bids) {
-            if (parseFloat(size) === 0) bidsMap.current.delete(price);
-            else bidsMap.current.set(price, size);
-        }
-        for (const [price, size] of asks) {
-            if (parseFloat(size) === 0) asksMap.current.delete(price);
-            else asksMap.current.set(price, size);
-        }
-        scheduleUpdate();
-    }, [scheduleUpdate]);
-
-    useEffect(() => {
+    const connectWs = useCallback(() => {
         if (!market) return;
 
+        console.log(`[useDydxOrderbook] Attempting WebSocket for ${dydxMarket}...`);
         const wsUrl = 'wss://indexer.dydx.trade/v4/ws';
         const ws = new WebSocket(wsUrl);
         wsRef.current = ws;
 
-        ws.onopen = () => {
-            console.log('[useDydxOrderbook] Connected to dYdX WS');
-            setState(prev => ({ ...prev, isConnected: true }));
+        // Set a timeout to switch to polling if we don't connect within 5 seconds
+        connectionTimeout.current = setTimeout(() => {
+            if (ws.readyState !== WebSocket.OPEN) {
+                console.warn("[useDydxOrderbook] WS Connection timed out. Switching to polling fallback.");
+                setIsFallbackActive(true);
+                ws.close();
+            }
+        }, 3000);
 
-            // Subscribe to orderbook
+        ws.onopen = () => {
+            if (connectionTimeout.current) clearTimeout(connectionTimeout.current);
+            console.log('[useDydxOrderbook] WS Connected');
+            setIsFallbackActive(false);
+            setWsState(prev => ({ ...prev, isConnected: true }));
+
             ws.send(JSON.stringify({
                 type: 'subscribe',
                 channel: 'v4_orderbook',
@@ -115,11 +68,23 @@ export function useDydxOrderbook(
         ws.onmessage = (event) => {
             try {
                 const data = JSON.parse(event.data);
+                if (data.type === 'channel_data' && data.contents) {
+                    // Update state from WS
+                    // Note: This logic is simplified for now to match the UI expectations
+                    // If you need full depth management, you'd use a Map here.
+                    const transform = (levels: any[]) => levels.map((l: any) => ({
+                        price: parseFloat(l[0] || l.price).toFixed(2),
+                        quantity: parseFloat(l[1] || l.size || l.quantity).toFixed(4),
+                        total: (parseFloat(l[0] || l.price) * parseFloat(l[1] || l.size)).toFixed(2)
+                    }));
 
-                if (data.type === 'subscribed' || data.type === 'channel_batch' || data.type === 'channel_data') {
-                    if (data.contents) {
-                        applyUpdates(data.contents.bids || [], data.contents.asks || []);
-                    }
+                    setWsState(prev => ({
+                        ...prev,
+                        bids: transform(data.contents.bids || []).slice(0, 15),
+                        asks: transform(data.contents.asks || []).slice(0, 15).reverse(),
+                        isLoading: false,
+                        error: null
+                    }));
                 }
             } catch (err) {
                 console.error('[useDydxOrderbook] WS parse error:', err);
@@ -127,26 +92,27 @@ export function useDydxOrderbook(
         };
 
         ws.onerror = (err) => {
-            console.error('[useDydxOrderbook] WS error:', err);
-            setState(prev => ({ ...prev, error: 'Connection error', isConnected: false }));
+            console.error('[useDydxOrderbook] WS Error:', err);
+            setIsFallbackActive(true);
         };
 
         ws.onclose = () => {
-            console.log('[useDydxOrderbook] WS closed');
-            setState(prev => ({ ...prev, isConnected: false }));
+            console.log('[useDydxOrderbook] WS Closed');
+            // If it closed unexpectedly, trigger fallback
+            setIsFallbackActive(true);
         };
+    }, [dydxMarket, market]);
+
+    useEffect(() => {
+        setIsFallbackActive(false);
+        connectWs();
 
         return () => {
-            if (ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({
-                    type: 'unsubscribe',
-                    channel: 'v4_orderbook',
-                    id: dydxMarket
-                }));
-                ws.close();
-            }
+            if (wsRef.current) wsRef.current.close();
+            if (connectionTimeout.current) clearTimeout(connectionTimeout.current);
         };
-    }, [dydxMarket, applyUpdates]);
+    }, [connectWs]);
 
-    return state;
+    // Return polling state if fallback is active, else return WS state
+    return isFallbackActive ? pollingState : wsState;
 }

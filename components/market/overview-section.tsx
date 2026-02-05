@@ -62,15 +62,37 @@ export default function OverviewSection({ pair, tokenData: tokenInfo }: Overview
     liquidity: formatLargeNumber(tokenInfo?.liquidity),
     volume24h: formatLargeNumber(tokenInfo?.volume24h),
     circulatingSupply: formatSupply(tokenInfo?.circulatingSupply),
+    socials: tokenInfo?.socials || [],
+    website: tokenInfo?.website || null,
   };
 
   return (
     <div className="flex h-[550px] lg:h-[400px] xl:h-[450px] 2xl:h-[550px] items-start overflow-y-auto px-0 py-6 lg:py-4 xl:py-5 2xl:py-6 w-[924px] lg:w-[671px] xl:w-[755px] 2xl:w-[924px]">
       {/* About Section - Left Side */}
       <div className="flex flex-1 flex-col gap-[18px] lg:gap-[13px] xl:gap-[15px] 2xl:gap-[18px] items-start min-h-0 min-w-0 px-10 lg:px-7 xl:px-8 2xl:px-10 py-0 text-white">
-        <p className="font-semibold leading-normal relative shrink-0 text-xl lg:text-base xl:text-lg 2xl:text-xl text-center text-white">
-          About
-        </p>
+        <div className="flex justify-between items-center w-full">
+          <p className="font-semibold leading-normal relative shrink-0 text-xl lg:text-base xl:text-lg 2xl:text-xl text-center text-white">
+            About
+          </p>
+          <div className="flex gap-3 items-center">
+            {tokenData.website && (
+              <a href={tokenData.website} target="_blank" rel="noopener noreferrer" className="hover:opacity-80 transition-opacity">
+                <Image src="/assets/icons/home/globe.svg" alt="Website" width={20} height={20} className="opacity-60 hover:opacity-100" />
+              </a>
+            )}
+            {tokenData.socials.map((social: any, i: number) => (
+              <a key={i} href={social.url} target="_blank" rel="noopener noreferrer" className="hover:opacity-80 transition-opacity">
+                <Image
+                  src={social.type === 'twitter' || social.type === 'x' ? '/assets/icons/home/twitter.svg' : '/assets/icons/home/telegram.svg'}
+                  alt={social.type}
+                  width={20}
+                  height={20}
+                  className="opacity-60 hover:opacity-100"
+                />
+              </a>
+            ))}
+          </div>
+        </div>
         <p className="font-medium leading-[1.478] min-w-full relative shrink-0 text-sm lg:text-xs xl:text-xs 2xl:text-sm tracking-[0.56px] whitespace-pre-wrap">
           {tokenData.about}
         </p>
@@ -81,7 +103,7 @@ export default function OverviewSection({ pair, tokenData: tokenInfo }: Overview
         <p className="font-semibold leading-normal relative shrink-0 text-xl lg:text-base xl:text-lg 2xl:text-xl text-center text-white">
           Token Details
         </p>
-        
+
         <div className="flex flex-col gap-4 lg:gap-3 xl:gap-3.5 2xl:gap-4 items-start w-full">
           {/* Token Name */}
           <div className="flex items-start justify-between w-full">
@@ -239,7 +261,7 @@ export default function OverviewSection({ pair, tokenData: tokenInfo }: Overview
           </div>
         </div>
       </div>
-      </div>
+    </div>
   );
 }
 

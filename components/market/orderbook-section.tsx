@@ -28,8 +28,8 @@ export default function OrderbookSection({
   const [activeTab, setActiveTab] = useState<OrderbookTab>("Order Book");
   const [depthLevel, setDepthLevel] = useState(1);
 
-  // Auto-detect provider. dYdX is used for perp USD pairs.
-  const isDydxMarket = marketType === 'perp' && (quoteSymbol === 'USD' || quoteSymbol === 'USDC');
+  // Auto-detect provider. dYdX is the primary provider for perps/USD markets in TIWI.
+  const isDydxMarket = marketType === 'perp' || quoteSymbol === 'USD' || quoteSymbol === 'USDC';
 
   // Use appropriate hook based on provider
   const binanceResult = useBinanceOrderbook(
@@ -41,7 +41,9 @@ export default function OrderbookSection({
   const dydxResult = useDydxOrderbook(
     isDydxMarket ? `${baseSymbol}-${quoteSymbol}` : ''
   );
+  console.log("🚀 ~ OrderbookSection ~ dydxResult:", dydxResult)
 
+  const currentResult = isDydxMarket ? dydxResult : binanceResult;
   const {
     bids,
     asks,
@@ -50,7 +52,7 @@ export default function OrderbookSection({
     isLoading,
     error,
     supported,
-  } = isDydxMarket ? dydxResult : binanceResult;
+  } = currentResult;
 
   const price = wsPrice > 0 ? wsPrice : initialPrice;
   const formattedPrice = price > 0 ? price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00';
@@ -116,7 +118,7 @@ export default function OrderbookSection({
               Order book not available for this pair
             </span>
             <span className="text-[#5a5a5a] text-xs text-center max-w-[200px]">
-              {error || `${baseSymbol}/${quoteSymbol} is not listed on Binance ${marketType} market`}
+              {error || `${baseSymbol}/${quoteSymbol} is not listed on ${isDydxMarket ? 'dYdX' : 'Binance'} ${marketType} market`}
             </span>
           </div>
         ) : (

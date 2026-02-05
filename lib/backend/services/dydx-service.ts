@@ -66,11 +66,11 @@ export async function getDydxMarkets(): Promise<any[]> {
                         getEnrichedMetadata(baseSymbol),
                         getDydxCandles(market.ticker, '1DAY', 1).catch(() => [])
                     ]);
-                    
+
                     const tickerPrice = parseFloat(market.oraclePrice || '0');
                     const priceChange = parseFloat(market.priceChange24H || '0');
                     const priceChangePct = tickerPrice > 0 ? (priceChange / (tickerPrice - priceChange)) * 100 : 0;
-                    
+
                     const lastCandle = candles[0];
 
                     return {
@@ -114,7 +114,11 @@ export async function getDydxMarkets(): Promise<any[]> {
             })
         );
 
-        return enrichedMarkets;
+        const sortedMarkets = enrichedMarkets.sort((a, b) => b.volume24h - a.volume24h);
+        return sortedMarkets.map((market, index) => ({
+            ...market,
+            rank: index + 1
+        }));
     } catch (error) {
         console.error('[DydxService] Error fetching markets:', error);
         return [];
@@ -126,7 +130,7 @@ export async function getDydxMarkets(): Promise<any[]> {
  */
 export async function getDydxOrderbook(market: string): Promise<OrderBookData | null> {
     const symbol = normalizeMarket(market);
-    const url = `${DYDX_INDEXER_API}/orderbook/${symbol}`;
+    const url = `${DYDX_INDEXER_API}/orderbooks/perpetualMarket/${symbol}`;
 
     try {
         const response = await fetch(url);
@@ -183,6 +187,46 @@ export async function getDydxTicker(market: string): Promise<any | null> {
         };
     } catch (error) {
         console.error('[DydxService] Error fetching ticker:', error);
+        return null;
+    }
+}
+
+/**
+ * Calculates current orderbook liquidity (sum of top 25 levels in USD)
+ */
+function calculateLiquidity(bids: any[], asks: any[]): number {
+    const sumLevels = (levels: any[]) => levels.slice(0, 25).reduce((acc, l) =>
+        acc + (parseFloat(l.price) * parseFloat(l.size || l.quantity)), 0);
+    return sumLevels(bids) + sumLevels(asks);
+}
+
+/**
+ * Fetches the "Full Package" for a single market detail page
+ */
+export async function getDydxMarketDetail(market: string) {
+    const symbol = normalizeMarket(market);
+    const baseSymbol = symbol.split('-')[0];
+
+    try {
+        const [ticker, orderbook, meta] = await Promise.all([
+            getDydxTicker(symbol),
+            getDydxOrderbook(symbol),
+            getEnrichedMetadata(baseSymbol)
+        ]);
+
+        if (!ticker) return null;
+
+        const orderbookLiquidity = orderbook ? calculateLiquidity(orderbook.bids, orderbook.asks) : 0;
+
+        return {
+            symbol: symbol,
+            ticker: ticker,
+            metadata: meta,
+            orderbookLiquidity: orderbookLiquidity,
+            marketCap: meta.marketCap || 0, // Fallback to meta mcap
+        };
+    } catch (err) {
+        console.error('[DydxService] Error fetching market detail:', err);
         return null;
     }
 }

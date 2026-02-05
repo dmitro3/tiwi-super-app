@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
         const promises: Promise<any>[] = [];
 
         // Fetch enriched dYdX markets
-        if (marketType === 'all' || marketType === 'perp') {
+        if (marketType === 'all' || marketType === 'perp' || marketType === 'spot') {
             promises.push(getDydxMarkets().then(markets => markets.map(m => ({
                 id: m.id,
                 symbol: m.symbol,
@@ -34,6 +34,8 @@ export async function GET(req: NextRequest) {
                 fundingRate: m.fundingRate,
                 openInterest: m.openInterest,
                 marketCap: m.marketCap,
+                rank: m.rank,
+                marketCapRank: m.rank, // Align with Token type
                 liquidity: m.liquidity,
                 socials: m.socials,
                 website: m.website,

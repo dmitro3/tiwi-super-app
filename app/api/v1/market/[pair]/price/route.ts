@@ -103,14 +103,13 @@ export async function GET(
     // ============================================================
     if (quoteSymbol === 'USD' || quoteSymbol === 'USDC') {
       try {
-        const { getDydxTicker } = await import('@/lib/backend/services/dydx-service');
-        const { getEnrichedMetadata } = await import('@/lib/backend/services/enrichment-service');
+        const { getDydxMarketDetail } = await import('@/lib/backend/services/dydx-service');
 
         const marketName = `${baseSymbol}-${quoteSymbol}`;
-        const ticker = await getDydxTicker(marketName);
+        const detail = await getDydxMarketDetail(marketName);
 
-        if (ticker) {
-          const baseMeta = await getEnrichedMetadata(baseSymbol);
+        if (detail) {
+          const ticker = detail.ticker;
           const tickerPrice = parseFloat(ticker.oraclePrice || '0');
           const priceChange = parseFloat(ticker.priceChange24H || '0');
           const priceChangePct = (tickerPrice > 0 && tickerPrice !== priceChange) ? (priceChange / (tickerPrice - priceChange)) * 100 : 0;
@@ -123,18 +122,18 @@ export async function GET(
             high24h: ticker.high24h || tickerPrice,
             low24h: ticker.low24h || tickerPrice,
             volume24h: parseFloat(ticker.volume24H || '0'),
-            description: baseMeta.description || null,
+            description: detail.metadata.description || null,
             baseToken: {
               symbol: baseSymbol,
-              name: baseMeta.name,
+              name: detail.metadata.name,
               address: '',
               chainId: 4, // dYdX
               priceUSD: tickerPrice,
-              logo: baseMeta.logo,
-              marketCap: baseMeta.marketCap,
-              liquidity: baseMeta.liquidity,
-              socials: baseMeta.socials,
-              website: baseMeta.website,
+              logo: detail.metadata.logo,
+              marketCap: detail.marketCap,
+              liquidity: detail.orderbookLiquidity, // Use calculated OB Liquidity
+              socials: detail.metadata.socials,
+              website: detail.metadata.website,
               circulatingSupply: null,
               decimals: Math.abs(parseFloat(ticker.atomicResolution || '-8')),
             },
