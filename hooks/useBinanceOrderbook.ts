@@ -177,7 +177,10 @@ export function useBinanceOrderbook(
   );
 
   useEffect(() => {
-    if (!baseSymbol || !quoteSymbol) return;
+    // Return early if symbols are empty (prevents errors when prioritized provider is dYdX)
+    if (!baseSymbol || !quoteSymbol || baseSymbol === '' || quoteSymbol === '') {
+      return;
+    }
 
     const wsSymbol = getSymbol();
     console.log("[useBinanceOrderbook] Starting for:", wsSymbol, marketType);

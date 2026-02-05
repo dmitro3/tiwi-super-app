@@ -88,17 +88,13 @@ export default function TradingPage() {
     const fetchMarketData = async () => {
       try {
         const normalized = pair.replace("/", "-").replace("_", "-").toUpperCase();
-        const parts = normalized.split("-");
+        const pairToFetch = normalized.includes("-") ? normalized : `${normalized}-USD`;
+        const parts = pairToFetch.split("-");
 
-        if (parts.length < 2) {
-          console.error('[MarketPage] Invalid pair format:', pair);
-          setIsLoading(false);
-          return;
-        }
-
-        const response = await fetch(`/api/v1/market/${pair}/price`);
+        const response = await fetch(`/api/v1/market/${pairToFetch}/price`);
         if (response.ok) {
           const priceData = await response.json();
+          console.log("🚀 ~ fetchMarketData ~ priceData:", priceData)
 
           setTokenData({
             symbol: priceData.baseToken.symbol,
