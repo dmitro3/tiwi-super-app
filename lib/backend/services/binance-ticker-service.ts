@@ -5,7 +5,7 @@
  * Provides caching and category-based filtering/sorting.
  */
 
-import { getCryptoMetadata } from '@/lib/backend/data/crypto-metadata';
+import { getCryptoMetadata } from '../data/crypto-metadata';
 
 // ============================================================================
 // Types

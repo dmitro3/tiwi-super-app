@@ -6,10 +6,8 @@ import MarketTabs from "@/components/market/market-tabs";
 import MarketSubTabs from "@/components/market/market-sub-tabs";
 import MarketTable from "@/components/market/market-table";
 import MobileMarketList from "@/components/market/mobile-market-list";
-import { useBinanceTickersQuery } from "@/hooks/useBinanceTickersQuery";
+import { useEnrichedMarkets } from "@/hooks/useEnrichedMarkets";
 import { usePrefetchMarkets } from "@/hooks/usePrefetchMarkets";
-import { fetchBinanceTickers } from "@/lib/frontend/api/binance-tickers";
-import { fetchTokens } from "@/lib/frontend/api/tokens";
 import type { Token } from "@/lib/frontend/types/tokens";
 
 type MarketTab = "Spot" | "Perp";
@@ -40,16 +38,16 @@ export default function MarketPage() {
   const [spotlightTokensData, setSpotlightTokensData] = useState<Token[]>([]);
   const [isSpotlightLoading, setIsSpotlightLoading] = useState(false);
   const rowsPerPage = 60;
-  
-  // Load favourites from localStorage and add TWC as default favorite
+
+  // Load favourites from localStorage
   useEffect(() => {
     const TWC_ADDRESS = '0xDA1060158F7D593667cCE0a15DB346BB3FfB3596';
     const TWC_CHAIN_ID = 56; // BNB Chain
     const TWC_ID = `${TWC_CHAIN_ID}-${TWC_ADDRESS.toLowerCase()}`;
-    
+
     const stored = localStorage.getItem('favouriteTokens');
     let favouritesList: string[] = [];
-    
+
     if (stored) {
       try {
         favouritesList = JSON.parse(stored);
@@ -57,17 +55,24 @@ export default function MarketPage() {
         console.error('[MarketPage] Error parsing favourites:', e);
       }
     }
-    
-    // Add TWC as default favorite if not already in list
+
     if (!favouritesList.includes(TWC_ID)) {
-      favouritesList.unshift(TWC_ID); // Add to beginning
+      favouritesList.unshift(TWC_ID);
       localStorage.setItem('favouriteTokens', JSON.stringify(favouritesList));
     }
-    
+
     setFavourites(favouritesList);
   }, []);
 
-  // Fetch spotlight tokens from database - optimized for fast loading
+  // Fetch unified enriched markets (Spot and Perp)
+  const {
+    data: allEnrichedTokens = [],
+    isLoading: isEnrichedLoading,
+  } = useEnrichedMarkets({
+    marketType: activeTab.toLowerCase() as 'spot' | 'perp',
+  });
+
+  // Fetch spotlight tokens separately as they are DB-driven
   useEffect(() => {
     if (activeSubTab !== "Spotlight") {
       setSpotlightTokensData([]);
@@ -77,169 +82,81 @@ export default function MarketPage() {
     const loadSpotlightTokens = async () => {
       setIsSpotlightLoading(true);
       try {
-        // Fetch spotlight tokens from database
         const response = await fetch(`/api/v1/token-spotlight?activeOnly=true`);
-        if (!response.ok) {
-          throw new Error("Failed to fetch spotlight tokens");
-        }
+        if (!response.ok) throw new Error("Failed to fetch spotlight tokens");
         const data = await response.json();
         const today = new Date().toISOString().split('T')[0];
         const activeTokens = (data.tokens || [])
           .filter((token: SpotlightToken) => token.startDate <= today && token.endDate >= today)
           .sort((a: SpotlightToken, b: SpotlightToken) => a.rank - b.rank);
-        
+
         setSpotlightTokens(activeTokens);
 
-        // Fetch real-time data for each spotlight token in parallel - optimized
-        const tokenDataPromises = activeTokens.map(async (spotlightToken: SpotlightToken) => {
-          try {
-            // Try address first (more accurate)
-            if (spotlightToken.address) {
-              const tokens = await fetchTokens({ address: spotlightToken.address, limit: 10 });
-              const matchedToken = tokens.find(
-                t => t.address.toLowerCase() === spotlightToken.address?.toLowerCase()
-              );
-              if (matchedToken) {
-                // Ensure logo is set from spotlight data if available
-                if (spotlightToken.logo && (!matchedToken.logo || matchedToken.logo === '')) {
-                  matchedToken.logo = spotlightToken.logo;
-                  matchedToken.logoURI = spotlightToken.logo;
-                }
-                return matchedToken;
-              }
-            }
-            // Fallback to symbol search
-            if (spotlightToken.symbol) {
-              const tokens = await fetchTokens({ query: spotlightToken.symbol, limit: 20 });
-              const matchedToken = tokens.find(
-                t => t.symbol.toUpperCase() === spotlightToken.symbol.toUpperCase()
-              );
-              if (matchedToken) {
-                // Ensure logo is set from spotlight data if available
-                if (spotlightToken.logo && (!matchedToken.logo || matchedToken.logo === '')) {
-                  matchedToken.logo = spotlightToken.logo;
-                  matchedToken.logoURI = spotlightToken.logo;
-                }
-                return matchedToken;
-              }
-            }
-          } catch (error) {
-            console.error(`Error fetching data for token ${spotlightToken.symbol}:`, error);
-          }
-          // Return a token object with spotlight data even if fetch fails
+        // Map spotlight database tokens to our enriched data if possible
+        const results = activeTokens.map((st: SpotlightToken) => {
+          const enriched = allEnrichedTokens.find(et =>
+            et.symbol.toUpperCase() === st.symbol.toUpperCase()
+          );
+
+          if (enriched) return enriched;
+
           return {
-            id: spotlightToken.id,
-            symbol: spotlightToken.symbol,
-            name: spotlightToken.name || spotlightToken.symbol,
-            address: spotlightToken.address || '',
-            logo: spotlightToken.logo || '',
-            logoURI: spotlightToken.logo || '',
-            chainId: 0, // Will be determined from address if available
+            id: st.id,
+            symbol: st.symbol,
+            name: st.name || st.symbol,
+            address: st.address || '',
+            logo: st.logo || '',
+            logoURI: st.logo || '',
+            chainId: 0,
             price: '0',
             priceChange24h: 0,
             volume24h: 0,
-            marketCap: 0,
-            marketCapRank: undefined,
           } as Token;
         });
 
-        const results = await Promise.all(tokenDataPromises);
-        setSpotlightTokensData(results.filter(Boolean) as Token[]);
+        setSpotlightTokensData(results);
       } catch (error) {
-        console.error("Error fetching spotlight data:", error);
-        setSpotlightTokens([]);
-        setSpotlightTokensData([]);
+        console.error("Error spotlight:", error);
       } finally {
         setIsSpotlightLoading(false);
       }
     };
 
-    loadSpotlightTokens();
-  }, [activeSubTab]);
+    if (allEnrichedTokens.length > 0) {
+      loadSpotlightTokens();
+    }
+  }, [activeSubTab, allEnrichedTokens]);
 
-  // Mapping subtabs to Binance categories
-  const categoryMap: Record<string, 'top' | 'new' | 'gainers' | 'losers' | null> = {
-    Top: 'top',
-    Spotlight: null, // Spotlight is handled separately
-    New: 'new',
-    Gainers: 'gainers',
-    Losers: 'losers',
-    Favourite: null, // Favourite is handled separately
-  };
+  // Determine filtering based on activeSubTab
+  const filteredTickers = useMemo(() => {
+    let list = Array.isArray(allEnrichedTokens) ? [...allEnrichedTokens] : [];
 
-  const binanceCategory = categoryMap[activeSubTab];
+    if (activeSubTab === "Gainers") {
+      return list.filter(t => t.priceChange24h > 0).sort((a, b) => b.priceChange24h - a.priceChange24h);
+    }
+    if (activeSubTab === "Losers") {
+      return list.filter(t => t.priceChange24h < 0).sort((a, b) => a.priceChange24h - b.priceChange24h);
+    }
+    if (activeSubTab === "New") {
+      // For now, we don't have a strict 'new' date, so just sort by something else or randomized
+      return list;
+    }
 
-  // Fetch Binance tickers by category
-  const {
-    data: allTokens = [],
-    isLoading: isCategoryLoading,
-  } = useBinanceTickersQuery({
-    params: {
-      marketType: activeTab.toLowerCase() as 'spot' | 'perp',
-      category: binanceCategory || 'top',
-    },
-    enabled: binanceCategory !== null && activeSubTab !== "Spotlight" && activeSubTab !== "Favourite",
-  });
+    return list; // Default to Top (already sorted by volume in API)
+  }, [allEnrichedTokens, activeSubTab]);
 
-  // Fetch favourite tokens - use same fetchTokens function as Top to ensure consistent price data
-  const [favouriteTokens, setFavouriteTokens] = useState<Token[]>([]);
-  const [isFavouriteLoading, setIsFavouriteLoading] = useState(false);
-
-  useEffect(() => {
-    if (activeSubTab !== "Favourite") return;
-
-    const loadFavouriteTokens = async () => {
-      setIsFavouriteLoading(true);
-      try {
-        const stored = localStorage.getItem("favouriteTokens");
-        const favouriteIds: string[] = stored ? JSON.parse(stored) : [];
-
-        if (favouriteIds.length === 0) {
-          setFavouriteTokens([]);
-          return;
-        }
-
-        // Fetch all Binance tickers to match favourites against
-        const marketType = activeTab.toLowerCase() as 'spot' | 'perp';
-        const allTickers = await fetchBinanceTickers({ marketType, category: 'top', limit: 500 });
-
-        // Match favourites by ID format "chainId-address" (for Binance: "0-btcusdt")
-        const matched = favouriteIds
-          .map((id) => {
-            const token = allTickers.find(t => t.id === id);
-            return token || null;
-          })
-          .filter(Boolean) as Token[];
-
-        setFavouriteTokens(matched);
-      } catch (error) {
-        console.error("[MarketPage] Error fetching favourite tokens:", error);
-        setFavouriteTokens([]);
-      } finally {
-        setIsFavouriteLoading(false);
-      }
-    };
-
-    loadFavouriteTokens();
-  }, [activeSubTab, activeTab]);
-
-  // Determine which token list to use
+  // Main token list logic
   const rawTokens: Token[] = useMemo(() => {
     if (activeSubTab === "Favourite") {
-      return favouriteTokens;
+      return allEnrichedTokens.filter(t => favourites.includes(t.id));
     }
     if (activeSubTab === "Spotlight") {
       return spotlightTokensData;
     }
-    return allTokens;
-  }, [activeSubTab, allTokens, favouriteTokens, spotlightTokensData]);
+    return filteredTickers;
+  }, [activeSubTab, allEnrichedTokens, favourites, spotlightTokensData, filteredTickers]);
 
-  // Compute loading state
-  const isLoading = activeSubTab === "Favourite" 
-    ? isFavouriteLoading 
-    : activeSubTab === "Spotlight" 
-    ? isSpotlightLoading 
-    : isCategoryLoading;
+  const isLoading = activeSubTab === "Spotlight" ? isSpotlightLoading : isEnrichedLoading;
 
   // Transform, filter, sort, and paginate tokens
   const tokens = useMemo(() => {
@@ -272,7 +189,7 @@ export default function MarketPage() {
   const getVisiblePages = (): number[] => {
     const pages: number[] = [];
     const totalPages = Math.ceil(tokens.length / rowsPerPage);
-    
+
     if (totalPages <= 5) {
       // Show all pages if 5 or fewer
       for (let i = 1; i <= totalPages; i++) {
@@ -281,7 +198,7 @@ export default function MarketPage() {
     } else {
       // Always show page 1
       pages.push(1);
-      
+
       if (currentPage <= 3) {
         // Show 1, 2, 3, 4, ... if on early pages
         pages.push(2, 3, 4);
@@ -292,13 +209,13 @@ export default function MarketPage() {
         // Show ..., current-1, current, current+1, ... if in middle
         pages.push(currentPage - 1, currentPage, currentPage + 1);
       }
-      
+
       // Always show last page if not already included
       if (!pages.includes(totalPages)) {
         pages.push(totalPages);
       }
     }
-    
+
     // Remove duplicates and sort
     return [...new Set(pages)].sort((a, b) => a - b);
   };
@@ -401,9 +318,8 @@ export default function MarketPage() {
                 >
                   Spot
                 </button>
-                <div className={`absolute bottom-0 h-0 w-full border-t border-[#b1f128] transition-all duration-300 ${
-                  activeTab === "Spot" ? "opacity-100" : "opacity-0 w-0"
-                }`}></div>
+                <div className={`absolute bottom-0 h-0 w-full border-t border-[#b1f128] transition-all duration-300 ${activeTab === "Spot" ? "opacity-100" : "opacity-0 w-0"
+                  }`}></div>
               </div>
               <div className="flex flex-col gap-2.5 items-center relative">
                 <button
@@ -413,9 +329,8 @@ export default function MarketPage() {
                 >
                   Perp
                 </button>
-                <div className={`absolute bottom-0 h-0 w-full border-t border-[#b1f128] transition-all duration-300 ${
-                  activeTab === "Perp" ? "opacity-100" : "opacity-0 w-0"
-                }`}></div>
+                <div className={`absolute bottom-0 h-0 w-full border-t border-[#b1f128] transition-all duration-300 ${activeTab === "Perp" ? "opacity-100" : "opacity-0 w-0"
+                  }`}></div>
               </div>
             </div>
             <div className="relative shrink-0 size-6 sm:size-7">

@@ -61,7 +61,7 @@ export default function MarketTable({
   const handleRowClick = (token: Token) => {
     // Navigate to token market page
     const symbol = token.symbol;
-    router.push(`/market/${symbol}-USDT`);
+    router.push(`/market/${symbol}`);
   };
 
   const changePage = (page: number) => {

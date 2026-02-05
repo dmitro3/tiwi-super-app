@@ -8,6 +8,12 @@ interface TokenHeaderProps {
     symbol: string;
     pair: string;
     icon: string;
+    name?: string;
+    marketCap?: number;
+    liquidity?: number;
+    socials?: any[];
+    website?: string;
+    description?: string;
   };
   stats: {
     price: string;
@@ -26,6 +32,15 @@ interface TokenHeaderProps {
 export default function TokenHeader({ token, stats }: TokenHeaderProps) {
   const router = useRouter();
 
+  // Format large values
+  const formatVal = (val: number | undefined) => {
+    if (val === undefined || val === null) return '$--';
+    if (val >= 1e9) return `$${(val / 1e9).toFixed(2)}B`;
+    if (val >= 1e6) return `$${(val / 1e6).toFixed(2)}M`;
+    if (val >= 1e3) return `$${(val / 1e3).toFixed(1)}K`;
+    return `$${val.toFixed(2)}`;
+  };
+
   return (
     <div className="border-b border-[#1f261e] flex h-16 lg:h-14 xl:h-15 2xl:h-16 items-center justify-between px-10 lg:px-7 xl:px-8 2xl:px-10 overflow-x-auto">
       {/* Left: Token Info and Stats */}
@@ -38,7 +53,7 @@ export default function TokenHeader({ token, stats }: TokenHeaderProps) {
             aria-label="Go back"
           >
             <svg width="10" height="10" viewBox="0 0 10 10" fill="none" xmlns="http://www.w3.org/2000/svg" className="rotate-90">
-              <path d="M5 7.5L2.5 5L5 2.5" stroke="#b5b5b5" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M5 7.5L2.5 5L5 2.5" stroke="#b5b5b5" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           </button>
           {token.icon ? (
@@ -58,109 +73,112 @@ export default function TokenHeader({ token, stats }: TokenHeaderProps) {
             </div>
           )}
           <p className="text-white text-lg lg:text-sm xl:text-base 2xl:text-lg font-semibold leading-normal whitespace-nowrap">
-            {token.symbol}<span className="text-[#b5b5b5]">/{token.pair.split("/")[1]}</span>
+            {token.symbol}<span className="text-[#b5b5b5]">/{token.pair.split("/")[1] || 'USD'}</span>
           </p>
         </div>
-          {/* Separator */}
-          <div className="flex h-16 items-center justify-center w-0">
-            <div className="flex-none rotate-90">
-              <div className="h-0 relative w-16">
-                <div className="absolute inset-[-1px_0_0_0] border-t border-[#1f261e]"></div>
-              </div>
-            </div>
-          </div>
 
-          {/* Price and Change */}
-          <div className="flex flex-col font-semibold items-start justify-center leading-normal text-base lg:text-xs xl:text-sm 2xl:text-base">
-            <p className="relative shrink-0 text-white whitespace-nowrap">
-              {stats.price}
-            </p>
-            <p className={`relative shrink-0 whitespace-nowrap ${
-              stats.changePositive ? "text-[#3fea9b]" : "text-[#ff5c5c]"
+        {/* Separator */}
+        <div className="flex h-16 items-center justify-center w-0 border-r border-[#1f261e]"></div>
+
+        {/* Price and Change */}
+        <div className="flex flex-col font-semibold items-start justify-center leading-normal text-base lg:text-xs xl:text-sm 2xl:text-base">
+          <p className="relative shrink-0 text-white whitespace-nowrap">
+            {stats.price}
+          </p>
+          <p className={`relative shrink-0 whitespace-nowrap ${stats.changePositive ? "text-[#3fea9b]" : "text-[#ff5c5c]"
             }`}>
-              {stats.change}
-            </p>
-          </div>
+            {stats.change}
+          </p>
+        </div>
 
-          {/* Separator */}
-          <div className="flex h-16 items-center justify-center w-0">
-            <div className="flex-none rotate-90">
-              <div className="h-0 relative w-16">
-                <div className="absolute inset-[-1px_0_0_0] border-t border-[#1f261e]"></div>
-              </div>
-            </div>
-          </div>
+        {/* Separator */}
+        <div className="flex h-16 items-center justify-center w-0 border-r border-[#1f261e]"></div>
 
-          {/* 24H Vol */}
-          <div className="flex flex-col font-semibold items-start justify-center leading-normal text-base lg:text-xs xl:text-sm 2xl:text-base">
-            <p className="relative shrink-0 text-white whitespace-nowrap">
-              {stats.vol24h}
-            </p>
-            <p className="relative shrink-0 text-[#7c7c7c] whitespace-nowrap">
-              24H Vol
-            </p>
-          </div>
+        {/* 24H Vol */}
+        <div className="flex flex-col font-semibold items-start justify-center leading-normal text-base lg:text-xs xl:text-sm 2xl:text-base">
+          <p className="relative shrink-0 text-white whitespace-nowrap">
+            {stats.vol24h}
+          </p>
+          <p className="relative shrink-0 text-[#7c7c7c] whitespace-nowrap text-[10px] uppercase tracking-wider">
+            24H Vol
+          </p>
+        </div>
 
-          {/* Separator */}
-          <div className="flex h-16 items-center justify-center w-0">
-            <div className="flex-none rotate-90">
-              <div className="h-0 relative w-16">
-                <div className="absolute inset-[-1px_0_0_0] border-t border-[#1f261e]"></div>
-              </div>
-            </div>
-          </div>
+        {/* Separator */}
+        <div className="flex h-16 items-center justify-center w-0 border-r border-[#1f261e]"></div>
 
-          {/* 24H High */}
-          <div className="flex flex-col font-semibold items-start justify-center leading-normal text-base lg:text-xs xl:text-sm 2xl:text-base">
-            <p className="relative shrink-0 text-white whitespace-nowrap">
-              {stats.high24h}
-            </p>
-            <p className="relative shrink-0 text-[#7c7c7c] whitespace-nowrap">
-              24H High
-            </p>
-          </div>
+        {/* Market Cap */}
+        <div className="flex flex-col font-semibold items-start justify-center leading-normal text-base lg:text-xs xl:text-sm 2xl:text-base">
+          <p className="relative shrink-0 text-white whitespace-nowrap">
+            {formatVal(token.marketCap)}
+          </p>
+          <p className="relative shrink-0 text-[#7c7c7c] whitespace-nowrap text-[10px] uppercase tracking-wider">
+            Market Cap
+          </p>
+        </div>
 
-          {/* Separator */}
-          <div className="flex h-16 items-center justify-center w-0">
-            <div className="flex-none rotate-90">
-              <div className="h-0 relative w-16">
-                <div className="absolute inset-[-1px_0_0_0] border-t border-[#1f261e]"></div>
-              </div>
-            </div>
-          </div>
+        {/* Separator */}
+        <div className="flex h-16 items-center justify-center w-0 border-r border-[#1f261e]"></div>
 
-          {/* 24H Low */}
-          <div className="flex flex-col font-semibold items-start justify-center leading-normal text-base lg:text-xs xl:text-sm 2xl:text-base">
-            <p className="relative shrink-0 text-white whitespace-nowrap">
-              {stats.low24h}
-            </p>
-            <p className="relative shrink-0 text-[#7c7c7c] whitespace-nowrap">
-              24H Low
-            </p>
-          </div>
+        {/* 24H High */}
+        <div className="flex flex-col font-semibold items-start justify-center leading-normal text-base lg:text-xs xl:text-sm 2xl:text-base">
+          <p className="relative shrink-0 text-white whitespace-nowrap">
+            {stats.high24h}
+          </p>
+          <p className="relative shrink-0 text-[#7c7c7c] whitespace-nowrap text-[10px] uppercase tracking-wider">
+            24H High
+          </p>
+        </div>
 
-          {/* Separator */}
-          <div className="flex h-16 items-center justify-center w-0">
-            <div className="flex-none rotate-90">
-              <div className="h-0 relative w-16">
-                <div className="absolute inset-[-1px_0_0_0] border-t border-[#1f261e]"></div>
-              </div>
-            </div>
-          </div>
+        {/* Separator */}
+        <div className="flex h-16 items-center justify-center w-0 border-r border-[#1f261e]"></div>
 
-          {/* 24H Vol (duplicate in design) */}
-          <div className="flex flex-col font-semibold items-start justify-center leading-normal text-base lg:text-xs xl:text-sm 2xl:text-base">
-            <p className="relative shrink-0 text-white whitespace-nowrap">
-              {stats.vol24h}
-            </p>
-            <p className="relative shrink-0 text-[#7c7c7c] whitespace-nowrap">
-              24H Vol
-            </p>
-          </div>
+        {/* 24H Low */}
+        <div className="flex flex-col font-semibold items-start justify-center leading-normal text-base lg:text-xs xl:text-sm 2xl:text-base">
+          <p className="relative shrink-0 text-white whitespace-nowrap">
+            {stats.low24h}
+          </p>
+          <p className="relative shrink-0 text-[#7c7c7c] whitespace-nowrap text-[10px] uppercase tracking-wider">
+            24H Low
+          </p>
+        </div>
+
+        {/* Separator */}
+        <div className="flex h-16 items-center justify-center w-0 border-r border-[#1f261e]"></div>
+
+        {/* Liquidity */}
+        <div className="flex flex-col font-semibold items-start justify-center leading-normal text-base lg:text-xs xl:text-sm 2xl:text-base">
+          <p className="relative shrink-0 text-[#b1f128] whitespace-nowrap">
+            {formatVal(token.liquidity)}
+          </p>
+          <p className="relative shrink-0 text-[#7c7c7c] whitespace-nowrap text-[10px] uppercase tracking-wider">
+            Liquidity
+          </p>
+        </div>
       </div>
 
-      {/* Right: Action Buttons */}
+      {/* Right: Action Buttons & Socials */}
       <div className="flex gap-4 lg:gap-3 xl:gap-3.5 2xl:gap-4 items-center shrink-0">
+        {/* Social Icons */}
+        <div className="flex items-center gap-2 mr-2 border-r border-[#1f261e] pr-4">
+          {token.website && (
+            <a href={token.website} target="_blank" rel="noopener noreferrer" className="hover:opacity-80 transition-opacity">
+              <Image src="/assets/icons/home/globe.svg" alt="Website" width={18} height={18} className="opacity-60 hover:opacity-100" />
+            </a>
+          )}
+          {token.socials?.map((social: any) => (
+            <a key={social.url} href={social.url} target="_blank" rel="noopener noreferrer" className="hover:opacity-80 transition-opacity">
+              <Image
+                src={social.type === 'twitter' ? '/assets/icons/home/twitter.svg' : '/assets/icons/home/telegram.svg'}
+                alt={social.type}
+                width={18}
+                height={18}
+                className="opacity-60 hover:opacity-100"
+              />
+            </a>
+          ))}
+        </div>
+
         <button
           className="relative w-5 h-5 cursor-pointer hover:opacity-80 transition-opacity"
           aria-label="Add to favorites"
@@ -178,7 +196,7 @@ export default function TokenHeader({ token, stats }: TokenHeaderProps) {
           aria-label="Share"
         >
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M18 8C19.6569 8 21 6.65685 21 5C21 3.34315 19.6569 2 18 2C16.3431 2 15 3.34315 15 5C15 5.12549 15.0077 5.24919 15.0227 5.37063L8.08261 9.79838C7.54305 9.29216 6.80891 9 6 9C4.34315 9 3 10.3431 3 12C3 13.6569 4.34315 15 6 15C6.80891 15 7.54305 14.7078 8.08261 14.2016L15.0227 18.6294C15.0077 18.7508 15 18.8745 15 19C15 20.6569 16.3431 22 18 22C19.6569 22 21 20.6569 21 19C21 17.3431 19.6569 16 18 16C17.1911 16 16.457 16.2922 15.9174 16.7984L8.97727 12.3706C8.99231 12.2492 9 12.1255 9 12C9 11.8745 8.99231 11.7508 8.97727 11.6294L15.9174 7.20162C16.457 7.70784 17.1911 8 18 8Z" stroke="#b5b5b5" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            <path d="M18 8C19.6569 8 21 6.65685 21 5C21 3.34315 19.6569 2 18 2C16.3431 2 15 3.34315 15 5C15 5.12549 15.0077 5.24919 15.0227 5.37063L8.08261 9.79838C7.54305 9.29216 6.80891 9 6 9C4.34315 9 3 10.3431 3 12C3 13.6569 4.34315 15 6 15C6.80891 15 7.54305 14.7078 8.08261 14.2016L15.0227 18.6294C15.0077 18.7508 15 18.8745 15 19C15 20.6569 16.3431 22 18 22C19.6569 22 21 20.6569 21 19C21 17.3431 19.6569 16 18 16C17.1911 16 16.457 16.2922 15.9174 16.7984L8.97727 12.3706C8.99231 12.2492 9 12.1255 9 12C9 11.8745 8.99231 11.7508 8.97727 11.6294L15.9174 7.20162C16.457 7.70784 17.1911 8 18 8Z" stroke="#b5b5b5" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
         </button>
       </div>

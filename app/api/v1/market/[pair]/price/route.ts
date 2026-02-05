@@ -99,6 +99,65 @@ export async function GET(
     }
 
     // ============================================================
+    // New Strategy: Try dYdX for USD/USDC perp pairs
+    // ============================================================
+    if (quoteSymbol === 'USD' || quoteSymbol === 'USDC') {
+      try {
+        const { getDydxTicker } = await import('@/lib/backend/services/dydx-service');
+        const { getEnrichedMetadata } = await import('@/lib/backend/services/enrichment-service');
+
+        const marketName = `${baseSymbol}-${quoteSymbol}`;
+        const ticker = await getDydxTicker(marketName);
+
+        if (ticker) {
+          const baseMeta = await getEnrichedMetadata(baseSymbol);
+          const tickerPrice = parseFloat(ticker.oraclePrice || '0');
+          const priceChange = parseFloat(ticker.priceChange24H || '0');
+          const priceChangePct = (tickerPrice > 0 && tickerPrice !== priceChange) ? (priceChange / (tickerPrice - priceChange)) * 100 : 0;
+
+          return NextResponse.json({
+            pair: `${baseSymbol}/${quoteSymbol}`,
+            price: tickerPrice,
+            priceUSD: tickerPrice,
+            priceChange24h: priceChangePct,
+            high24h: ticker.high24h || tickerPrice,
+            low24h: ticker.low24h || tickerPrice,
+            volume24h: parseFloat(ticker.volume24H || '0'),
+            description: baseMeta.description || null,
+            baseToken: {
+              symbol: baseSymbol,
+              name: baseMeta.name,
+              address: '',
+              chainId: 4, // dYdX
+              priceUSD: tickerPrice,
+              logo: baseMeta.logo,
+              marketCap: baseMeta.marketCap,
+              liquidity: baseMeta.liquidity,
+              socials: baseMeta.socials,
+              website: baseMeta.website,
+              circulatingSupply: null,
+              decimals: Math.abs(parseFloat(ticker.atomicResolution || '-8')),
+            },
+            quoteToken: {
+              symbol: quoteSymbol,
+              name: quoteSymbol,
+              address: '',
+              chainId: 4,
+              priceUSD: 1,
+              logo: '',
+            },
+          }, {
+            headers: {
+              'Cache-Control': 'public, s-maxage=5, stale-while-revalidate=15',
+            },
+          });
+        }
+      } catch (dydxErr) {
+        console.error('[Market Price API] dYdX lookup error:', dydxErr);
+      }
+    }
+
+    // ============================================================
     // Fallback: On-chain data (for tokens not on Binance)
     // ============================================================
     const tokenService = getTokenService();

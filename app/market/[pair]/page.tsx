@@ -115,6 +115,9 @@ export default function TradingPage() {
             currentPrice: priceData.priceUSD || priceData.price,
             volume24h: priceData.volume24h || null,
             description: priceData.description || null,
+            socials: priceData.baseToken.socials || [],
+            website: priceData.baseToken.website || null,
+            decimals: priceData.baseToken.decimals,
           });
 
           const pairPrice = priceData.priceUSD || priceData.price || 0;
