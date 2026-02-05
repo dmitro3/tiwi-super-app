@@ -338,8 +338,8 @@ export async function GET(req: NextRequest) {
             balance: balance,
             usdValue: usdValue,
             price: price,
-            token_address: tokenAddress,
-            contract_address: tokenAddress,
+            token_address: finalTokenAddress,
+            contract_address: finalTokenAddress,
             chainId: `0x${chainId.toString(16)}`,
             chainIdNumber: chainId, // Add numeric chainId for easier deduplication
             chain: CHAIN_NAMES[chainId] || 'Unknown Chain', // Add chain name for grouping/display
