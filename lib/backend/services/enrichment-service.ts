@@ -25,41 +25,34 @@ export interface TokenMetadata {
 export async function getEnrichedMetadata(symbol: string): Promise<TokenMetadata> {
     const upperSymbol = symbol.toUpperCase();
 
-    // 1. Try static metadata first (curated, highest trust)
-    const staticMeta = CRYPTO_METADATA[upperSymbol];
-    if (staticMeta && staticMeta.logo && staticMeta.logo !== '') {
-        return {
-            symbol: upperSymbol,
-            name: staticMeta.name,
-            logo: staticMeta.logo,
-            description: staticMeta.description,
-            source: 'static'
-        };
-    }
-
-    // 2. Fallback to DexScreener (dynamic, handles long-tail tokens)
-    const dexMeta = await searchTokenProfile(upperSymbol);
-    if (dexMeta && dexMeta.logoUrl) {
-        return {
-            symbol: upperSymbol,
-            name: dexMeta.name,
-            logo: dexMeta.logoUrl,
-            description: dexMeta.description,
-            marketCap: dexMeta.fdv,
-            liquidity: dexMeta.liquidity,
-            socials: dexMeta.socials,
-            website: dexMeta.websites?.[0]?.url,
-            source: 'dexscreener'
-        };
-    }
-
-    // 3. Last resort: internal fallback
+    // Initial defaults from symbol or internal fallback
     const basicMeta = getCryptoMetadata(upperSymbol);
+    let name = basicMeta.name;
+    let logo = basicMeta.logo || '';
+    let description = basicMeta.description || '';
+    let source: 'static' | 'dexscreener' | 'dydx' = 'static';
+
+    // 1. Try static metadata (highest trust for logo/name)
+    const staticMeta = CRYPTO_METADATA[upperSymbol];
+    if (staticMeta && staticMeta.logo) {
+        name = staticMeta.name;
+        logo = staticMeta.logo;
+        description = staticMeta.description || description;
+    }
+
+    // 2. Fetch dynamic metadata from DexScreener (Market Cap, Liquidity, Socials)
+    const dexMeta = await searchTokenProfile(upperSymbol);
+
+    // Combine the data
     return {
         symbol: upperSymbol,
-        name: basicMeta.name,
-        logo: basicMeta.logo || '',
-        description: basicMeta.description,
-        source: 'static'
+        name: dexMeta?.name || name,
+        logo: logo || dexMeta?.logoUrl || '',
+        description: description || dexMeta?.description,
+        marketCap: dexMeta?.fdv,
+        liquidity: dexMeta?.liquidity,
+        socials: dexMeta?.socials,
+        website: dexMeta?.websites?.[0]?.url,
+        source: dexMeta ? 'dexscreener' : 'static'
     };
 }

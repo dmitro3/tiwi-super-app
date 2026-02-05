@@ -34,6 +34,8 @@ export async function GET(req: NextRequest) {
                 fundingRate: m.fundingRate,
                 openInterest: m.openInterest,
                 marketCap: m.marketCap,
+                rank: m.rank,
+                marketCapRank: m.rank, // Align with Token type
                 liquidity: m.liquidity,
                 socials: m.socials,
                 website: m.website,

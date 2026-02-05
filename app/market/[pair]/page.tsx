@@ -29,9 +29,15 @@ import Image from "next/image";
  * - Orders and transaction history
  * - Stake to earn card
  */
+import { useMarketStore } from "@/lib/frontend/store/market-store";
+
+/**
+ * Trading Page - Market Spot/Perp Active Trade with Chart
+ */
 export default function TradingPage() {
   const params = useParams();
   const pair = params.pair as string;
+  const { setMarketDetail, getMarketDetail } = useMarketStore();
 
   const [activeMarketTab, setActiveMarketTab] = useState<"Spot" | "Perp">("Spot");
   const [tokenData, setTokenData] = useState<any>(null);
@@ -41,7 +47,7 @@ export default function TradingPage() {
   // Fallback: populate token data from URL pair when API fails
   const setFallbackFromPair = (normalized: string, parts: string[]) => {
     const [baseSymbol, quoteSymbol] = parts;
-    setTokenData({
+    const fallback = {
       symbol: baseSymbol,
       pair: `${baseSymbol}/${quoteSymbol}`,
       icon: '',
@@ -55,7 +61,8 @@ export default function TradingPage() {
       circulatingSupply: null,
       currentPrice: 0,
       volume24h: null,
-    });
+    };
+    setTokenData(fallback);
     setTokenStats({
       price: '$--',
       change: '--',
@@ -76,12 +83,12 @@ export default function TradingPage() {
 
   const formatStatPrice = (val: number) => {
     if (val <= 0) return '$--';
-    if (val >= 1) return `$${val.toFixed(2)}`;
+    if (val >= 1) return `$${val.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     if (val >= 0.0001) return `$${val.toFixed(6)}`;
     return `$${val.toFixed(8)}`;
   };
 
-  // Fetch token data via server-side API (proxies to Binance)
+  // Fetch token data via server-side API
   useEffect(() => {
     setIsLoading(true);
 
@@ -90,13 +97,22 @@ export default function TradingPage() {
         const normalized = pair.replace("/", "-").replace("_", "-").toUpperCase();
         const pairToFetch = normalized.includes("-") ? normalized : `${normalized}-USD`;
         const parts = pairToFetch.split("-");
+        const baseSymbol = parts[0];
+
+        // Check cache first
+        const cached = getMarketDetail(baseSymbol);
+        console.log("🚀 ~ fetchMarketData ~ cached:", cached)
+        if (cached) {
+          // We still want fresh stats (price/vol), but can show metadata instantly
+          setTokenData(cached);
+        }
 
         const response = await fetch(`/api/v1/market/${pairToFetch}/price`);
         if (response.ok) {
           const priceData = await response.json();
           console.log("🚀 ~ fetchMarketData ~ priceData:", priceData)
 
-          setTokenData({
+          const newTokenData = {
             symbol: priceData.baseToken.symbol,
             pair: priceData.pair,
             icon: priceData.baseToken.logo || '',
@@ -106,17 +122,20 @@ export default function TradingPage() {
             quoteSymbol: priceData.quoteToken.symbol,
             quoteIcon: priceData.quoteToken.logo || '',
             marketCap: priceData.baseToken.marketCap,
-            liquidity: priceData.baseToken.liquidity,
+            liquidity: priceData.baseToken.liquidity, // This is now enriched OB liquidity
             circulatingSupply: priceData.baseToken.circulatingSupply,
-            currentPrice: priceData.priceUSD || priceData.price,
+            currentPrice: priceData.priceUSD, // Fixed mapping
             volume24h: priceData.volume24h || null,
             description: priceData.description || null,
             socials: priceData.baseToken.socials || [],
             website: priceData.baseToken.website || null,
             decimals: priceData.baseToken.decimals,
-          });
+          };
 
-          const pairPrice = priceData.priceUSD || priceData.price || 0;
+          setTokenData(newTokenData);
+          setMarketDetail(baseSymbol, newTokenData);
+
+          const pairPrice = priceData.priceUSD || 0;
           const priceChange = priceData.priceChange24h || 0;
           const vol24h = priceData.volume24h || 0;
           const high = priceData.high24h || 0;
@@ -134,7 +153,7 @@ export default function TradingPage() {
           setFallbackFromPair(normalized, parts);
         }
       } catch (error) {
-        console.error('[MarketPage] Error fetching market data:', error);
+        console.error('[TradingPage] Error fetching market data:', error);
         const normalized = pair.replace("/", "-").replace("_", "-").toUpperCase();
         const parts = normalized.split("-");
         if (parts.length >= 2) {

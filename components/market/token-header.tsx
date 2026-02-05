@@ -160,20 +160,20 @@ export default function TokenHeader({ token, stats }: TokenHeaderProps) {
       {/* Right: Action Buttons & Socials */}
       <div className="flex gap-4 lg:gap-3 xl:gap-3.5 2xl:gap-4 items-center shrink-0">
         {/* Social Icons */}
-        <div className="flex items-center gap-2 mr-2 border-r border-[#1f261e] pr-4">
+        <div className="flex items-center gap-3 mr-2 border-r border-[#1f261e] pr-4">
           {token.website && (
             <a href={token.website} target="_blank" rel="noopener noreferrer" className="hover:opacity-80 transition-opacity">
-              <Image src="/assets/icons/home/globe.svg" alt="Website" width={18} height={18} className="opacity-60 hover:opacity-100" />
+              <Image src="/assets/icons/home/globe.svg" alt="Website" width={18} height={18} className="opacity-60 hover:opacity-100 transition-opacity" />
             </a>
           )}
-          {token.socials?.map((social: any) => (
-            <a key={social.url} href={social.url} target="_blank" rel="noopener noreferrer" className="hover:opacity-80 transition-opacity">
+          {token.socials?.map((social: any, i: number) => (
+            <a key={i} href={social.url} target="_blank" rel="noopener noreferrer" className="hover:opacity-80 transition-opacity">
               <Image
-                src={social.type === 'twitter' ? '/assets/icons/home/twitter.svg' : '/assets/icons/home/telegram.svg'}
+                src={social.type === 'twitter' || social.type === 'x' ? '/assets/icons/home/twitter.svg' : '/assets/icons/home/telegram.svg'}
                 alt={social.type}
                 width={18}
                 height={18}
-                className="opacity-60 hover:opacity-100"
+                className="opacity-60 hover:opacity-100 transition-opacity"
               />
             </a>
           ))}
