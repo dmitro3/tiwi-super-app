@@ -50,7 +50,7 @@ export async function getDydxCandles(market: string, resolution: string = '1DAY'
  * Fetches all perpetual markets from dYdX with enriched metadata
  */
 export async function getDydxMarkets(): Promise<any[]> {
-    const url = `${DYDX_INDEXER_API}/perpetualMarkets`;
+    const url = `${DYDX_INDEXER_API}/perpetualMarkets`; // https://indexer.dydx.trade/v4/perpetualMarkets/
     try {
         const response = await fetch(url);
         if (!response.ok) return [];

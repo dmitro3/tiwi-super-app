@@ -234,7 +234,6 @@ export default function MarketPage() {
     setCurrentPage(1);
   }, [activeSubTab, activeTab]);
 
-  console.log("🚀 ~ MarketPage ~ paginatedTokens:", paginatedTokens)
   return (
     <>
       {/* Desktop Layout */}

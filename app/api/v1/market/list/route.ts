@@ -17,7 +17,8 @@ export async function GET(req: NextRequest) {
         const promises: Promise<any>[] = [];
 
         // Fetch enriched dYdX markets (perps)
-        if (marketType === 'all' || marketType === 'perp') {
+        console.log("🚀 ~ GET ~ marketType:", marketType)
+        if (marketType === 'all' || marketType === 'perp' || marketType === 'spot') {
             promises.push(getDydxMarkets().then(markets => markets.map(m => ({
                 id: m.id,
                 symbol: m.symbol,
@@ -47,27 +48,27 @@ export async function GET(req: NextRequest) {
         }
 
         // Fetch Binance spot markets
-        if (marketType === 'all' || marketType === 'spot') {
-            promises.push(getBinanceTickers('spot', 'top', limit).then(tickers => tickers.map(t => ({
-                id: `0-${t.symbol.toLowerCase()}`,
-                symbol: t.baseAsset,
-                name: t.name,
-                logo: t.logo,
-                price: t.lastPrice,
-                priceChange24h: t.priceChangePercent,
-                volume24h: t.quoteVolume,
-                high24h: t.highPrice,
-                low24h: t.lowPrice,
-                marketType: 'spot',
-                provider: 'binance',
-                marketCap: undefined,
-                fdv: undefined,
-                rank: undefined,
-                marketCapRank: undefined,
-                liquidity: undefined,
-                chainId: 0
-            }))));
-        }
+        // if (marketType === 'all' || marketType === 'spot') {
+        //     promises.push(getBinanceTickers('spot', 'top', limit).then(tickers => tickers.map(t => ({
+        //         id: `0-${t.symbol.toLowerCase()}`,
+        //         symbol: t.baseAsset,
+        //         name: t.name,
+        //         logo: t.logo,
+        //         price: t.lastPrice,
+        //         priceChange24h: t.priceChangePercent,
+        //         volume24h: t.quoteVolume,
+        //         high24h: t.highPrice,
+        //         low24h: t.lowPrice,
+        //         marketType: 'spot',
+        //         provider: 'binance',
+        //         marketCap: undefined,
+        //         fdv: undefined,
+        //         rank: undefined,
+        //         marketCapRank: undefined,
+        //         liquidity: undefined,
+        //         chainId: 0
+        //     }))));
+        // }
 
         const results = await Promise.all(promises);
         const combined = results.flat();

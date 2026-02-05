@@ -151,7 +151,7 @@ export default function HomePage() {
 
           <div className="flex items-center shrink-0 gap-3 lg:gap-4 xl:gap-4">
             <div className="flex items-center gap-2 lg:gap-3 flex-1 min-w-0">
-              <NetworkSelector />
+              {/* <NetworkSelector /> */}
               <TabBar active={activeTab} onChange={setActiveTab} />
             </div>
             <CollapsibleSearchBar value={searchQuery} onChange={setSearchQuery} />

@@ -61,7 +61,8 @@ export default function MarketTable({
   const handleRowClick = (token: Token) => {
     // Navigate to token market page
     const symbol = token.symbol;
-    router.push(`/market/${symbol}`);
+    // router.push(`/market/${symbol}`);
+    window.open(`/market/${symbol}`, "_blank")
   };
 
   const changePage = (page: number) => {
@@ -210,39 +211,47 @@ export default function MarketTable({
                             </div>
                           </div>
                         </TableCell>
-                        <TableCell className="px-6 py-5 text-right">
-                          <div className="flex flex-col items-end">
+                        <TableCell className="px-6 py-5 text-right relative">
+                          <div className="flex flex-col items-end relative z-20">
                             <SubscriptUSDPrice price={token.price || '0'} className="text-white font-semibold text-[16px]" />
                           </div>
                         </TableCell>
-                        <TableCell className={`px-6 py-5 text-right font-medium text-[16px] ${(token.priceChange24h || 0) >= 0 ? "text-[#3fea9b]" : "text-[#ff5c5c]"
+                        <TableCell className={`px-6 py-5 text-right font-medium text-[16px] relative ${(token.priceChange24h || 0) >= 0 ? "text-[#3fea9b]" : "text-[#ff5c5c]"
                           }`}>
-                          {formatPercentageChange(token.priceChange24h).formatted}
+                          <span className="relative z-20">
+                            {formatPercentageChange(token.priceChange24h).formatted}
+                          </span>
                         </TableCell>
-                        <TableCell className="px-6 py-5 text-right text-white font-medium text-[16px]">
-                          ${formatNumber(token.volume24h)}
+                        <TableCell className="px-6 py-5 text-right text-white font-medium text-[16px] relative">
+                          <span className="relative z-20">
+                            ${formatNumber(token.volume24h)}
+                          </span>
                         </TableCell>
-                        <TableCell className="px-6 py-5 text-right text-white font-medium text-[16px]">
-                          {formatMarketCapRank(token.marketCapRank)}
+                        <TableCell className="px-6 py-5 text-right text-white font-medium text-[16px] relative">
+                          <span className="relative z-20">
+                            {formatMarketCapRank(token.marketCapRank)}
+                          </span>
                         </TableCell>
-                        <TableCell className="px-6 py-5 text-right text-white font-medium text-[16px]">
-                          ${formatNumber(token.marketCap)}
+                        <TableCell className="px-6 py-5 text-right text-white font-medium text-[16px] relative">
+                          <span className="relative z-20">
+                            ${formatNumber(token.marketCap)}
+                          </span>
                         </TableCell>
 
                         {marketType === "perp" && (
                           <>
-                            <TableCell className="px-6 py-5 text-right text-white font-medium text-[16px]">
-                              {getFundingRate(token)}
+                            <TableCell className="px-6 py-5 text-right text-white font-medium text-[16px] relative">
+                              <span className="relative z-20">{getFundingRate(token)}</span>
                             </TableCell>
-                            <TableCell className="px-6 py-5 text-right text-white font-medium text-[16px]">
-                              {getOpenInterest(token)}
+                            <TableCell className="px-6 py-5 text-right text-white font-medium text-[16px] relative">
+                              <span className="relative z-20">{getOpenInterest(token)}</span>
                             </TableCell>
                           </>
                         )}
 
                         <TableCell className="px-0 py-5 text-center sticky right-0 bg-[#010501] z-30 shadow-[-8px_0_12px_rgba(0,0,0,0.45)]">
                           <button
-                            className={`bg-[#081F02] mx-auto flex items-center justify-center rounded-full cursor-pointer transition-all duration-150 w-[66px] h-[36px] hover:opacity-95 ${isHovered ? "w-[90px] gap-2" : ""
+                            className={`bg-[#081F02] mx-auto flex items-center justify-center rounded-full cursor-pointer transition-all duration-150 w-[66px] h-[36px] hover:opacity-95 relative z-40 ${isHovered ? "w-[90px] gap-2" : ""
                               }`}
                           >
                             <Image src="/assets/icons/home/trade.svg" alt="trade" width={22} height={22} />

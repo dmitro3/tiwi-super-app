@@ -18,11 +18,12 @@ export function useEnrichedMarkets({
     return useQuery({
         queryKey: ['enriched-markets', marketType],
         queryFn: async () => {
-            const response = await fetch(`/api/v1/market/list?marketType=${marketType}`);
+            const response = await fetch(`/ `);
             if (!response.ok) {
                 throw new Error('Failed to fetch enriched markets');
             }
             const data = await response.json();
+            console.log("🚀 ~ useEnrichedMarkets ~ data:", data)
 
             // Transform into frontend Token format
             return (data.markets || []).map((m: any) => ({

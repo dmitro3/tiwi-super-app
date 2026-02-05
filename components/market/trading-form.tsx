@@ -104,24 +104,26 @@ export default function TradingForm({ marketType = "spot", baseSymbol = '', quot
   };
 
   return (
-    <div className="flex flex-col gap-4 lg:gap-3 xl:gap-3.5 2xl:gap-4 items-center w-full">
+    <div className="flex flex-col gap-4 lg:gap-3 xl:gap-3.5 2xl:gap-4 items-center w-full cursor-not-allowed opacity-60">
       {/* Buy/Sell Toggle */}
-      <div className="bg-[#0b0f0a] flex items-center p-1 lg:p-0.5 xl:p-0.5 2xl:p-1 rounded-lg lg:rounded-md xl:rounded-md 2xl:rounded-lg w-full">
+      <div className="bg-[#0b0f0a] flex items-center p-1 lg:p-0.5 xl:p-0.5 2xl:p-1 rounded-lg lg:rounded-md xl:rounded-md 2xl:rounded-lg w-full cursor-not-allowed opacity-60">
         <button
           onClick={() => setSide("Buy")}
-          className={`flex-1 flex items-end justify-center px-4 lg:px-3 xl:px-3.5 2xl:px-4 py-2.25 lg:py-1.75 xl:py-2 2xl:py-2.25 rounded-md lg:rounded-sm xl:rounded-sm 2xl:rounded-md transition-colors cursor-pointer ${side === "Buy"
+          className={`flex-1 flex items-end justify-center px-4 lg:px-3 xl:px-3.5 2xl:px-4 py-2.25 lg:py-1.75 xl:py-2 2xl:py-2.25 rounded-md lg:rounded-sm xl:rounded-sm 2xl:rounded-md transition-colors cursor-not-allowed ${side === "Buy"
             ? "bg-[#b1f128] text-[#010501] font-semibold"
             : "text-[#b5b5b5] font-semibold hover:text-white"
             }`}
+            disabled
         >
           <span className="text-base lg:text-sm xl:text-sm 2xl:text-base leading-normal">Buy</span>
         </button>
         <button
           onClick={() => setSide("Sell")}
-          className={`flex-1 flex items-end justify-center px-4 lg:px-3 xl:px-3.5 2xl:px-4 py-2.25 lg:py-1.75 xl:py-2 2xl:py-2.25 rounded-md lg:rounded-sm xl:rounded-sm 2xl:rounded-md transition-colors cursor-pointer ${side === "Sell"
+          className={`flex-1 flex items-end justify-center px-4 lg:px-3 xl:px-3.5 2xl:px-4 py-2.25 lg:py-1.75 xl:py-2 2xl:py-2.25 rounded-md lg:rounded-sm xl:rounded-sm 2xl:rounded-md transition-colors cursor-not-allowed ${side === "Sell"
             ? "bg-[#ff5c5c] text-white font-semibold"
             : "text-[#b5b5b5] font-semibold hover:text-white"
             }`}
+disabled
         >
           <span className="text-base lg:text-sm xl:text-sm 2xl:text-base leading-normal">Sell</span>
         </button>
@@ -131,49 +133,28 @@ export default function TradingForm({ marketType = "spot", baseSymbol = '', quot
       <div className="flex gap-4 lg:gap-3 xl:gap-3.5 2xl:gap-4 items-center w-full px-1">
         <button
           onClick={() => setOrderType("Market")}
-          className={`flex items-end justify-center py-1.25 lg:py-1 xl:py-1 2xl:py-1.25 transition-colors cursor-pointer ${orderType === "Market"
-              ? `text-[${currentColors.active}] font-semibold underline decoration-2 underline-offset-8`
-              : "text-[#8f8f8f] font-semibold hover:text-[#b5b5b5]"
+          className={`flex items-end justify-center py-1.25 lg:py-1 xl:py-1 2xl:py-1.25 transition-colors cursor-not-allowed ${orderType === "Market"
+            ? `text-[${currentColors.active}] font-semibold underline decoration-2 underline-offset-8`
+            : "text-[#8f8f8f] font-semibold hover:text-[#b5b5b5]"
             }`}
           style={{
             color: orderType === "Market" ? currentColors.active : undefined
           }}
+          disabled
         >
           <span className="text-base lg:text-sm xl:text-sm 2xl:text-base leading-normal">Market</span>
         </button>
         <button
           onClick={() => setOrderType("Limit")}
-          className={`flex items-center gap-1.5 justify-center py-1.25 lg:py-1 xl:py-1 2xl:py-1.25 transition-colors cursor-pointer group ${orderType === "Limit"
-              ? `text-[${currentColors.active}] font-semibold underline decoration-2 underline-offset-8`
-              : "text-[#8f8f8f] font-semibold hover:text-[#b5b5b5]"
+          className={`flex items-center gap-1.5 justify-center py-1.25 lg:py-1 xl:py-1 2xl:py-1.25 transition-colors cursor-not-allowed group ${orderType === "Limit"
+            ? `text-[${currentColors.active}] font-semibold underline decoration-2 underline-offset-8`
+            : "text-[#8f8f8f] font-semibold hover:text-[#b5b5b5]"
             }`}
           style={{
             color: orderType === "Limit" ? currentColors.active : undefined
           }}
-        >
+disabled        >
           <span className="text-base lg:text-sm xl:text-sm 2xl:text-base leading-normal">Limit</span>
-          <div className="flex items-center bg-[#0b0f0a] px-1 py-0.5 rounded text-[10px] text-[#7c7c7c]">
-            <Lock size={10} className="mr-1" />
-            <span>Soon</span>
-          </div>
-        </button>
-        <button
-          className="flex items-center gap-1.5 justify-center py-1.25 lg:py-1 xl:py-1 2xl:py-1.25 transition-colors cursor-not-allowed group opacity-60"
-        >
-          <span className="text-base lg:text-sm xl:text-sm 2xl:text-base leading-normal text-[#555555]">Stop</span>
-          <div className="flex items-center bg-[#0b0f0a] px-1 py-0.5 rounded text-[10px] text-[#555555]">
-            <Lock size={10} className="mr-1" />
-            <span>Soon</span>
-          </div>
-        </button>
-        <button
-          className="flex items-center gap-1.5 justify-center py-1.25 lg:py-1 xl:py-1 2xl:py-1.25 transition-colors cursor-not-allowed group opacity-40"
-        >
-          <span className="text-base lg:text-sm xl:text-sm 2xl:text-base leading-normal text-[#555555]">Trail</span>
-          <div className="flex items-center bg-[#0b0f0a] px-1 py-0.5 rounded text-[10px] text-[#555555]">
-            <Lock size={10} className="mr-1" />
-            <span>Soon</span>
-          </div>
         </button>
       </div>
 
