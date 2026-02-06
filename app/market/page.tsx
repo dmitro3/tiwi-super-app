@@ -71,6 +71,7 @@ export default function MarketPage() {
   } = useEnrichedMarkets({
     marketType: activeTab.toLowerCase() as 'spot' | 'perp',
   });
+    console.log("🚀 ~ MarketPage ~ allEnrichedTokens:", allEnrichedTokens)
 
 
   // Fetch spotlight tokens separately as they are DB-driven

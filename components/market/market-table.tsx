@@ -54,6 +54,7 @@ export default function MarketTable({
   visiblePages = [],
   totalPages = 1,
 }: MarketTableProps) {
+  console.log("🚀 ~ MarketTable ~ tokens:", tokens)
   const router = useRouter();
   const [hoveredRowId, setHoveredRowId] = useState<string | null>(null);
   const scrollYContainerRef = useRef<HTMLDivElement | null>(null);
@@ -229,7 +230,7 @@ export default function MarketTable({
                         </TableCell>
                         <TableCell className="px-6 py-5 text-right text-white font-medium text-[16px] relative">
                           <span className="relative z-20">
-                            {formatMarketCapRank(token.marketCapRank)}
+                            #{token.rank}
                           </span>
                         </TableCell>
                         <TableCell className="px-6 py-5 text-right text-white font-medium text-[16px] relative">

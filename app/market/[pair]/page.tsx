@@ -1,6 +1,6 @@
 "use client";
 
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { useState, useEffect } from "react";
 import TokenHeader from "@/components/market/token-header";
 import TradingForm from "@/components/market/trading-form";
@@ -37,7 +37,10 @@ import { useMarketStore } from "@/lib/frontend/store/market-store";
  */
 export default function TradingPage() {
   const params = useParams();
+  const searchParams = useSearchParams();
   const pair = params.pair as string;
+  const address = searchParams.get('address');
+  const chainId = searchParams.get('chainId');
   const { setMarketDetail, getMarketDetail } = useMarketStore();
 
   const [activeMarketTab, setActiveMarketTab] = useState<"Spot" | "Perp">("Spot");
@@ -102,14 +105,23 @@ export default function TradingPage() {
 
         // Check cache first
         const cached = getMarketDetail(baseSymbol);
+        console.log("🚀 ~ fetchMarketData ~ cached:", cached)
         if (cached) {
           // We still want fresh stats (price/vol), but can show metadata instantly
           setTokenData(cached);
         }
 
-        const response = await fetch(`/api/v1/market/${pairToFetch}`);
+        // Build URL with enrichment clues
+        let fetchUrl = `/api/v1/market/${pairToFetch}`;
+        const queryParams = new URLSearchParams();
+        if (address) queryParams.set('address', address);
+        if (chainId) queryParams.set('chainId', chainId);
+        if (queryParams.toString()) fetchUrl += `?${queryParams.toString()}`;
+
+        const response = await fetch(fetchUrl);
         if (response.ok) {
           const json = await response.json();
+          console.log("🚀 ~ fetchMarketData ~ response:", json)
           const priceData = json.data;
 
           const newTokenData = {
@@ -153,8 +165,8 @@ export default function TradingPage() {
             change: `${priceChange >= 0 ? '+' : ''}${priceChange.toFixed(2)}%`,
             changePositive: priceChange >= 0,
             vol24h: formatVol(vol24h),
-            high24h: formatStatPrice(high),
-            low24h: formatStatPrice(low),
+            high24h: high,
+            low24h: low,
           });
         } else {
           setFallbackFromPair(normalized, parts);

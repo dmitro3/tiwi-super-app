@@ -20,6 +20,7 @@ import { TableSkeleton } from "@/components/home/table-skeleton";
 import { useBinanceTickersQuery } from "@/hooks/useBinanceTickersQuery";
 import { fetchBinanceTickers } from "@/lib/frontend/api/binance-tickers";
 import { useSwapStore } from "@/lib/frontend/store/swap-store";
+import { SubscriptUSDPrice } from "@/components/ui/subscript-usd-price";
 
 
 type TabKey = "Favourite" | "Hot" | "New" | "Gainers" | "Losers";
@@ -87,6 +88,7 @@ export function MarketTable({
   const homepageTokens: HomepageToken[] = useMemo(() => {
     return inputTokens.map(token => formatTokenForHomepage(token));
   }, [inputTokens]);
+  console.log("🚀 ~ MarketTable ~ homepageTokens:", homepageTokens)
 
   const rowsPerPage = 20;
   const totalPages = Math.ceil(total / rowsPerPage);
@@ -130,7 +132,8 @@ export function MarketTable({
       // Default to USDT if available, otherwise leave toToken null for user to select
       setToToken(null);
 
-      router.push("/swap");
+      const url = `/market/${token.symbol}${token.address ? `?address=${token.address}&chainId=${token.chainId}` : ''}`;
+      window.open(url, '_blank');
     } catch (error) {
       console.error("[MarketTable] Failed to prepare swap tokens:", error);
     }
@@ -165,6 +168,14 @@ export function MarketTable({
                 <TableHead className="z-20 px-3 lg:px-4 xl:px-5 2xl:px-6 py-1.5 lg:py-2 text-right text-[10px] lg:text-xs xl:text-sm text-[#7c7c7c] font-semibold bg-[#010501]">
                   Price
                 </TableHead>
+
+                <TableHead className="z-20 px-3 lg:px-4 xl:px-5 2xl:px-6 py-1.5 lg:py-2 text-right text-[10px] lg:text-xs xl:text-sm text-[#7c7c7c] font-semibold bg-[#010501]">
+                  Market Cap
+                </TableHead>
+                <TableHead className="z-20 px-3 lg:px-4 xl:px-5 2xl:px-6 py-1.5 lg:py-2 text-right text-[10px] lg:text-xs xl:text-sm text-[#7c7c7c] font-semibold bg-[#010501]">
+                  Liquidity
+                </TableHead>
+
                 <TableHead
                   className="z-20 px-3 lg:px-4 xl:px-5 2xl:px-6 py-1.5 lg:py-2 text-right text-[10px] lg:text-xs xl:text-sm text-[#7c7c7c] font-semibold bg-[#010501] cursor-pointer hover:text-[#b1f128] transition-colors"
                   onClick={() => onSortChange?.(sortBy === 'performance' ? 'none' : 'performance')}
@@ -176,12 +187,6 @@ export function MarketTable({
                   onClick={() => onSortChange?.(sortBy === 'volume' ? 'none' : 'volume')}
                 >
                   24h Vol {sortBy === 'volume' ? '▼' : ''}
-                </TableHead>
-                <TableHead className="z-20 px-3 lg:px-4 xl:px-5 2xl:px-6 py-1.5 lg:py-2 text-right text-[10px] lg:text-xs xl:text-sm text-[#7c7c7c] font-semibold bg-[#010501]">
-                  24h High
-                </TableHead>
-                <TableHead className="z-20 px-3 lg:px-4 xl:px-5 2xl:px-6 py-1.5 lg:py-2 text-right text-[10px] lg:text-xs xl:text-sm text-[#7c7c7c] font-semibold bg-[#010501]">
-                  24h Low
                 </TableHead>
                 <TableHead className="z-20 px-3 lg:px-4 xl:px-5 2xl:px-6 py-1.5 lg:py-2 text-center text-[10px] lg:text-xs xl:text-sm text-[#7c7c7c] font-semibold bg-[#010501]">
                   Buy/Sell
@@ -207,7 +212,10 @@ export function MarketTable({
                 homepageTokens.map((token: HomepageToken, idx: number) => (
                   <TableRow
                     key={`${token.token.id}-${idx}`}
-                    onClick={() => router.push(`/market/${token.token.symbol}-USDT`)}
+                    onClick={() => {
+                      const url = `/market/${token.token.symbol}${token.token.address ? `?address=${token.token.address}&chainId=${token.token.chainId}` : ''}`;
+                      window.open(url, '_blank');
+                    }}
                     className="group border-b border-[#1f261e]/60 hover:bg-[#0b0f0a] transition-colors cursor-pointer"
                   >
                     <TableCell className="px-3 lg:px-3.5 xl:px-4 2xl:px-5 py-2.5 lg:py-3 xl:py-4 text-white text-[10px] lg:text-xs xl:text-sm font-semibold align-middle">
@@ -252,7 +260,13 @@ export function MarketTable({
                       </div>
                     </TableCell>
                     <TableCell className="px-3 lg:px-4 xl:px-5 2xl:px-6 py-2.5 lg:py-3 xl:py-4 text-right text-white text-[10px] lg:text-xs xl:text-base font-medium">
-                      {token.price}
+                      <SubscriptUSDPrice price={token.rawPrice} className="text-white" />
+                    </TableCell>
+                    <TableCell className="px-3 lg:px-4 xl:px-5 2xl:px-6 py-2.5 lg:py-3 xl:py-4 text-right text-white text-[10px] lg:text-xs xl:text-base font-medium">
+                      {token.marketCap}
+                    </TableCell>
+                    <TableCell className="px-3 lg:px-4 xl:px-5 2xl:px-6 py-2.5 lg:py-3 xl:py-4 text-right text-white text-[10px] lg:text-xs xl:text-base font-medium">
+                      {token.liquidity}
                     </TableCell>
                     <TableCell
                       className={`px-3 lg:px-4 xl:px-5 2xl:px-6 py-2.5 lg:py-3 xl:py-4 text-right text-[10px] lg:text-xs xl:text-base font-medium ${token.changePositive ? "text-[#3fea9b]" : "text-[#ff5c5c]"
@@ -263,12 +277,12 @@ export function MarketTable({
                     <TableCell className="px-3 lg:px-4 xl:px-5 2xl:px-6 py-2.5 lg:py-3 xl:py-4 text-right text-white text-[10px] lg:text-xs xl:text-base font-medium">
                       {token.vol}
                     </TableCell>
-                    <TableCell className="px-3 lg:px-4 xl:px-5 2xl:px-6 py-2.5 lg:py-3 xl:py-4 text-right text-white text-[10px] lg:text-xs xl:text-base font-medium">
+                    {/* <TableCell className="px-3 lg:px-4 xl:px-5 2xl:px-6 py-2.5 lg:py-3 xl:py-4 text-right text-white text-[10px] lg:text-xs xl:text-base font-medium">
                       {formatPrice((token.token as any).high24h?.toString() || (token.token as any).highPrice?.toString())}
                     </TableCell>
                     <TableCell className="px-3 lg:px-4 xl:px-5 2xl:px-6 py-2.5 lg:py-3 xl:py-4 text-right text-white text-[10px] lg:text-xs xl:text-base font-medium">
                       {formatPrice((token.token as any).low24h?.toString() || (token.token as any).lowPrice?.toString())}
-                    </TableCell>
+                    </TableCell> */}
                     <TableCell className="px-3 lg:px-4 xl:px-5 2xl:px-6 py-2.5 lg:py-3 xl:py-4 text-center">
                       <div className="flex justify-center items-center">
                         <button

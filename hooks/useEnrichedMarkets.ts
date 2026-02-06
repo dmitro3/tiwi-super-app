@@ -18,12 +18,11 @@ export function useEnrichedMarkets({
     return useQuery({
         queryKey: ['enriched-markets', marketType],
         queryFn: async () => {
-            const response = await fetch(`/ `);
+            const response = await fetch(`/api/v1/market/list?marketType=${marketType}`);
             if (!response.ok) {
                 throw new Error('Failed to fetch enriched markets');
             }
             const data = await response.json();
-            console.log("🚀 ~ useEnrichedMarkets ~ data:", data)
 
             // Transform into frontend Token format
             return (data.markets || []).map((m: any) => ({
@@ -46,14 +45,14 @@ export function useEnrichedMarkets({
                 fundingRate: m.fundingRate,
                 openInterest: m.openInterest,
                 marketCap: m.marketCap,
-                fdv: m.fdv,
-                marketCapRank: m.marketCapRank,
                 liquidity: m.liquidity,
                 socials: m.socials,
                 website: m.website,
-                websites: m.websites,
                 decimals: m.decimals,
                 description: m.description,
+                marketCapRank: m.marketCapRank,
+                rank: m.rank,
+                ...m
             } as Token));
         },
         enabled,
