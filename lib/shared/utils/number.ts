@@ -79,7 +79,7 @@ export function formatNumber(value: number, decimals: number = 2): string {
  * @param useSuffix - Whether to use K/M/B suffixes
  * @returns Formatted amount string
  */
-export function formatAmount(value: string, useSuffix: boolean = false): string {
+export function formatTokenAmount(value: string, useSuffix: boolean = false): string {
   const num = parseFloat(value);
   if (isNaN(num) || !isFinite(num)) return value;
 
