@@ -188,6 +188,8 @@ export async function GET(
     }
 }
 
+import { resolveOnChainMarket } from '@/lib/backend/services/onchain-market-service';
+
 /**
  * Shared logic for resolving and enriching external (on-chain) tokens
  */
@@ -198,87 +200,20 @@ async function handleExternalTokenResolution(
     chainId: number,
     existingToken?: any
 ) {
-    const meta = await getSurgicalMetadata(baseSymbol, address, chainId);
-    console.log("🚀 ~ handleExternalTokenResolution ~ meta:", meta)
-    const chartService = getChartDataService();
-    const now = Math.floor(Date.now() / 1000);
-    const yesterday = now - 24 * 60 * 60;
+    const marketData = await resolveOnChainMarket(baseSymbol, quoteSymbol, address, chainId, existingToken);
 
-    const [priceInfo, bars] = await Promise.all([
-        getTokenPrice(address, chainId, baseSymbol).catch(() => null),
-        chartService.getHistoricalBars({
-            baseToken: address,
-            quoteToken: '0x0000000000000000000000000000000000000000',
-            chainId,
-            resolution: '15' as any,
-            from: yesterday,
-            to: now,
-            countback: 96,
-        }).catch(() => [] as any[]),
-    ]);
-    console.log("🚀 ~ handleExternalTokenResolution ~ priceInfo:", { priceInfo, bars })
+    if (!marketData) {
+        return NextResponse.json({ success: false, error: 'Failed to resolve market data' }, { status: 500 });
+    }
 
-    const currentPrice = priceInfo ? parseFloat(priceInfo.priceUSD) : parseFloat(existingToken?.priceUSD || '0');
-
-    // Priority: CoinGecko Verified -> Historical Bars -> DexScreener -> Current Price
-    // Ensure we don't return 0 if better data is available
-    const high24h = (meta.high24h && meta.high24h > 0)
-        ? meta.high24h
-        : (bars.length > 0 ? Math.max(...bars.map(b => b.high)) : (meta.high24h || currentPrice));
-
-    const low24h = (meta.low24h && meta.low24h > 0)
-        ? meta.low24h
-        : (bars.length > 0 ? Math.min(...bars.map(b => b.low)) : (meta.low24h || currentPrice));
-
-    // Suppressed or Calculated Supply
-    const circulatingSupply = meta.circulatingSupply || (meta.marketCap ? meta.marketCap / currentPrice : null);
-    const totalSupply = meta.totalSupply || (meta.fdv ? meta.fdv / currentPrice : (circulatingSupply || null));
+    // Add pair field which is expected by the frontend detail page
+    const responseData = {
+        ...marketData,
+        pair: `${baseSymbol}/${quoteSymbol}`,
+    };
 
     return NextResponse.json({
         success: true,
-        data: {
-            id: `onchain-${chainId}-${address.toLowerCase()}`,
-            symbol: baseSymbol,
-            name: meta.name || existingToken?.name || baseSymbol,
-            pair: `${baseSymbol}/${quoteSymbol}`,
-            price: currentPrice,
-            priceUSD: currentPrice,
-            priceChange24h: meta.priceChange24h,
-            high24h,
-            low24h,
-            volume24h: meta.volume24h,
-            fundingRate: 0.00, // Spot fallback
-            openInterest: 0.00, // Spot fallback
-            marketCap: meta.marketCap || existingToken?.marketCap,
-            fdv: meta.fdv,
-            liquidity: meta.liquidity || existingToken?.liquidity,
-            circulatingSupply,
-            totalSupply,
-            baseToken: {
-                symbol: baseSymbol,
-                name: meta.name || existingToken?.name || baseSymbol,
-                address: address,
-                chainId,
-                logo: meta.logo || existingToken?.logoURI,
-            },
-            quoteToken: {
-                symbol: quoteSymbol,
-                name: quoteSymbol,
-                address: '0x0000000000000000000000000000000000000000',
-                chainId,
-                logo: '',
-            },
-            metadata: {
-                name: meta.name || existingToken?.name || baseSymbol,
-                logo: meta.logo || existingToken?.logoURI,
-                description: meta.description,
-                socials: meta.socials,
-                websites: meta.websites,
-                website: meta.website,
-            },
-            provider: 'onchain',
-            marketType: 'spot',
-            chainId
-        }
+        data: responseData
     });
 }

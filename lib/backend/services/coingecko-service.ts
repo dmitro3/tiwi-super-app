@@ -13,6 +13,7 @@ interface CoinGeckoData {
     totalSupply?: number;
     circulatingSupply?: number;
     marketCapRank?: number;
+    decimals?: number;
 }
 
 /**
@@ -59,7 +60,8 @@ export async function getTokenDataByAddress(chainId: number, address: string): P
             low24h: data.market_data?.low_24h?.usd,
             totalSupply: data.market_data?.total_supply,
             circulatingSupply: data.market_data?.circulating_supply,
-            marketCapRank: data.market_cap_rank
+            marketCapRank: data.market_cap_rank,
+            decimals: data.detail_platforms?.[platform]?.decimal_place
         };
     } catch (error) {
         console.error('[CoinGeckoService] Error fetching token data:', error);

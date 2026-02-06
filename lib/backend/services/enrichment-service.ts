@@ -26,6 +26,8 @@ export interface TokenMetadata {
     socials?: any[];
     website?: string;
     websites?: any[];
+    decimals?: number;
+    rank?: number;
     source: 'static' | 'dexscreener' | 'dydx';
 }
 
@@ -112,6 +114,8 @@ export async function getSurgicalMetadata(symbol: string, address: string, chain
         socials: dexMeta?.socials,
         website: dexMeta?.websites?.[0]?.url,
         websites: dexMeta?.websites,
+        decimals: cgMeta?.decimals || 18,
+        rank: cgMeta?.marketCapRank,
         source: dexMeta || cgMeta ? 'dexscreener' : 'static'
     };
 }

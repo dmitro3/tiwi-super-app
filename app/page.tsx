@@ -20,6 +20,7 @@ import { usePrefetchMarkets } from "@/hooks/usePrefetchMarkets";
 import { useEnrichedMarkets } from "@/hooks/useEnrichedMarkets";
 import type { Token } from "@/lib/frontend/types/tokens";
 import { formatTokenForHomepage } from "@/lib/home/token-formatter";
+import { promoteTWC } from "@/lib/frontend/utils/market-promotion";
 
 type TabKey = "Favourite" | "Hot" | "New" | "Gainers" | "Losers";
 type MobileTabKey = "Favourite" | "Top" | "Spotlight" | "New" | "Gainers" | "Losers";
@@ -120,14 +121,25 @@ export default function HomePage() {
       });
     }
 
+    // Promote TWC to 2nd position for better visibility
+    if (!searchQuery.trim() && (activeTab === 'Hot' || activeTab === 'Gainers')) {
+      result = promoteTWC(result, { position: 1 });
+    }
+
     return result;
-  }, [desktopFiltered, searchQuery, sortBy]);
+  }, [desktopFiltered, searchQuery, sortBy, activeTab]);
 
   // Transform for Mobile
   const mobileTokens = useMemo(() => {
-    const list = mobileFiltered.slice(0, 5).map(t => formatTokenForHomepage(t));
-    return list;
-  }, [mobileFiltered]);
+    let list = [...mobileFiltered];
+
+    // Promote TWC in mobile view too
+    if (activeMobileTab === 'Top' || activeMobileTab === 'Gainers') {
+      list = promoteTWC(list, { position: 1 });
+    }
+
+    return list.slice(0, 5).map(t => formatTokenForHomepage(t));
+  }, [mobileFiltered, activeMobileTab]);
 
   const total = tokens.length;
   const paginatedTokens = tokens.slice(

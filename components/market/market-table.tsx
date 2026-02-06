@@ -230,7 +230,7 @@ export default function MarketTable({
                         </TableCell>
                         <TableCell className="px-6 py-5 text-right text-white font-medium text-[16px] relative">
                           <span className="relative z-20">
-                            #{token.rank}
+                            #{token.marketCapRank}
                           </span>
                         </TableCell>
                         <TableCell className="px-6 py-5 text-right text-white font-medium text-[16px] relative">

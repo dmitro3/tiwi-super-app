@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getBinanceTickers } from '@/lib/backend/services/binance-ticker-service';
 import { getDydxMarkets } from '@/lib/backend/services/dydx-service';
+import { getFeaturedMarkets } from '@/lib/backend/services/featured-service';
 
 /**
  * GET /api/v1/market/list
@@ -15,6 +16,9 @@ export async function GET(req: NextRequest) {
         const marketType = searchParams.get('marketType') || 'all';
         const limit = parseInt(searchParams.get('limit') || '500', 10);
         const promises: Promise<any>[] = [];
+
+        // Fetch Featured Markets (Promoted tokens like TWC)
+        promises.push(getFeaturedMarkets());
 
         // Fetch enriched dYdX markets (perps)
         if (marketType === 'all' || marketType === 'perp' || marketType === 'spot') {

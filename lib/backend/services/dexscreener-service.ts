@@ -17,6 +17,7 @@ interface DexScreenerProfile {
     websites?: { label: string; url: string }[];
     volume24h?: number;
     priceChange24h?: number;
+    priceUsd?: number;
 }
 
 // In-memory cache for metadata (1 hour TTL)
@@ -101,6 +102,9 @@ export async function searchTokenProfile(symbol: string): Promise<DexScreenerPro
             description: description,
             marketCap: bestPair.marketCap,
             fdv: bestPair.fdv,
+            volume24h: bestPair.volume?.h24,
+            priceChange24h: bestPair.priceChange?.h24,
+            priceUsd: parseFloat(bestPair.priceUsd || '0'),
             liquidity: bestPair.liquidity?.usd,
             socials: Array.from(socialsMap.values()),
             websites: Array.from(websitesMap.values()),
@@ -215,6 +219,7 @@ export async function searchTokenByAddress(address: string, chainId?: number): P
             fdv: bestPair.fdv,
             volume24h,
             priceChange24h,
+            priceUsd: parseFloat(bestPair.priceUsd || '0'),
             liquidity: bestPair.liquidity?.usd,
             socials: Array.from(socialsMap.values()),
             websites: Array.from(websitesMap.values()),
