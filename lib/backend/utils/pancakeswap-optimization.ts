@@ -10,6 +10,8 @@ import { getChainConfig } from './chain-config';
 
 const clientCache = new Map<number, PublicClient>();
 
+import { getRpcUrl, RPC_TRANSPORT_OPTIONS } from './rpc-config';
+
 /**
  * Get cached public client instance for a chain (singleton pattern)
  * Optimized with fast timeouts and connection pooling
@@ -21,11 +23,13 @@ export function getCachedClient(chainId: number): PublicClient {
       throw new Error(`Chain ${chainId} not supported`);
     }
 
+    const rpcUrl = getRpcUrl(chainId);
+
     clientCache.set(chainId, createPublicClient({
       chain,
-      transport: http(undefined, {
-        timeout: 10000,
-        retryCount: 2,
+      transport: http(rpcUrl, {
+        ...RPC_TRANSPORT_OPTIONS,
+        timeout: 10000, // Keep faster timeout for optimization layer
       }),
     }));
   }

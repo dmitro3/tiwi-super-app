@@ -29,6 +29,7 @@ export interface SwapState {
   // Limit order specific
   limitPrice: string;
   expires: 'never' | '24h' | '7d' | 'custom';
+  customExpiryMinutes: string;
 
   // Quote state (server-derived, will migrate to TanStack Query later)
   isQuoteLoading: boolean;
@@ -57,6 +58,7 @@ export interface SwapState {
   // Limit order actions
   setLimitPrice: (price: string) => void;
   setExpires: (expires: 'never' | '24h' | '7d' | 'custom') => void;
+  setCustomExpiryMinutes: (minutes: string) => void;
 
   // Quote actions
   setQuoteLoading: (loading: boolean) => void;
@@ -80,6 +82,7 @@ const initialState = {
   activeInput: null as 'from' | 'to' | null,
   limitPrice: '',
   expires: 'never' as const,
+  customExpiryMinutes: '1440', // Default 24h
   isQuoteLoading: false,
   quoteStep: '',
   quoteError: null as Error | null,
@@ -170,6 +173,10 @@ export const useSwapStore = create<SwapState>((set) => ({
 
   setExpires: (expires) => {
     set({ expires });
+  },
+
+  setCustomExpiryMinutes: (minutes) => {
+    set({ customExpiryMinutes: minutes });
   },
 
   // ===== Quote Actions =====

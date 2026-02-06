@@ -33,21 +33,21 @@ export default function SwapActionButton({
 }: SwapActionButtonProps) {
   const isLimit = activeTab === "limit";
   const hasAmount = fromAmount && fromAmount.trim() !== "" && parseFloat(fromAmount) > 0;
-  
+
   // Check if we have compatible addresses for cross-chain swaps
   const hasFromAddress = !!fromCompatibleAddress;
   const hasToAddress = !!toCompatibleAddress;
-  
+
   // For cross-chain swaps, both addresses must be compatible
   const isCrossChain = fromTokenChainId && toTokenChainId && fromTokenChainId !== toTokenChainId;
   const canSwap = hasFromAddress && (!isCrossChain || hasToAddress);
-  
+
   // Determine which chain name to show in error message
-  const missingChainName = !hasFromAddress && fromTokenChainId 
+  const missingChainName = !hasFromAddress && fromTokenChainId
     ? getChainDisplayName(fromTokenChainId)
     : !hasToAddress && toTokenChainId && isCrossChain
-    ? getChainDisplayName(toTokenChainId)
-    : null;
+      ? getChainDisplayName(toTokenChainId)
+      : null;
 
   return (
     <div className="relative mt-3 sm:mt-4">
@@ -57,13 +57,13 @@ export default function SwapActionButton({
           disabled={isExecutingTransfer || !hasAmount || !canSwap}
           className="w-full relative z-10 text-sm sm:text-base py-2.5 sm:py-3 lg:py-3"
         >
-          {isExecutingTransfer 
-            ? (transferStatus || "Processing...") 
+          {isExecutingTransfer
+            ? (transferStatus || "Processing...")
             : !canSwap && missingChainName
-            ? `Connect A ${missingChainName} Wallet`
-            : hasAmount
-            ? "Swap"
-            : "Enter Amount"}
+              ? `Connect A ${missingChainName} Wallet`
+              : hasAmount
+                ? "Swap"
+                : "Enter Amount"}
         </Button>
       )}
       {!isLimit && !isConnected && (
@@ -77,9 +77,16 @@ export default function SwapActionButton({
       {isLimit && isConnected && (
         <Button
           onClick={onSwapClick}
+          disabled={isExecutingTransfer || !hasAmount || !canSwap}
           className="w-full relative z-10 text-sm sm:text-base py-2.5 sm:py-3 lg:py-3"
         >
-          Place Limit Order
+          {isExecutingTransfer
+            ? (transferStatus || "Processing...")
+            : !canSwap && missingChainName
+              ? `Connect A ${missingChainName} Wallet`
+              : hasAmount
+                ? "Place Limit Order"
+                : "Enter Amount"}
         </Button>
       )}
       {isLimit && !isConnected && (

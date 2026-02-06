@@ -35,6 +35,8 @@ import type { SwapStage } from "@/lib/frontend/services/swap-executor/types";
 import FromWalletSelectorModal from "@/components/swap/from-wallet-selector-modal";
 import ToAddressModal from "@/components/swap/to-address-modal";
 import { useLimitOrder } from "@/hooks/useLimitOrder";
+import { useWalletClient, useAccount, useSwitchChain, useConfig } from "wagmi";
+import { getEVMWalletClient, ensureCorrectChain } from "@/lib/frontend/services/swap-executor/utils/wallet-helpers";
 
 // Default tokens (ensure chainId/address/logo for routing + display)
 export const DEFAULT_FROM_TOKEN: Token = {
@@ -111,10 +113,37 @@ export default function SwapPage() {
     secondaryAddress,
     connectedWallets,
     connectAdditionalWallet,
-    isProviderConnected,
+    isConnected: isProviderConnected,
+    address: providerAddress,
     error: walletError,
     clearError: clearWalletError,
   } = useWallet();
+
+  // Get the wallet client, specifically for the selected chain
+  const {
+    data: walletClient,
+    status: walletClientStatus,
+    refetch: refetchWalletClient
+  } = useWalletClient({
+    chainId: fromToken?.chainId
+  });
+
+  const { switchChainAsync } = useSwitchChain();
+  const config = useConfig();
+
+  // Debug logging for wallet connection issues
+  useEffect(() => {
+    if (activeTab === 'limit' && isProviderConnected) {
+      console.log('[SwapPage] Wallet state debug:', {
+        isProviderConnected,
+        providerAddress,
+        walletClientStatus,
+        hasWalletClient: !!walletClient,
+        targetChainId: fromToken?.chainId,
+        walletClientChainId: walletClient?.chain?.id
+      });
+    }
+  }, [activeTab, isProviderConnected, providerAddress, walletClientStatus, !!walletClient, fromToken?.chainId, walletClient?.chain?.id]);
 
   // Get active wallet address (single source of truth)
   const activeWalletAddress = useActiveWalletAddress();
@@ -155,6 +184,7 @@ export default function SwapPage() {
     activeTab,
     fromToken,
     toToken,
+    limitPrice,
     recipient: recipientAddress, // Pass recipient address for routing
   });
 
@@ -674,18 +704,27 @@ export default function SwapPage() {
     try {
       setIsExecutingTransfer(true);
 
-      const { getWalletClient } = await import("@wagmi/core");
-      const { config } = await import("@/lib/wallet/wagmi/config");
-      const walletClient = await getWalletClient(config);
+      setToastState({
+        open: true,
+        stage: 'preparing',
+        message: 'Checking wallet connection...',
+      });
 
-      if (!walletClient) {
-        throw new Error("No wallet connected");
-      }
+      // 1. Ensure we are on the right chain
+      await ensureCorrectChain(fromToken.chainId);
+
+      // 2. Get the wallet client through the reliable helper (matches Swap)
+      const activeClient = await getEVMWalletClient(fromToken.chainId);
+
+      const customExpiryMinutes = useSwapStore.getState().customExpiryMinutes;
 
       // Map expires label to seconds
       let expiresInSeconds = 0;
       if (expires === '24h') expiresInSeconds = 24 * 60 * 60;
       else if (expires === '7d') expiresInSeconds = 7 * 24 * 60 * 60;
+      else if (expires === 'custom' && customExpiryMinutes) {
+        expiresInSeconds = parseInt(customExpiryMinutes) * 60;
+      }
 
       await executeLimitOrder({
         fromToken,
@@ -693,8 +732,9 @@ export default function SwapPage() {
         fromAmount,
         limitPrice,
         userAddress: walletAddress,
+        recipientAddress: recipientAddress || undefined,
         expiresInSeconds
-      }, walletClient as any);
+      }, activeClient as any);
 
     } catch (error: any) {
       console.error("Limit order execution error:", error);
@@ -1101,7 +1141,7 @@ export default function SwapPage() {
       {/* Cards Container - Relative positioning for background elements tied to cards */}
       <div className="relative z-30">
         {/* Background elements positioned relative to cards container */}
-        {/* <SwapBackgroundElements /> */}
+        <SwapBackgroundElements />
 
         <div className="flex flex-col lg:flex-row lg:items-start gap-3 sm:gap-4 lg:gap-5 xl:gap-6 relative z-30 pb-[80px] sm:pb-[95px] md:pb-[110px] lg:pb-[125px] xl:pb-[145px] 2xl:pb-[160px]">
           {/* Chart Section - Left Side (Desktop) */}
@@ -1152,6 +1192,7 @@ export default function SwapPage() {
               limitPrice={limitPrice}
               limitPriceUsd={limitPriceUsd}
               expires={expires}
+              customExpiryMinutes={useSwapStore((state) => state.customExpiryMinutes)}
               recipientAddress={recipientAddress}
               onRecipientChange={handleRecipientChange}
               connectedAddress={walletAddress}
@@ -1168,6 +1209,7 @@ export default function SwapPage() {
               onToAmountChange={handleToAmountChange}
               onLimitPriceChange={handleLimitPriceChange}
               onExpiresChange={setExpires}
+              onCustomExpiryChange={useSwapStore((state) => state.setCustomExpiryMinutes)}
               onMaxClick={handleMaxClick}
               on30PercentClick={handle30PercentClick}
               on50PercentClick={handle50PercentClick}

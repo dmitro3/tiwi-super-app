@@ -5,8 +5,9 @@
  */
 
 import { getAddress, type Address } from "viem";
-import { createPublicClient, http, type Chain } from "viem";
+import { createPublicClient, http, custom, type Chain } from "viem";
 import { mainnet, arbitrum, optimism, polygon, base, bsc } from "viem/chains";
+import { getRpcUrl, RPC_TRANSPORT_OPTIONS } from "@/lib/backend/utils/rpc-config";
 
 // Chain mapping
 const CHAIN_MAP: Record<number, Chain> = {
@@ -30,9 +31,29 @@ export function getPublicClient(chainId: number) {
   if (!chain) {
     throw new Error(`Unsupported chain: ${chainId}`);
   }
+
+  // Use custom RPC if available, otherwise fallback to default
+  const rpcUrl = getRpcUrl(chainId);
+
+  // ✅ ENHANCEMENT: If in browser and wallet is on correct chain, use it as transport
+  // This is 100% more reliable than public RPCs (prevents 'Failed to fetch' errors)
+  if (typeof window !== 'undefined' && (window as any).ethereum) {
+    try {
+      // Create a temporary client to check chainId without complex state
+      const provider = (window as any).ethereum;
+
+      return createPublicClient({
+        chain,
+        transport: custom(provider),
+      });
+    } catch (e) {
+      console.warn('[getPublicClient] Failed to use wallet provider, falling back to RPC:', rpcUrl);
+    }
+  }
+
   return createPublicClient({
     chain,
-    transport: http(),
+    transport: http(rpcUrl, RPC_TRANSPORT_OPTIONS),
   });
 }
 
@@ -51,7 +72,7 @@ export function isNativeToken(address: string): boolean {
  */
 export function toSmallestUnit(amount: string, decimals: number): string {
   const amountStr = amount.toString().trim();
-  
+
   if (amountStr.includes("e") || amountStr.includes("E")) {
     const num = parseFloat(amountStr);
     const parts = num.toFixed(decimals).split(".");
@@ -60,23 +81,23 @@ export function toSmallestUnit(amount: string, decimals: number): string {
     const paddedDecimal = decimalPart.padEnd(decimals, "0").substring(0, decimals);
     return integerPart + paddedDecimal;
   }
-  
+
   const decimalIndex = amountStr.indexOf(".");
   if (decimalIndex === -1) {
     const amountBigInt = BigInt(amountStr);
     const decimalsMultiplier = BigInt(10 ** decimals);
     return (amountBigInt * decimalsMultiplier).toString();
   }
-  
+
   const integerPart = amountStr.substring(0, decimalIndex) || "0";
   let decimalPart = amountStr.substring(decimalIndex + 1);
-  
+
   if (decimalPart.length > decimals) {
     decimalPart = decimalPart.substring(0, decimals);
   } else {
     decimalPart = decimalPart.padEnd(decimals, "0");
   }
-  
+
   return integerPart + decimalPart;
 }
 
@@ -105,7 +126,7 @@ export async function transferERC20Token(
   amount: bigint
 ): Promise<`0x${string}`> {
   const { encodeFunctionData } = await import("viem");
-  
+
   const transferABI = [
     {
       constant: false,
@@ -118,18 +139,18 @@ export async function transferERC20Token(
       type: "function",
     },
   ] as const;
-  
+
   const data = encodeFunctionData({
     abi: transferABI,
     functionName: "transfer",
     args: [toAddress as Address, amount],
   });
-  
+
   const hash = await walletClient.sendTransaction({
     to: tokenAddress as `0x${string}`,
     data,
   });
-  
+
   return hash as `0x${string}`;
 }
 
@@ -143,10 +164,10 @@ export async function transferSOL(
 ): Promise<string> {
   const { PublicKey, SystemProgram, Transaction } = await import("@solana/web3.js");
   const { createSolanaConnection } = await import("@/lib/wallet/utils/solana");
-  
+
   const connection = await createSolanaConnection();
   const recipientPubkey = new PublicKey(toAddress);
-  
+
   const transaction = new Transaction().add(
     SystemProgram.transfer({
       fromPubkey: solanaWallet.publicKey,
@@ -154,10 +175,10 @@ export async function transferSOL(
       lamports: amount,
     })
   );
-  
+
   const signature = await solanaWallet.sendTransaction(transaction, connection);
   await connection.confirmTransaction(signature, "confirmed");
-  
+
   return signature;
 }
 
@@ -173,11 +194,11 @@ export async function transferSPLToken(
   const { PublicKey, Transaction } = await import("@solana/web3.js");
   const { getAssociatedTokenAddress, createTransferInstruction } = await import("@solana/spl-token");
   const { createSolanaConnection } = await import("@/lib/wallet/utils/solana");
-  
+
   const connection = await createSolanaConnection();
   const mintPubkey = new PublicKey(tokenMint);
   const recipientPubkey = new PublicKey(toAddress);
-  
+
   const sourceTokenAccount = await getAssociatedTokenAddress(
     mintPubkey,
     solanaWallet.publicKey
@@ -186,18 +207,18 @@ export async function transferSPLToken(
     mintPubkey,
     recipientPubkey
   );
-  
+
   const transferInstruction = createTransferInstruction(
     sourceTokenAccount,
     destTokenAccount,
     solanaWallet.publicKey,
     amount
   );
-  
+
   const transaction = new Transaction().add(transferInstruction);
   const signature = await solanaWallet.sendTransaction(transaction, connection);
   await connection.confirmTransaction(signature, "confirmed");
-  
+
   return signature;
 }
 

@@ -53,17 +53,28 @@ export function getCachedPublicClient(chainId: number): PublicClient {
   if (!publicClientCache.has(chainId)) {
     const chain = getChainForId(chainId);
 
-    const customRpcUrl = getRpcUrl(chainId);
+    // ✅ ENHANCEMENT: Prefer browser wallet provider to avoid CORS/Fetch errors
+    if (typeof window !== 'undefined' && (window as any).ethereum) {
+      publicClientCache.set(
+        chainId,
+        createPublicClient({
+          chain,
+          transport: custom((window as any).ethereum),
+        })
+      );
+    } else {
+      const customRpcUrl = getRpcUrl(chainId);
 
-    publicClientCache.set(
-      chainId,
-      createPublicClient({
-        chain,
-        transport: customRpcUrl
-          ? http(customRpcUrl, RPC_TRANSPORT_OPTIONS)
-          : http(undefined, RPC_TRANSPORT_OPTIONS),
-      })
-    );
+      publicClientCache.set(
+        chainId,
+        createPublicClient({
+          chain,
+          transport: customRpcUrl
+            ? http(customRpcUrl, RPC_TRANSPORT_OPTIONS)
+            : http(undefined, RPC_TRANSPORT_OPTIONS),
+        })
+      );
+    }
   }
 
   return publicClientCache.get(chainId)!;

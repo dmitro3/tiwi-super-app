@@ -34,7 +34,7 @@ export const RPC_CONFIG: Record<number, string> = {
 
   // BSC / Binance Smart Chain (56)
   56: process.env.NEXT_PUBLIC_BSC_RPC_URL ||
-    'https://bnb-mainnet.g.alchemy.com/v2/WLJoFMJfcDSAUbsnhlyCl',
+    'https://bsc-dataseed.binance.org/',
 };
 
 /**

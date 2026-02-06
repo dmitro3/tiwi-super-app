@@ -40,6 +40,7 @@ interface SwapCardProps {
   limitPrice?: string;
   limitPriceUsd?: string;
   expires?: "never" | "24h" | "7d" | "custom";
+  customExpiryMinutes?: string;
   recipientAddress?: string | null;
   onRecipientChange?: (address: string | null) => void;
   connectedAddress?: string | null;
@@ -53,6 +54,7 @@ interface SwapCardProps {
   onToAmountChange?: (value: string) => void;
   onLimitPriceChange?: (value: string) => void;
   onExpiresChange?: (value: "never" | "24h" | "7d" | "custom") => void;
+  onCustomExpiryChange?: (value: string) => void;
   onMaxClick?: () => void;
   on30PercentClick?: () => void;
   on50PercentClick?: () => void;
@@ -80,6 +82,7 @@ export default function SwapCard({
   limitPrice = "",
   limitPriceUsd = "$0",
   expires = "never",
+  customExpiryMinutes = "1440",
   recipientAddress = null,
   onRecipientChange,
   connectedAddress = null,
@@ -93,6 +96,7 @@ export default function SwapCard({
   onToAmountChange,
   onLimitPriceChange,
   onExpiresChange,
+  onCustomExpiryChange,
   onMaxClick,
   on30PercentClick,
   on50PercentClick,
@@ -116,19 +120,19 @@ export default function SwapCard({
   // Wallet dropdown states
   const [isFromWalletDropdownOpen, setIsFromWalletDropdownOpen] = useState(false);
   const [isToWalletDropdownOpen, setIsToWalletDropdownOpen] = useState(false);
-  
+
   // Get wallet data for compatibility checking
   const { connectedWallets, primaryWallet, secondaryWallet } = useWallet();
 
   // Check if fromAmount is valid (non-zero number) for showing Limit-specific sections
   const hasValidFromAmount = parseNumber(fromAmount) > 0;
-  
+
   // Determine compatible wallets and addresses for From section
   const fromCompatibleWallets = useMemo(() => {
     if (!fromToken?.chainId) return [];
     return connectedWallets.filter((wallet) => wallet && isWalletChainCompatible(wallet, fromToken.chainId));
   }, [connectedWallets, fromToken?.chainId]);
-  
+
   const fromCompatibleAddress = useMemo(() => {
     // Check if connectedAddress is compatible with fromToken chain
     if (connectedAddress && fromToken?.chainId) {
@@ -138,7 +142,7 @@ export default function SwapCard({
     }
     return null;
   }, [connectedAddress, fromToken?.chainId]);
-  
+
   const fromCompatibleWalletIcon = useMemo(() => {
     if (!fromCompatibleAddress) return null;
     // Find the wallet that matches this address
@@ -147,14 +151,14 @@ export default function SwapCard({
     );
     return matchingWallet ? getWalletIconFromAccount(matchingWallet) : null;
   }, [fromCompatibleAddress, fromCompatibleWallets]);
-  
+
   // Determine compatible wallets and addresses for To section
   const toCompatibleWallets = useMemo(() => {
     if (!toToken?.chainId) return [];
     const allWallets = [primaryWallet, secondaryWallet].filter((w): w is NonNull<typeof w> => w !== null);
     return allWallets.filter((wallet) => isWalletChainCompatible(wallet, toToken.chainId));
   }, [primaryWallet, secondaryWallet, toToken?.chainId]);
-  
+
   const toCompatibleAddress = useMemo(() => {
     // Check if recipientAddress is compatible with toToken chain
     if (recipientAddress && toToken?.chainId) {
@@ -164,7 +168,7 @@ export default function SwapCard({
     }
     return null;
   }, [recipientAddress, toToken?.chainId]);
-  
+
   const toCompatibleWalletIcon = useMemo(() => {
     if (!toCompatibleAddress) return null;
     // Find the wallet that matches this address
@@ -173,7 +177,7 @@ export default function SwapCard({
     );
     return matchingWallet ? getWalletIconFromAccount(matchingWallet) : null;
   }, [toCompatibleAddress, toCompatibleWallets]);
-  
+
   // Helper type for non-null
   type NonNull<T> = T extends null | undefined ? never : T;
 
@@ -183,7 +187,7 @@ export default function SwapCard({
 
   const handleFromWalletClick = () => {
     // Always allow opening dropdown to show compatible wallets or "Connect a new wallet"
-      setIsFromWalletDropdownOpen((prev) => !prev);
+    setIsFromWalletDropdownOpen((prev) => !prev);
   };
 
   const handleToWalletClick = () => {
@@ -204,38 +208,38 @@ export default function SwapCard({
           {/* From / To group with arrow centered between them */}
           <div className="relative flex flex-col gap-3 sm:gap-4">
             {/* From Section */}
-              <TokenInput
-                type="from"
-                token={fromToken}
-                balance={fromBalance}
-                balanceLoading={fromBalanceLoading}
-                amount={fromAmount}
-                usdValue={fromUsdValue}
-                onTokenSelect={onFromTokenSelect}
-                onMaxClick={onMaxClick}
-                on30PercentClick={on30PercentClick}
-                on50PercentClick={on50PercentClick}
-                on75PercentClick={on75PercentClick}
-                onAmountChange={onFromAmountChange}
-                readOnlyAmount={false}
+            <TokenInput
+              type="from"
+              token={fromToken}
+              balance={fromBalance}
+              balanceLoading={fromBalanceLoading}
+              amount={fromAmount}
+              usdValue={fromUsdValue}
+              onTokenSelect={onFromTokenSelect}
+              onMaxClick={onMaxClick}
+              on30PercentClick={on30PercentClick}
+              on50PercentClick={on50PercentClick}
+              on75PercentClick={on75PercentClick}
+              onAmountChange={onFromAmountChange}
+              readOnlyAmount={false}
               walletLabel={fromCompatibleAddress ? undefined : "Select wallet"}
               walletIcon={fromCompatibleAddress ? (fromCompatibleWalletIcon || fromWalletIcon) : null}
               walletAddress={fromCompatibleAddress}
-                onWalletClick={handleFromWalletClick}
-                walletDropdown={
-                  <FromWalletDropdown
-                    open={isFromWalletDropdownOpen}
-                    onClose={() => setIsFromWalletDropdownOpen(false)}
-                    onConnectNewWallet={onConnectFromSection || onConnectClick || (() => {})}
-                    onSelectWallet={(address) => {
-                      // Future: switch active wallet
-                    }}
+              onWalletClick={handleFromWalletClick}
+              walletDropdown={
+                <FromWalletDropdown
+                  open={isFromWalletDropdownOpen}
+                  onClose={() => setIsFromWalletDropdownOpen(false)}
+                  onConnectNewWallet={onConnectFromSection || onConnectClick || (() => { })}
+                  onSelectWallet={(address) => {
+                    // Future: switch active wallet
+                  }}
                   currentAddress={fromCompatibleAddress}
                   chainId={fromToken?.chainId} // Pass chainId for wallet filtering
-                  />
-                }
+                />
+              }
               isQuoteLoading={isQuoteLoading && activeInput === 'to'}
-              />
+            />
 
             {/* Swap Arrow - Absolutely positioned between From and To sections */}
             <div className="absolute left-1/2 -translate-x-1/2 md:top-[calc(50%-20px)] top-[calc(50%-15px)] z-10">
@@ -250,34 +254,34 @@ export default function SwapCard({
             </div>
 
             {/* To Section */}
-              <TokenInput
-                type="to"
-                token={toToken}
-                balance={toBalance}
-                balanceLoading={toBalanceLoading}
-                amount={toAmount}
-                usdValue={toUsdValue}
-                onTokenSelect={onToTokenSelect}
-                onAmountChange={onToAmountChange}
+            <TokenInput
+              type="to"
+              token={toToken}
+              balance={toBalance}
+              balanceLoading={toBalanceLoading}
+              amount={toAmount}
+              usdValue={toUsdValue}
+              onTokenSelect={onToTokenSelect}
+              onAmountChange={onToAmountChange}
               walletLabel={toCompatibleAddress ? undefined : "Select wallet"}
               walletIcon={toCompatibleAddress ? (toCompatibleWalletIcon || toWalletIcon) : null}
               walletAddress={toCompatibleAddress}
-                onWalletClick={handleToWalletClick}
-                walletDropdown={
-                  <ToWalletDropdown
-                    open={isToWalletDropdownOpen}
-                    onClose={() => setIsToWalletDropdownOpen(false)}
-                    onConnectNewWallet={onConnectClick || (() => {})}
-                    onAddressSelect={(address) => {
-                      onRecipientChange?.(address);
-                    }}
-                    chainId={toToken?.chainId}
-                    currentRecipientAddress={recipientAddress}
-                  />
-                }
+              onWalletClick={handleToWalletClick}
+              walletDropdown={
+                <ToWalletDropdown
+                  open={isToWalletDropdownOpen}
+                  onClose={() => setIsToWalletDropdownOpen(false)}
+                  onConnectNewWallet={onConnectClick || (() => { })}
+                  onAddressSelect={(address) => {
+                    onRecipientChange?.(address);
+                  }}
+                  chainId={toToken?.chainId}
+                  currentRecipientAddress={recipientAddress}
+                />
+              }
               readOnlyAmount={false}
               isQuoteLoading={isQuoteLoading && activeInput === 'from'}
-              />
+            />
           </div>
 
           {/* Limit Order Fields - Only shown in Limit tab */}
@@ -287,9 +291,11 @@ export default function SwapCard({
               limitPrice={limitPrice}
               limitPriceUsd={limitPriceUsd}
               expires={expires}
+              customExpiryMinutes={customExpiryMinutes}
               hasValidFromAmount={hasValidFromAmount}
               onLimitPriceChange={onLimitPriceChange}
               onExpiresChange={onExpiresChange}
+              onCustomExpiryChange={onCustomExpiryChange}
             />
           )}
 
@@ -300,9 +306,8 @@ export default function SwapCard({
           <button
             type="button"
             onClick={handleToggleDetails}
-            className={`flex items-center justify-center gap-2 text-[#b5b5b5] text-sm sm:text-base cursor-pointer ${
-              !isLimit ? "mt-3 sm:mt-4" : "mt-3 sm:mt-0"
-            }`}
+            className={`flex items-center justify-center gap-2 text-[#b5b5b5] text-sm sm:text-base cursor-pointer ${!isLimit ? "mt-3 sm:mt-4" : "mt-3 sm:mt-0"
+              }`}
           >
             <span className="font-medium">
               {isDetailsExpanded ? "Show Less" : "Show More"}
@@ -312,9 +317,8 @@ export default function SwapCard({
               alt={isDetailsExpanded ? "Show less" : "Show more"}
               width={20}
               height={20}
-              className={`w-4 h-4 sm:w-5 sm:h-5 transition-transform duration-200 ${
-                isDetailsExpanded ? "-scale-y-100" : ""
-              }`}
+              className={`w-4 h-4 sm:w-5 sm:h-5 transition-transform duration-200 ${isDetailsExpanded ? "-scale-y-100" : ""
+                }`}
             />
           </button>
 

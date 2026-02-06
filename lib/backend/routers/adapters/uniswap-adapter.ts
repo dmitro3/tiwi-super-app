@@ -60,7 +60,7 @@ const ROUTER_ABI = [
 export class UniswapAdapter extends BaseRouter {
   name = 'uniswap';
   displayName = 'Uniswap';
-  
+
   /**
    * Get router priority (lower = higher priority)
    * Uniswap is priority 10 (after LiFi, before PancakeSwap for non-BNB chains)
@@ -68,28 +68,28 @@ export class UniswapAdapter extends BaseRouter {
   getPriority(): number {
     return 10;
   }
-  
+
   /**
    * Get supported chains
    */
   async getSupportedChains(): Promise<number[]> {
     return Object.keys(UNISWAP_V2_ROUTER).map(id => parseInt(id, 10));
   }
-  
+
   /**
    * Check if router supports a specific chain
    */
   async supportsChain(chainId: number): Promise<boolean> {
     return chainId in UNISWAP_V2_ROUTER;
   }
-  
+
   /**
    * Uniswap only supports same-chain swaps (no cross-chain)
    */
   supportsCrossChain(): boolean {
     return false;
   }
-  
+
   /**
    * Get route from Uniswap
    */
@@ -99,46 +99,49 @@ export class UniswapAdapter extends BaseRouter {
       if (!params.fromChainId || !params.toChainId || !params.fromToken || !params.toToken || !params.fromAmount) {
         throw new Error('Missing required parameters');
       }
-      
+
       // Ensure same chain (Uniswap doesn't support cross-chain)
-      const fromChainId = typeof params.fromChainId === 'number' 
-        ? params.fromChainId 
+      const fromChainId = typeof params.fromChainId === 'number'
+        ? params.fromChainId
         : parseInt(String(params.fromChainId), 10);
       const toChainId = typeof params.toChainId === 'number'
         ? params.toChainId
         : parseInt(String(params.toChainId), 10);
-      
+
       if (fromChainId !== toChainId) {
         return null; // Cross-chain not supported
       }
-      
+
       if (!(fromChainId in UNISWAP_V2_ROUTER)) {
         return null; // Chain not supported
       }
-      
+
       // Get router address
       const routerAddress = UNISWAP_V2_ROUTER[fromChainId];
       const wethAddress = WETH_ADDRESSES[fromChainId];
-      
+
       if (!routerAddress || !wethAddress) {
         return null;
       }
-      
+
       // Get chain config and create public client
       const chainConfig = CHAIN_CONFIGS[fromChainId];
       if (!chainConfig) {
         return null;
       }
-      
+
+      const { getRpcUrl, RPC_TRANSPORT_OPTIONS } = await import('@/lib/backend/utils/rpc-config');
+      const rpcUrl = getRpcUrl(fromChainId);
+
       const publicClient = createPublicClient({
         chain: chainConfig,
-        transport: http(),
+        transport: http(rpcUrl, RPC_TRANSPORT_OPTIONS),
       });
-      
+
       // Convert native token addresses to WETH
       const fromToken = this.convertToWETH(params.fromToken, fromChainId);
       const toToken = this.convertToWETH(params.toToken, fromChainId);
-      
+
       // ✅ Find best route using multi-hop path finding (like tiwi-test)
       const amountIn = BigInt(params.fromAmount);
       const bestRoute = await this.findBestRoute(
@@ -149,22 +152,22 @@ export class UniswapAdapter extends BaseRouter {
         routerAddress,
         publicClient
       );
-      
+
       if (!bestRoute) {
         return null; // No route found
       }
-      
+
       const path = bestRoute.path;
       const amountOut = bestRoute.expectedOutput;
-      
+
       // Use provided decimals from RouterParams (passed from RouteService)
       // These come from token data (enriched by TokenService), no contract call needed
       const fromDecimals = params.fromDecimals;
       const toDecimals = params.toDecimals;
-      
+
       // Use price impact from best route if available, otherwise calculate
       const priceImpact = bestRoute.priceImpact ?? this.calculatePriceImpact(amountIn, amountOut, path.length);
-      
+
       // Estimate gas cost (non-blocking - don't fail route if estimation fails)
       let gasEstimate = '0';
       let gasUSD = '0';
@@ -184,7 +187,7 @@ export class UniswapAdapter extends BaseRouter {
         console.warn('[UniswapAdapter] Gas estimation failed, using fallback:', error);
         // Continue with '0' values (will be handled in normalizeRoute)
       }
-      
+
       // Normalize to RouterRoute format
       const normalizedRoute = this.normalizeRoute(
         fromChainId,
@@ -208,32 +211,32 @@ export class UniswapAdapter extends BaseRouter {
       return normalizedRoute;
     } catch (error: any) {
       // If error indicates no route, return null (not an error)
-      if (error?.message?.includes('INSUFFICIENT_OUTPUT_AMOUNT') || 
-          error?.message?.includes('INSUFFICIENT_LIQUIDITY') ||
-          error?.message?.includes('No route')) {
+      if (error?.message?.includes('INSUFFICIENT_OUTPUT_AMOUNT') ||
+        error?.message?.includes('INSUFFICIENT_LIQUIDITY') ||
+        error?.message?.includes('No route')) {
         return null;
       }
-      
+
       console.error('[UniswapAdapter] Error fetching route:', error);
       throw error;
     }
   }
-  
+
   /**
    * Convert native token address to WETH address
    */
   private convertToWETH(tokenAddress: string, chainId: number): Address {
     const zeroAddress = '0x0000000000000000000000000000000000000000';
     const nativeAddress = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
-    
-    if (tokenAddress.toLowerCase() === zeroAddress || 
-        tokenAddress.toLowerCase() === nativeAddress) {
+
+    if (tokenAddress.toLowerCase() === zeroAddress ||
+      tokenAddress.toLowerCase() === nativeAddress) {
       return WETH_ADDRESSES[chainId];
     }
-    
+
     return getAddress(tokenAddress);
   }
-  
+
   /**
    * Get intermediate tokens for routing (chain-specific)
    * These are high-liquidity tokens used for multi-hop swaps
@@ -294,7 +297,7 @@ export class UniswapAdapter extends BaseRouter {
     publicClient: any
   ): Promise<{ path: Address[]; expectedOutput: bigint; priceImpact: number } | null> {
     const intermediates = this.getIntermediateTokens(chainId);
-    
+
     // Build all possible paths
     const paths: Address[][] = [
       [tokenIn, tokenOut], // Direct path
@@ -329,7 +332,7 @@ export class UniswapAdapter extends BaseRouter {
 
     // Try each path and collect valid routes
     const validRoutes: Array<{ path: Address[]; expectedOutput: bigint; priceImpact: number }> = [];
-    
+
     // Test all paths in parallel for speed
     const pathTests = paths.map(async (path) => {
       try {
@@ -344,8 +347,8 @@ export class UniswapAdapter extends BaseRouter {
           // Calculate price impact (simplified)
           const inputAmount = Number(amountIn) / 1e18;
           const outputAmount = Number(amounts[amounts.length - 1]) / 1e18;
-          const priceImpact = inputAmount > 0 
-            ? Math.abs((inputAmount - outputAmount) / inputAmount) * 100 
+          const priceImpact = inputAmount > 0
+            ? Math.abs((inputAmount - outputAmount) / inputAmount) * 100
             : 0;
 
           return {
@@ -383,7 +386,7 @@ export class UniswapAdapter extends BaseRouter {
 
     return validRoutes[0];
   }
-  
+
   /**
    * Calculate price impact (simplified)
    * V2 has 0.3% fee per hop
@@ -392,11 +395,11 @@ export class UniswapAdapter extends BaseRouter {
     // Simplified calculation: assume 0.3% fee per hop
     const feePerHop = 0.003;
     const totalFee = feePerHop * (pathLength - 1);
-    
+
     // Price impact is roughly the fee percentage
     return totalFee * 100; // Convert to percentage
   }
-  
+
   /**
    * Normalize Uniswap quote to RouterRoute format
    */
@@ -421,12 +424,12 @@ export class UniswapAdapter extends BaseRouter {
     // Convert amounts to human-readable
     const fromAmountHuman = toHumanReadable(fromAmount, fromDecimals);
     const toAmountHuman = toHumanReadable(toAmount, toDecimals);
-    
+
     // Calculate exchange rate
     const fromAmountNum = parseFloat(fromAmountHuman);
     const toAmountNum = parseFloat(toAmountHuman);
     const exchangeRate = fromAmountNum > 0 ? (toAmountNum / fromAmountNum).toFixed(6) : '0';
-    
+
     // Build route steps
     const steps: RouteStep[] = [];
     for (let i = 0; i < path.length - 1; i++) {
@@ -445,7 +448,7 @@ export class UniswapAdapter extends BaseRouter {
         description: `Swap ${path[i].slice(0, 6)}...${path[i].slice(-4)} → ${path[i + 1].slice(0, 6)}...${path[i + 1].slice(-4)}`,
       });
     }
-    
+
     return {
       router: this.name,
       routeId: `uniswap-${fromChainId}-${Date.now()}`,

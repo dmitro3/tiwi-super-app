@@ -15,6 +15,7 @@ interface UseSwapQuoteOptions {
   activeTab: "swap" | "limit";
   fromToken: Token | null;
   toToken: Token | null;
+  limitPrice: string;
   recipient?: string | null; // Recipient address (toAddress) - user-provided or connected wallet
   delay?: number; // Debounce delay in ms (default: 500)
 }
@@ -31,6 +32,7 @@ export function useSwapQuote({
   activeTab,
   fromToken,
   toToken,
+  limitPrice,
   recipient,
   delay = 200,
 }: UseSwapQuoteOptions): void {
@@ -102,12 +104,10 @@ export function useSwapQuote({
     // Valid quote input requires:
     // - amountNum > 0 (not zero)
     // - tokens are selected
-    // - activeTab is "swap"
     const isValidQuoteInput =
       amountNum > 0 &&
       fromToken !== null &&
-      toToken !== null &&
-      activeTab === "swap";
+      toToken !== null;
 
     // Explicitly clear route and loading state when invariants break
     if (!isValidQuoteInput) {
@@ -127,6 +127,9 @@ export function useSwapQuote({
       lastRequestedAmountRef.current = '';
       return;
     }
+
+    // Let the main quoting logic handle both tabs to ensure "to and fro" reaction works identical
+    // to normal swap as requested by the user.
 
     let stepTimer1: any;
     let stepTimer2: any;
@@ -318,6 +321,22 @@ export function useSwapQuote({
         } else {
           updateToAmount(formattedOutput);
         }
+
+        // If in Limit mode, also update the limitPrice to match the market rate
+        // this fulfills the user's request for "to and fro" reaction identity
+        if (activeTab === 'limit') {
+          const finalFromAmount = isReverseRouting ? formattedOutput : inputAmount;
+          const finalToAmount = isReverseRouting ? inputAmount : formattedOutput;
+          const fromNum = parseNumber(finalFromAmount);
+          const toNum = parseNumber(finalToAmount);
+
+          if (fromNum > 0 && toNum > 0) {
+            const impliedPrice = toNum / fromNum;
+            // Use high precision for limit price but capped to prevent extreme lengths
+            useSwapStore.getState().setLimitPrice(impliedPrice.toFixed(10).replace(/\.?0+$/, ""));
+          }
+        }
+
         setRoute(routeResponse.route); // Store full route response (includes USD values, fees, etc.)
 
         setQuoteLoading(false);
@@ -382,6 +401,7 @@ export function useSwapQuote({
     slippageMode,
     slippageTolerance,
     recipient,
+    limitPrice,
     // Note: Store functions (updateFromAmount, updateToAmount, setRoute, etc.) are stable
     // and don't need to be in dependency array, but including them is safe
   ]);
@@ -478,6 +498,22 @@ function formatToSixDecimals(value: string): string {
   if (!isFinite(num)) {
     return value;
   }
-  return num.toFixed(6);
+
+  // For zero or very small numbers, just return 0
+  if (num === 0) return "0";
+
+  // If the number is large (> 1,000,000), don't truncate decimals unless necessary
+  // but avoid scientific notation
+  if (num > 1000000) {
+    // Check if it has a decimal part
+    if (value.includes('.')) {
+      const [intPart, decimalPart] = value.split('.');
+      return `${intPart}.${decimalPart.substring(0, 6)}`;
+    }
+    return value;
+  }
+
+  // Standard formatting for normal numbers
+  return num.toFixed(6).replace(/\.?0+$/, "");
 }
 

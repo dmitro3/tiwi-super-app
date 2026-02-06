@@ -8,6 +8,7 @@ import Skeleton from "@/components/ui/skeleton";
 import { truncateAddress } from "@/lib/frontend/utils/wallet-display";
 import { ChevronDown, Clipboard } from "lucide-react";
 import { useSwapStore } from "@/lib/frontend/store/swap-store";
+import { formatAmount } from "@/lib/shared/utils/number";
 
 interface TokenInputProps {
   type: "from" | "to";
@@ -306,9 +307,16 @@ export default function TokenInput({
                   : "text-[#7c7c7c]"
                   }`}
               />
-              <p className="text-[#7c7c7c] font-medium text-xs sm:text-sm text-right w-full truncate">
-                {usdValue}
-              </p>
+              <div className="flex justify-end items-center gap-2 w-full">
+                {amount && parseFloat(amount) > 1000 && (
+                  <p className="text-[#b1f128] font-bold text-xs sm:text-sm text-right shrink-0">
+                    {formatAmount(amount, true)}
+                  </p>
+                )}
+                <p className="text-[#7c7c7c] font-medium text-xs sm:text-sm text-right truncate">
+                  {usdValue}
+                </p>
+              </div>
             </>
           )}
         </div>

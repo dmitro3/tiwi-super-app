@@ -10,6 +10,7 @@ export interface CreateLimitOrderParams {
     fromAmount: string;
     limitPrice: string; // The price (in toToken units) user wants per 1 unit of fromToken
     userAddress: string;
+    recipientAddress?: string; // Optional recipient if different from maker
     expiresInSeconds: number; // 0 for never, or seconds from now
 }
 
