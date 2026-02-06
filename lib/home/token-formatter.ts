@@ -5,7 +5,7 @@
  * Uses formatPrice from formatting.ts for locale-aware price display.
  */
 
-import { formatPrice as formatPriceLocale } from '@/lib/shared/utils/formatting';
+import { formatCompactNumber, formatCurrency, formatPercent } from '@/lib/shared/utils/formatters';
 import type { Token } from '@/lib/frontend/types/tokens';
 import type { MarketTokenPair } from '@/lib/backend/types/backend-tokens';
 
@@ -13,32 +13,16 @@ export interface HomepageToken {
   symbol: string;
   icon: string;
   price: string;
+  rawPrice: number;
   change: string;
   changePositive: boolean;
   vol: string;
   marketCapRank: string;      // Market cap rank (e.g., "#1", "#42")
   circulatingSupply: string;  // Circulating supply (e.g., "19.5M", "1.2B")
+  marketCap: string;
+  liquidity: string;
   // Additional fields for reference
   token: Token;
-}
-
-/**
- * Format number to currency string
- */
-function formatCurrency(value: number | undefined, decimals: number = 2): string {
-  if (value === undefined || value === null || isNaN(value)) {
-    return '$0.00';
-  }
-
-  if (value >= 1_000_000_000) {
-    return `$${(value / 1_000_000_000).toFixed(decimals)}B`;
-  } else if (value >= 1_000_000) {
-    return `$${(value / 1_000_000).toFixed(decimals)}M`;
-  } else if (value >= 1_000) {
-    return `$${(value / 1_000).toFixed(decimals)}K`;
-  } else {
-    return `$${value.toFixed(decimals)}`;
-  }
 }
 
 /**
@@ -55,42 +39,29 @@ function formatMarketCapRank(rank: number | undefined): string {
  * Format circulating supply (e.g., 19500000 → "19.5M", 1200000000 → "1.2B")
  */
 export function formatCirculatingSupply(supply: number | undefined): string {
-  if (supply === undefined || supply === null || isNaN(supply)) {
-    return 'N/A';
-  }
-
-  if (supply >= 1_000_000_000) {
-    return `${(supply / 1_000_000_000).toFixed(1)}B`;
-  } else if (supply >= 1_000_000) {
-    return `${(supply / 1_000_000).toFixed(1)}M`;
-  } else if (supply >= 1_000) {
-    return `${(supply / 1_000).toFixed(1)}K`;
-  } else {
-    return supply.toFixed(0);
-  }
+  return formatCompactNumber(supply, 1);
 }
 
 /**
  * Format price change percentage
  */
 function formatPriceChange(change: number | undefined): { change: string; positive: boolean } {
-  if (change === undefined || change === null || isNaN(change)) {
-    return { change: '0.00%', positive: true };
-  }
-
-  const sign = change >= 0 ? '+' : '';
   return {
-    change: `${sign}${change.toFixed(2)}%`,
-    positive: change >= 0,
+    change: formatPercent(change),
+    positive: (change || 0) >= 0,
   };
 }
 
 /**
  * Format price using locale and currency from settings
  */
-export function formatPrice(price: string | undefined): string {
-  const result = formatPriceLocale(price);
-  return result === '-' ? '$0.00' : result;
+export function formatPrice(price: string | number | undefined): string {
+  if (!price) return '$0.00';
+  const num = typeof price === 'string' ? parseFloat(price) : price;
+  if (num >= 0.0001) {
+    return `$${num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 6 })}`;
+  }
+  return `$${num.toFixed(8)}`;
 }
 
 /**
@@ -101,7 +72,7 @@ function formatPairPrice(price: string | undefined, symbol: string | undefined):
   if (!price || !symbol) return '0';
   const numPrice = Number(price);
   if (!Number.isFinite(numPrice) || numPrice === 0) return '0';
-  
+
   // For very small prices, show more decimals
   if (numPrice < 0.000001) {
     return `${numPrice.toFixed(10)} ${symbol}`;
@@ -122,13 +93,13 @@ function formatPairPrice(price: string | undefined, symbol: string | undefined):
 export function marketPairToToken(pair: MarketTokenPair): Token {
   const baseToken = pair.baseToken;
   const id = `${pair.chainId}-${pair.poolAddress.toLowerCase()}`;
-  
+
   // Format pair price if not already formatted
-  const displayPrice = pair.pairPriceDisplay 
-    || (pair.pairPrice && pair.quoteToken.symbol 
+  const displayPrice = pair.pairPriceDisplay
+    || (pair.pairPrice && pair.quoteToken.symbol
       ? formatPairPrice(pair.pairPrice, pair.quoteToken.symbol)
       : baseToken.priceUSD || '0');
-  
+
   return {
     id,
     // Use pool name for both name and symbol (e.g., "BFS / USDC")
@@ -166,22 +137,25 @@ export function marketPairToToken(pair: MarketTokenPair): Token {
  */
 export function formatTokenForHomepage(token: Token): HomepageToken {
   const priceChange = formatPriceChange(token.priceChange24h);
-  
+
   // Ensure price is properly formatted - use priceUSD if price is not available
   // The API returns priceUSD which should be mapped to price in transformToken
   // But if it's missing, check the raw token data
   const tokenPrice = token.price || (token as any).priceUSD || '0';
-  
+
   return {
     symbol: token.symbol,
     // Prefer logoURI (from backend) but fall back to legacy logo field
     icon: token.logoURI || token.logo || '',
     price: formatPrice(tokenPrice),
+    rawPrice: Number(tokenPrice),
     change: priceChange.change,
     changePositive: priceChange.positive,
     vol: formatCurrency(token.volume24h),
     marketCapRank: formatMarketCapRank((token as any).marketCapRank),
     circulatingSupply: formatCirculatingSupply((token as any).circulatingSupply),
+    marketCap: formatCurrency((token as any).marketCap),
+    liquidity: formatCurrency((token as any).liquidity),
     token,
   };
 }

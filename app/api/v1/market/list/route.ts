@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getBinanceTickers } from '@/lib/backend/services/binance-ticker-service';
 import { getDydxMarkets } from '@/lib/backend/services/dydx-service';
-import { getTwcMarketData } from '@/lib/backend/services/twc-service';
+import { getFeaturedMarkets } from '@/lib/backend/services/featured-service';
 
 /**
  * GET /api/v1/market/list
@@ -17,21 +17,11 @@ export async function GET(req: NextRequest) {
         const limit = parseInt(searchParams.get('limit') || '500', 10);
         const promises: Promise<any>[] = [];
 
-        // 1. Fetch TWC Market Data (Always fetched and prioritized)
-        promises.push(getTwcMarketData().then(twc => {
-            if (!twc) return [];
-            // If user wants perps, we present TWC as a virtual perp or keep its spot tag
-            // but return it anyway to satisfy "both perps and market data"
-            return [{
-                ...twc,
-                // If the user requested perps, we label it as perp for UI consistency if needed,
-                // but keep the original metadata reliable
-                marketType: marketType === 'perp' ? 'perp' : 'spot'
-            }];
-        }));
+        // Fetch Featured Markets (Promoted tokens like TWC)
+        promises.push(getFeaturedMarkets());
 
-        // 2. Fetch enriched dYdX markets (perps)
-        console.log("🚀 ~ GET ~ marketType:", marketType)
+        // Fetch enriched dYdX markets (perps)
+
         if (marketType === 'all' || marketType === 'perp' || marketType === 'spot') {
             promises.push(getDydxMarkets().then(markets => markets.map(m => ({
                 id: m.id,
@@ -57,7 +47,7 @@ export async function GET(req: NextRequest) {
                 websites: m.websites,
                 decimals: m.decimals,
                 description: m.description,
-                chainId: 4
+                chainId: 4,
             }))));
         }
 

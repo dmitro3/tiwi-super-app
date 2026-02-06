@@ -27,11 +27,11 @@ export default function StatusBar({
   const activeChainsCount = chains.length;
   const [isChainsModalOpen, setIsChainsModalOpen] = useState(false);
   const [isSmartMarketsModalOpen, setIsSmartMarketsModalOpen] = useState(false);
-  
+
   // Format TWC price and change
   // Use DexScreener style formatting for price
   const twcPriceUSD = twcData?.priceUSD || '0';
-  const twcChange = twcData 
+  const twcChange = twcData
     ? `${twcData.priceChange24h >= 0 ? '+' : ''}${twcData.priceChange24h.toFixed(2)}%`
     : "0.00%";
   const twcChangeType = twcData?.changeType || "negative";
@@ -39,7 +39,7 @@ export default function StatusBar({
   const ammIcons = [1, 2, 3, 4, 5, 6, 7];
 
   const handleTWCClick = () => {
-    router.push('/market/TWC-USDT');
+    window.open('/market/TWC-USD?address=0xda1060158f7d593667cce0a15db346bb3ffb3596&chainId=56', '_blank');
   };
 
   const handleChainsClick = () => {
@@ -88,9 +88,8 @@ export default function StatusBar({
               className="text-[#b5b5b5] font-medium text-xs whitespace-nowrap"
             />
             <span
-              className={`font-medium text-xs whitespace-nowrap ${
-                twcChangeType === "positive" ? "text-[#4ade80]" : "text-[#ff5c5c]"
-              }`}
+              className={`font-medium text-xs whitespace-nowrap ${twcChangeType === "positive" ? "text-[#4ade80]" : "text-[#ff5c5c]"
+                }`}
             >
               {twcChange}
             </span>
@@ -186,11 +185,10 @@ export default function StatusBar({
                       className="text-[#b5b5b5] font-medium text-xs sm:text-sm whitespace-nowrap"
                     />
                     <span
-                      className={`font-medium text-xs sm:text-sm whitespace-nowrap ${
-                        twcChangeType === "positive"
-                          ? "text-[#4ade80]"
-                          : "text-[#ff5c5c]"
-                      }`}
+                      className={`font-medium text-xs sm:text-sm whitespace-nowrap ${twcChangeType === "positive"
+                        ? "text-[#4ade80]"
+                        : "text-[#ff5c5c]"
+                        }`}
                     >
                       {twcChange}
                     </span>

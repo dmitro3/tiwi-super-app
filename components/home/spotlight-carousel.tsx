@@ -37,6 +37,8 @@ interface SpotlightItem {
   changePositive: boolean;
   vol: string;
   icon: string;
+  address?: string;
+  chainId?: number;
 }
 
 export function SpotlightCarousel() {
@@ -58,25 +60,25 @@ export function SpotlightCarousel() {
         if (!spotlightResponse.ok) {
           throw new Error("Failed to fetch spotlight tokens");
         }
-        
+
         const spotlightData = await spotlightResponse.json();
         // Filter to only active tokens (within date range) and sort by rank
         const today = new Date().toISOString().split('T')[0];
         const activeTokens = (spotlightData.tokens || [])
           .filter((token: SpotlightToken) => token.startDate <= today && token.endDate >= today)
           .sort((a: SpotlightToken, b: SpotlightToken) => a.rank - b.rank);
-        
+
         setSpotlightTokens(activeTokens);
-        
+
         // Show tokens immediately with database data (fast display)
         // Then enrich with real-time data in background
         setIsLoading(false);
 
         // Fetch real-time data in parallel batches for speed
         // Batch by address first (most accurate), then fallback to symbol
-        const addressTokens = activeTokens.filter(t => t.address);
-        const symbolTokens = activeTokens.filter(t => !t.address && t.symbol);
-        
+        const addressTokens = activeTokens.filter((t: SpotlightToken) => t.address);
+        const symbolTokens = activeTokens.filter((t: SpotlightToken) => !t.address && t.symbol);
+
         // Batch fetch by addresses (parallel)
         const addressPromises = addressTokens.map(async (spotlightToken: SpotlightToken) => {
           try {
@@ -90,7 +92,7 @@ export function SpotlightCarousel() {
             return null;
           }
         });
-        
+
         // Batch fetch by symbols (parallel)
         const symbolPromises = symbolTokens.map(async (spotlightToken: SpotlightToken) => {
           try {
@@ -104,13 +106,13 @@ export function SpotlightCarousel() {
             return null;
           }
         });
-        
+
         // Wait for all batches in parallel
         const [addressResults, symbolResults] = await Promise.allSettled([
           Promise.all(addressPromises),
           Promise.all(symbolPromises)
         ]);
-        
+
         // Combine results
         const allResults: (Token | null)[] = [];
         if (addressResults.status === 'fulfilled') {
@@ -119,7 +121,7 @@ export function SpotlightCarousel() {
         if (symbolResults.status === 'fulfilled') {
           allResults.push(...symbolResults.value);
         }
-        
+
         // Store fetched tokens
         const allFetchedTokens = allResults.filter((t): t is Token => t !== null);
         setAllTokens(allFetchedTokens);
@@ -137,7 +139,7 @@ export function SpotlightCarousel() {
     return spotlightTokens.map((spotlightToken) => {
       // Find matching token - try multiple strategies
       let matchedToken: Token | undefined;
-      
+
       // Strategy 1: Match by address (most accurate)
       if (spotlightToken.address) {
         const normalizedAddress = spotlightToken.address.toLowerCase().trim();
@@ -151,7 +153,7 @@ export function SpotlightCarousel() {
           return tokenAddrNoPrefix === spotlightAddrNoPrefix;
         });
       }
-      
+
       // Strategy 2: Match by symbol (case-insensitive, exact match preferred)
       if (!matchedToken && spotlightToken.symbol) {
         const normalizedSymbol = spotlightToken.symbol.toUpperCase().trim();
@@ -176,7 +178,7 @@ export function SpotlightCarousel() {
           return `$${vol.toFixed(2)}`;
         }
       };
-      
+
       // Get volume from matched token (volume24h is in USD)
       const volume = formatVolume(matchedToken?.volume24h);
 
@@ -184,7 +186,7 @@ export function SpotlightCarousel() {
       const priceChange = matchedToken?.priceChange24h;
       let change: string;
       let changePositive: boolean;
-      
+
       if (priceChange !== undefined && priceChange !== null && !isNaN(priceChange)) {
         change = `${priceChange >= 0 ? '+' : ''}${priceChange.toFixed(2)}%`;
         changePositive = priceChange >= 0;
@@ -201,6 +203,8 @@ export function SpotlightCarousel() {
         changePositive,
         vol: volume,
         icon,
+        address: spotlightToken.address || matchedToken?.address,
+        chainId: matchedToken?.chainId,
       };
     });
   }, [spotlightTokens, allTokens]);
@@ -313,7 +317,10 @@ export function SpotlightCarousel() {
               currentPageItems.map((item) => (
                 <div
                   key={`${item.rank}-${activePage}`}
-                  onClick={() => router.push(`/market/${item.symbol}-USDT`)}
+                  onClick={() => {
+                    const url = `/market/${item.symbol}-USD${item.address ? `?address=${item.address}&chainId=${item.chainId || 56}` : ''}`;
+                    window.open(url, '_blank');
+                  }}
                   className="flex items-center justify-between px-6 lg:px-7 xl:px-8 2xl:px-10 py-2 border-b border-[#1f261e]/30 last:border-b-0 cursor-pointer hover:bg-[#0b0f0a] transition-colors"
                 >
                   <div className="flex items-center gap-2">
@@ -333,9 +340,8 @@ export function SpotlightCarousel() {
                         {item.symbol}
                       </span>
                       <span
-                        className={`text-xs lg:text-xs xl:text-sm font-medium ${
-                          item.changePositive ? "text-[#3fea9b]" : "text-[#ff5c5c]"
-                        }`}
+                        className={`text-xs lg:text-xs xl:text-sm font-medium ${item.changePositive ? "text-[#3fea9b]" : "text-[#ff5c5c]"
+                          }`}
                       >
                         {item.change}
                       </span>
@@ -362,9 +368,8 @@ export function SpotlightCarousel() {
                 type="button"
                 onClick={() => goToPage(index)}
                 aria-label={`Go to spotlight page ${index + 1}`}
-                className={`h-[5px] rounded-full transition-colors cursor-pointer ${
-                  isActive ? "bg-[#b1f128] w-4" : "bg-[#1F261E] w-10"
-                }`}
+                className={`h-[5px] rounded-full transition-colors cursor-pointer ${isActive ? "bg-[#b1f128] w-4" : "bg-[#1F261E] w-10"
+                  }`}
               />
             );
           })}

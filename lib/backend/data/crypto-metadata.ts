@@ -112,6 +112,11 @@ export const CRYPTO_METADATA: Record<string, CryptoMeta> = {
   NEIRO: { name: 'Neiro', logo: '' },
   ACT: { name: 'Achain', logo: '' },
   PNUT: { name: 'Peanut', logo: '' },
+  TWC: {
+    name: 'TIWICAT',
+    logo: 'https://coin-images.coingecko.com/coins/images/68750/large/200px_tiwi.png?1769670437',
+    description: 'TIWI Content Access Token (TIWICAT) is the native token of the TIWI Ecosystem, facilitating access and payments for utilities like TiwiFlix, a decentralized video monetization DApp. The project is focused on empowering creators and digital education.'
+  },
 };
 
 /**

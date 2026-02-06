@@ -5,7 +5,7 @@ export const maxDuration = 60; // 60 seconds (Pro plan limit)
 
 import { getDydxMarkets } from '@/lib/backend/services/dydx-service';
 import { getBinanceTickers } from '@/lib/backend/services/binance-ticker-service';
-import { getEnrichedMetadata } from '@/lib/backend/services/enrichment-service';
+import { getEnrichedMetadata, getSurgicalMetadata } from '@/lib/backend/services/enrichment-service';
 import { getCryptoMetadata } from '@/lib/backend/data/crypto-metadata';
 import { getTokenService } from '@/lib/backend/services/token-service';
 import { getTokenPrice } from '@/lib/backend/providers/price-provider';
@@ -23,6 +23,7 @@ export async function GET(
     try {
         const { pair } = await params;
         const searchParams = req.nextUrl.searchParams;
+        const address = searchParams.get('address');
         const chainIdParam = searchParams.get('chainId');
         const marketType = searchParams.get('marketType') || 'all';
 
@@ -40,9 +41,18 @@ export async function GET(
         const chainId = chainIdParam ? parseInt(chainIdParam, 10) : 56;
 
         // ============================================================
-        // 1. Try dYdX (Perp)
+        // 1. Smart Dispatcher: Check for explicit address (Phase 1)
+        // ============================================================
+        if (address && address.startsWith('0x')) {
+            // Bypass dYdX and Binance - Route directly to External/On-Chain flow
+            return await handleExternalTokenResolution(baseSymbol, quoteSymbol, address, chainId);
+        }
+
+        // ============================================================
+        // 2. Try dYdX (Perp)
         // ============================================================
         if (marketType === 'all' || marketType === 'perp') {
+            const { getDydxMarkets } = await import('@/lib/backend/services/dydx-service');
             const markets = await getDydxMarkets();
             const pairSymbol = `${baseSymbol}-${quoteSymbol}`;
             const market = markets.find(m => m.symbol === pairSymbol);
@@ -102,7 +112,7 @@ export async function GET(
         }
 
         // ============================================================
-        // 2. Try Binance (Spot)
+        // 3. Try Binance (Spot)
         // ============================================================
         if (marketType === 'all' || marketType === 'spot' || quoteSymbol === 'USDT') {
             const binanceSymbol = `${baseSymbol}${quoteSymbol === 'USD' ? 'USDT' : quoteSymbol}`;
@@ -164,85 +174,14 @@ export async function GET(
         }
 
         // ============================================================
-        // 3. Fallback: On-Chain
+        // 4. Default Resolution: On-Chain Search
         // ============================================================
         const tokenService = getTokenService();
         const baseTokens = await tokenService.searchTokens(baseSymbol, undefined, [chainId], 1);
         const baseToken = baseTokens[0];
 
         if (baseToken) {
-            const meta = await getEnrichedMetadata(baseSymbol);
-            const chartService = getChartDataService();
-            const now = Math.floor(Date.now() / 1000);
-            const yesterday = now - 24 * 60 * 60;
-
-            const [priceInfo, bars] = await Promise.all([
-                getTokenPrice(baseToken.address, chainId, baseSymbol).catch(() => null),
-                chartService.getHistoricalBars({
-                    baseToken: baseToken.address,
-                    quoteToken: '0x0000000000000000000000000000000000000000',
-                    chainId,
-                    resolution: '15' as any,
-                    from: yesterday,
-                    to: now,
-                    countback: 96,
-                }).catch(() => [] as any[]),
-            ]);
-
-            const currentPrice = priceInfo ? parseFloat(priceInfo.priceUSD) : parseFloat(baseToken.priceUSD || '0');
-            const high24h = bars.length > 0 ? Math.max(...bars.map(b => b.high)) : currentPrice;
-            const low24h = bars.length > 0 ? Math.min(...bars.map(b => b.low)) : currentPrice;
-            const volume24h = bars.length > 0 ? bars.reduce((s, b) => s + (b.volume || 0), 0) : (baseToken.volume24h || 0);
-            const priceChange24h = bars.length > 0 && bars[0].open > 0 ? ((bars[bars.length - 1].close - bars[0].open) / bars[0].open) * 100 : (baseToken.priceChange24h || 0);
-
-            const circulatingSupply = meta.marketCap ? meta.marketCap / currentPrice : null;
-            const totalSupply = meta.fdv ? meta.fdv / currentPrice : (circulatingSupply || null);
-
-            return NextResponse.json({
-                success: true,
-                data: {
-                    id: `onchain-${chainId}-${baseToken.address.toLowerCase()}`,
-                    symbol: baseSymbol,
-                    name: meta.name || baseToken.name,
-                    pair: `${baseSymbol}/${quoteSymbol}`,
-                    price: currentPrice,
-                    priceUSD: currentPrice,
-                    priceChange24h,
-                    high24h,
-                    low24h,
-                    volume24h,
-                    marketCap: meta.marketCap || baseToken.marketCap,
-                    fdv: meta.fdv,
-                    liquidity: meta.liquidity || baseToken.liquidity,
-                    circulatingSupply,
-                    totalSupply,
-                    baseToken: {
-                        symbol: baseSymbol,
-                        name: meta.name || baseToken.name,
-                        address: baseToken.address,
-                        chainId,
-                        logo: meta.logo || baseToken.logoURI,
-                    },
-                    quoteToken: {
-                        symbol: quoteSymbol,
-                        name: quoteSymbol,
-                        address: '0x0000000000000000000000000000000000000000',
-                        chainId,
-                        logo: '',
-                    },
-                    metadata: {
-                        name: meta.name || baseToken.name,
-                        logo: meta.logo || baseToken.logoURI,
-                        description: meta.description,
-                        socials: meta.socials,
-                        websites: meta.websites,
-                        website: meta.website,
-                    },
-                    provider: 'onchain',
-                    marketType: 'spot',
-                    chainId
-                }
-            });
+            return await handleExternalTokenResolution(baseSymbol, quoteSymbol, baseToken.address, chainId, baseToken);
         }
 
         return NextResponse.json({ success: false, error: 'Market not found' }, { status: 404 });
@@ -251,4 +190,34 @@ export async function GET(
         console.error('[Unified Market API] Error:', error);
         return NextResponse.json({ success: false, error: 'Internal server error' }, { status: 500 });
     }
+}
+
+import { resolveOnChainMarket } from '@/lib/backend/services/onchain-market-service';
+
+/**
+ * Shared logic for resolving and enriching external (on-chain) tokens
+ */
+async function handleExternalTokenResolution(
+    baseSymbol: string,
+    quoteSymbol: string,
+    address: string,
+    chainId: number,
+    existingToken?: any
+) {
+    const marketData = await resolveOnChainMarket(baseSymbol, quoteSymbol, address, chainId, existingToken);
+
+    if (!marketData) {
+        return NextResponse.json({ success: false, error: 'Failed to resolve market data' }, { status: 500 });
+    }
+
+    // Add pair field which is expected by the frontend detail page
+    const responseData = {
+        ...marketData,
+        pair: `${baseSymbol}/${quoteSymbol}`,
+    };
+
+    return NextResponse.json({
+        success: true,
+        data: responseData
+    });
 }

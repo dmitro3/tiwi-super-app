@@ -31,7 +31,7 @@ function formatValue(value: string | number, decimals: number = 2): string {
 export async function getDydxCandles(market: string, resolution: string = '1DAY', limit: number = 1): Promise<any[]> {
     const symbol = normalizeMarket(market);
     // Corrected path: /v4/candles/perpetualMarkets/{market}
-    const url = `${DYDX_INDEXER_API}/candles/perpetualMarkets/${symbol}?resolution=${resolution}&limit=${limit}`;
+    const url = `${DYDX_INDEXER_API}/candles/perpetualMarkets/${symbol}?resolution=${resolution}&limit=${limit}`; // https://indexer.dydx.trade/v4/candles/perpetualMarkets/BTC-USD?resolution=1DAY&limit=1
     try {
         const response = await fetch(url);
         if (!response.ok) {

@@ -9,6 +9,7 @@ import MobileMarketList from "@/components/market/mobile-market-list";
 import { useEnrichedMarkets } from "@/hooks/useEnrichedMarkets";
 import { usePrefetchMarkets } from "@/hooks/usePrefetchMarkets";
 import type { Token } from "@/lib/frontend/types/tokens";
+import { promoteTWC } from "@/lib/frontend/utils/market-promotion";
 
 type MarketTab = "Spot" | "Perp";
 type SubTabKey = "Favourite" | "Top" | "Spotlight" | "New" | "Gainers" | "Losers";
@@ -71,6 +72,7 @@ export default function MarketPage() {
   } = useEnrichedMarkets({
     marketType: activeTab.toLowerCase() as 'spot' | 'perp',
   });
+  console.log("🚀 ~ MarketPage ~ allEnrichedTokens:", allEnrichedTokens)
 
 
   // Fetch spotlight tokens separately as they are DB-driven
@@ -187,8 +189,14 @@ export default function MarketPage() {
       });
     }
 
+    // Promote TWC to 2nd position (index 1) for better visibility
+    // Only promote if not searching and in key categories
+    if (!searchQuery.trim() && (activeSubTab === 'Top' || activeSubTab === 'Gainers')) {
+      result = promoteTWC(result, { position: 1 });
+    }
+
     return result;
-  }, [rawTokens, searchQuery, sortBy]);
+  }, [rawTokens, searchQuery, sortBy, activeSubTab]);
 
   // Pagination logic - calculate which pages to show (like home page)
   const getVisiblePages = (): number[] => {

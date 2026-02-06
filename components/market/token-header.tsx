@@ -2,6 +2,8 @@
 
 import { useRouter } from "next/navigation";
 import Image from "next/image";
+import { SubscriptUSDPrice } from "../ui/subscript-usd-price";
+import { formatCompactNumber, formatCurrency } from "@/lib/shared/utils/formatters";
 
 interface TokenHeaderProps {
   token: {
@@ -17,6 +19,10 @@ interface TokenHeaderProps {
     fdv?: number;
     circulatingSupply?: number;
     totalSupply?: number;
+    currentPrice?: number;
+    volume24h?: number;
+    high24h?: number;
+    low24h?: number;
   };
   stats: {
     price: string;
@@ -33,25 +39,8 @@ interface TokenHeaderProps {
  * Displays token info, price, 24h stats, and action buttons
  */
 export default function TokenHeader({ token, stats }: TokenHeaderProps) {
+  console.log("🚀 ~ TokenHeader ~ token:", { token, stats })
   const router = useRouter();
-
-  // Format large dollar values
-  const formatVal = (val: number | undefined) => {
-    if (val === undefined || val === null) return '$--';
-    if (val >= 1e9) return `$${(val / 1e9).toFixed(2)}B`;
-    if (val >= 1e6) return `$${(val / 1e6).toFixed(2)}M`;
-    if (val >= 1e3) return `$${(val / 1e3).toFixed(1)}K`;
-    return `$${val.toFixed(2)}`;
-  };
-
-  // Format large supply counts
-  const formatCount = (val: number | undefined) => {
-    if (val === undefined || val === null) return '--';
-    if (val >= 1e9) return `${(val / 1e9).toFixed(2)}B`;
-    if (val >= 1e6) return `${(val / 1e6).toFixed(2)}M`;
-    if (val >= 1e3) return `${(val / 1e3).toFixed(1)}K`;
-    return val.toLocaleString(undefined, { maximumFractionDigits: 0 });
-  };
 
   return (
     <div className="border-b border-[#1f261e] flex h-16 lg:h-14 xl:h-15 2xl:h-16 items-center justify-between px-10 lg:px-7 xl:px-8 2xl:px-10 overflow-x-auto">
@@ -94,10 +83,11 @@ export default function TokenHeader({ token, stats }: TokenHeaderProps) {
 
         {/* Price and Change */}
         <div className="flex flex-col font-semibold items-start justify-center leading-normal text-base lg:text-xs xl:text-sm 2xl:text-base">
-          <p className="relative shrink-0 text-white whitespace-nowrap">
-            {stats.price}
-          </p>
-          <p className={`relative shrink-0 whitespace-nowrap ${stats.changePositive ? "text-[#3fea9b]" : "text-[#ff5c5c]"
+          <SubscriptUSDPrice
+            price={token.currentPrice}
+            className="text-white whitespace-nowrap"
+          />
+          <p className={`relative shrink-0 whitespace-nowrap text-xs ${stats.changePositive ? "text-[#3fea9b]" : "text-[#ff5c5c]"
             }`}>
             {stats.change}
           </p>
@@ -109,7 +99,7 @@ export default function TokenHeader({ token, stats }: TokenHeaderProps) {
         {/* 24H Vol */}
         <div className="flex flex-col font-semibold items-start justify-center leading-normal text-base lg:text-xs xl:text-sm 2xl:text-base">
           <p className="relative shrink-0 text-white whitespace-nowrap">
-            {stats.vol24h}
+            {formatCurrency(token.volume24h, 2)}
           </p>
           <p className="relative shrink-0 text-[#7c7c7c] whitespace-nowrap text-[10px] uppercase tracking-wider">
             24H Vol
@@ -122,7 +112,7 @@ export default function TokenHeader({ token, stats }: TokenHeaderProps) {
         {/* Market Cap */}
         <div className="flex flex-col font-semibold items-start justify-center leading-normal text-base lg:text-xs xl:text-sm 2xl:text-base">
           <p className="relative shrink-0 text-white whitespace-nowrap">
-            {formatVal(token.marketCap)}
+            {formatCurrency(token.marketCap, 2)}
           </p>
           <p className="relative shrink-0 text-[#7c7c7c] whitespace-nowrap text-[10px] uppercase tracking-wider">
             Market Cap
@@ -134,9 +124,10 @@ export default function TokenHeader({ token, stats }: TokenHeaderProps) {
 
         {/* 24H High */}
         <div className="flex flex-col font-semibold items-start justify-center leading-normal text-base lg:text-xs xl:text-sm 2xl:text-base">
-          <p className="relative shrink-0 text-white whitespace-nowrap">
-            {stats.high24h}
-          </p>
+          <SubscriptUSDPrice
+            price={stats.high24h}
+            className="text-white whitespace-nowrap"
+          />
           <p className="relative shrink-0 text-[#7c7c7c] whitespace-nowrap text-[10px] uppercase tracking-wider">
             24H High
           </p>
@@ -147,9 +138,10 @@ export default function TokenHeader({ token, stats }: TokenHeaderProps) {
 
         {/* 24H Low */}
         <div className="flex flex-col font-semibold items-start justify-center leading-normal text-base lg:text-xs xl:text-sm 2xl:text-base">
-          <p className="relative shrink-0 text-white whitespace-nowrap">
-            {stats.low24h}
-          </p>
+          <SubscriptUSDPrice
+            price={stats.low24h}
+            className="text-white whitespace-nowrap"
+          />
           <p className="relative shrink-0 text-[#7c7c7c] whitespace-nowrap text-[10px] uppercase tracking-wider">
             24H Low
           </p>
@@ -161,7 +153,7 @@ export default function TokenHeader({ token, stats }: TokenHeaderProps) {
         {/* Liquidity */}
         <div className="flex flex-col font-semibold items-start justify-center leading-normal text-base lg:text-xs xl:text-sm 2xl:text-base">
           <p className="relative shrink-0 text-[#b1f128] whitespace-nowrap">
-            {formatVal(token.liquidity)}
+            {formatCurrency(token.liquidity, 2)}
           </p>
           <p className="relative shrink-0 text-[#7c7c7c] whitespace-nowrap text-[10px] uppercase tracking-wider">
             Liquidity
@@ -174,7 +166,7 @@ export default function TokenHeader({ token, stats }: TokenHeaderProps) {
         {/* FDV */}
         <div className="flex flex-col font-semibold items-start justify-center leading-normal text-base lg:text-xs xl:text-sm 2xl:text-base">
           <p className="relative shrink-0 text-white whitespace-nowrap">
-            {formatVal(token.fdv)}
+            {formatCurrency(token.fdv, 2)}
           </p>
           <p className="relative shrink-0 text-[#7c7c7c] whitespace-nowrap text-[10px] uppercase tracking-wider">
             FDV
@@ -187,7 +179,7 @@ export default function TokenHeader({ token, stats }: TokenHeaderProps) {
         {/* Circulating Supply */}
         <div className="flex flex-col font-semibold items-start justify-center leading-normal text-base lg:text-xs xl:text-sm 2xl:text-base">
           <p className="relative shrink-0 text-white whitespace-nowrap">
-            {formatCount(token.circulatingSupply)}
+            {formatCompactNumber(token.circulatingSupply, 2)}
           </p>
           <p className="relative shrink-0 text-[#7c7c7c] whitespace-nowrap text-[10px] uppercase tracking-wider">
             Circ Supply
@@ -200,7 +192,7 @@ export default function TokenHeader({ token, stats }: TokenHeaderProps) {
         {/* Total Supply */}
         <div className="flex flex-col font-semibold items-start justify-center leading-normal text-base lg:text-xs xl:text-sm 2xl:text-base">
           <p className="relative shrink-0 text-white whitespace-nowrap">
-            {formatCount(token.totalSupply)}
+            {formatCompactNumber(token.totalSupply, 2)}
           </p>
           <p className="relative shrink-0 text-[#7c7c7c] whitespace-nowrap text-[10px] uppercase tracking-wider">
             Total Supply
