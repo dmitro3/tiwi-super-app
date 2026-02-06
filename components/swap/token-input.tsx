@@ -7,6 +7,7 @@ import BalanceSkeleton from "@/components/ui/balance-skeleton";
 import Skeleton from "@/components/ui/skeleton";
 import { truncateAddress } from "@/lib/frontend/utils/wallet-display";
 import { ChevronDown, Clipboard } from "lucide-react";
+import { useSwapStore } from "@/lib/frontend/store/swap-store";
 
 interface TokenInputProps {
   type: "from" | "to";
@@ -66,9 +67,9 @@ export default function TokenInput({
       <div className="flex items-start justify-between gap-3 sm:gap-4 min-w-0">
         <div className="flex flex-col gap-2.5 sm:gap-3 lg:gap-[13px]">
           <div className="flex items-center justify-between gap-2">
-          <p className="text-white font-semibold text-xs sm:text-sm">
-            {isFrom ? "From" : "To"}
-          </p>
+            <p className="text-white font-semibold text-xs sm:text-sm">
+              {isFrom ? "From" : "To"}
+            </p>
             {(walletLabel || walletAddress) && (
               <div className="relative">
                 <button
@@ -76,14 +77,14 @@ export default function TokenInput({
                   data-wallet-trigger="true"
                   onClick={(e) => {
                     e.stopPropagation();
-                    onWalletClick();
+                    onWalletClick?.();
                   }}
                   className={`text-[11px] sm:text-xs font-medium flex items-center gap-1.5 cursor-pointer hover:opacity-80 transition-opacity ${
                     // If walletAddress exists but no walletIcon, it's a pasted address (yellow)
                     walletAddress && !walletIcon
                       ? "text-[#fbbf24]"
                       : "text-[#b1f128]"
-                  }`}
+                    }`}
                 >
                   {walletIcon ? (
                     <Image
@@ -104,11 +105,10 @@ export default function TokenInput({
                   <span className="truncate max-w-[90px] sm:max-w-[120px] text-right">
                     {walletAddress ? truncateAddress(walletAddress) : walletLabel}
                   </span>
-                  <ChevronDown className={`w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0 ${
-                    walletAddress && !walletIcon
-                      ? "text-[#fbbf24]"
-                      : "text-[#b1f128]"
-                  }`} />
+                  <ChevronDown className={`w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0 ${walletAddress && !walletIcon
+                    ? "text-[#fbbf24]"
+                    : "text-[#b1f128]"
+                    }`} />
                 </button>
                 {walletDropdown}
               </div>
@@ -118,11 +118,11 @@ export default function TokenInput({
             onClick={onTokenSelect}
             disabled={disabled}
             className={`flex items-center gap-1.5 sm:gap-[9px] px-2 sm:px-3 py-2 sm:py-2.5 md:py-3 rounded-full transition-colors w-full justify-between min-w-[120px] sm:min-w-[160px] cursor-pointer ${isFrom
-                ? "bg-[#121712] hover:bg-[#1f261e]"
-                : "bg-[#156200] hover:bg-[#1a7a00]"
-            } ${disabled ? "opacity-50 cursor-not-allowed" : ""}`}
+              ? "bg-[#121712] hover:bg-[#1f261e]"
+              : "bg-[#156200] hover:bg-[#1a7a00]"
+              } ${disabled ? "opacity-50 cursor-not-allowed" : ""}`}
           >
-            {token ? ( 
+            {token ? (
               <>
                 <div className="relative h-8 w-8 sm:h-11 sm:w-11 shrink-0">
                   {token.icon && token.icon.trim() !== '' ? (
@@ -283,27 +283,32 @@ export default function TokenInput({
           )}
           {/* Amount Input - Show skeleton when quote is loading (for calculated field) */}
           {isQuoteLoading ? (
-            <div className="flex flex-col items-end gap-1 mb-0.5 sm:mb-1 w-full">
-              <Skeleton className="h-[26px] sm:h-[29px] lg:h-[33px] w-32 sm:w-40" />
+            <div className="flex flex-col items-end gap-1.5 mb-0.5 sm:mb-1 w-full animate-pulse">
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] sm:text-xs text-[#b1f128] font-medium animate-pulse">
+                  {useSwapStore((state) => state.quoteStep)}
+                </span>
+                <Skeleton className="h-[26px] sm:h-[29px] lg:h-[33px] w-24 sm:w-32" />
+              </div>
               <Skeleton className="h-4 w-20" />
             </div>
           ) : (
             <>
-          <Input
-            type="text"
-            inputMode="decimal"
-            value={amount}
-            onChange={(e) => onAmountChange?.(e.target.value)}
-            placeholder="0.0"
-            readOnly={readOnlyAmount}
-            className={`text-right text-[26px] sm:text-[29px] lg:text-[33px] leading-none mb-0.5 sm:mb-1 bg-transparent border-0 px-0 py-0 w-full min-w-0 ${amount && amount !== ""
-                ? "text-white"
-                : "text-[#7c7c7c]"
-            }`}
-          />
-          <p className="text-[#7c7c7c] font-medium text-xs sm:text-sm text-right w-full truncate">
-            {usdValue}
-          </p>
+              <Input
+                type="text"
+                inputMode="decimal"
+                value={amount}
+                onChange={(e) => onAmountChange?.(e.target.value)}
+                placeholder="0.0"
+                readOnly={readOnlyAmount}
+                className={`text-right text-[26px] sm:text-[29px] lg:text-[33px] leading-none mb-0.5 sm:mb-1 bg-transparent border-0 px-0 py-0 w-full min-w-0 ${amount && amount !== ""
+                  ? "text-white"
+                  : "text-[#7c7c7c]"
+                  }`}
+              />
+              <p className="text-[#7c7c7c] font-medium text-xs sm:text-sm text-right w-full truncate">
+                {usdValue}
+              </p>
             </>
           )}
         </div>

@@ -24,8 +24,8 @@ export function getCachedClient(chainId: number): PublicClient {
     clientCache.set(chainId, createPublicClient({
       chain,
       transport: http(undefined, {
-        timeout: 2000, // Aggressive 2s timeout (fail fast)
-        retryCount: 1, // Single retry only
+        timeout: 10000,
+        retryCount: 2,
       }),
     }));
   }
@@ -99,7 +99,7 @@ export async function getCached<T>(
   }
 
   const data = await fn();
-  cache.set(key, {
+  (cache as any).set(key, {
     data,
     expiresAt: Date.now() + ttl,
   });

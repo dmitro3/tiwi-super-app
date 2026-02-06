@@ -133,17 +133,21 @@ export default function MarketPage() {
     let list = Array.isArray(allEnrichedTokens) ? [...allEnrichedTokens] : [];
 
     if (activeSubTab === "Gainers") {
-      return list.filter(t => t.priceChange24h > 0).sort((a, b) => b.priceChange24h - a.priceChange24h);
-    }
-    if (activeSubTab === "Losers") {
-      return list.filter(t => t.priceChange24h < 0).sort((a, b) => a.priceChange24h - b.priceChange24h);
-    }
-    if (activeSubTab === "New") {
-      // For now, we don't have a strict 'new' date, so just sort by something else or randomized
-      return list;
+      list = list.filter(t => t.priceChange24h > 0 || t.symbol === 'TWC').sort((a, b) => b.priceChange24h - a.priceChange24h);
+    } else if (activeSubTab === "Losers") {
+      list = list.filter(t => t.priceChange24h < 0 || t.symbol === 'TWC').sort((a, b) => a.priceChange24h - b.priceChange24h);
+    } else if (activeSubTab === "New") {
+      // For now, list as provided
     }
 
-    return list; // Default to Top (already sorted by volume in API)
+    // Always ensure TWC is at index 0 if it exists in the list
+    const twcIndex = list.findIndex(t => t.symbol === 'TWC' || t.symbol === 'TWC/USD');
+    if (twcIndex > 0) {
+      const [twc] = list.splice(twcIndex, 1);
+      list.unshift(twc);
+    }
+
+    return list;
   }, [allEnrichedTokens, activeSubTab]);
 
   // Main token list logic

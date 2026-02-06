@@ -6,13 +6,14 @@
  * Relies on advanced graph-based routing from pancakeswap-router utility.
  */
 
-import { createPublicClient, http, type Address, getAddress } from 'viem';
+import { type Address, getAddress } from 'viem';
 import { BaseRouter } from '../base';
 import { toHumanReadable } from '../transformers/amount-transformer';
 import { QUOTE_EXPIRATION_SECONDS } from '../constants';
 import type { RouterParams, RouterRoute, RouteStep } from '../types';
-import { PANCAKESWAP_V2_ROUTER, WETH_ADDRESSES } from '@/lib/backend/utils/pancakeswap-constants';
+import { PANCAKESWAP_V2_ROUTER } from '@/lib/backend/utils/pancakeswap-constants';
 import { findBestRoute, detectFeeOnTransfer, calculateDynamicSlippage } from '@/lib/backend/utils/pancakeswap-router';
+import { getCachedClient } from '@/lib/backend/utils/pancakeswap-optimization';
 import { getChainConfig } from '@/lib/backend/utils/chain-config';
 
 /**
@@ -76,10 +77,7 @@ export class PancakeSwapAdapter extends BaseRouter {
 
       // Use advanced routing (graph-based)
       try {
-        const publicClient = createPublicClient({
-          chain,
-          transport: http(),
-        });
+        const publicClient = getCachedClient(chainId);
 
         const route = await findBestRoute(tokenIn, tokenOut, amountInBigInt, chainId);
 

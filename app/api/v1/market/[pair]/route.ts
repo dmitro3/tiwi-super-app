@@ -1,4 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
+
+// Vercel Serverless Function Config
+export const maxDuration = 60; // 60 seconds (Pro plan limit)
+
 import { getDydxMarkets } from '@/lib/backend/services/dydx-service';
 import { getBinanceTickers } from '@/lib/backend/services/binance-ticker-service';
 import { getEnrichedMetadata } from '@/lib/backend/services/enrichment-service';

@@ -74,23 +74,23 @@ export default function HomePage() {
     let list = Array.isArray(allEnrichedTokens) ? [...allEnrichedTokens] : [];
 
     if (tab === "Gainers") {
-      return list.filter(t => t.priceChange24h > 0).sort((a, b) => b.priceChange24h - a.priceChange24h);
-    }
-    if (tab === "Losers") {
-      return list.filter(t => t.priceChange24h < 0).sort((a, b) => a.priceChange24h - b.priceChange24h);
-    }
-    if (tab === "New") {
-      // Sort by something that represents 'newness' or just return list
-      return list;
-    }
-    if (tab === "Favourite") {
-      return list.filter(t => favourites.includes(t.id));
-    }
-    if (tab === "Spotlight") {
-      return list;
+      list = list.filter(t => t.priceChange24h > 0 || t.symbol === 'TWC').sort((a, b) => b.priceChange24h - a.priceChange24h);
+    } else if (tab === "Losers") {
+      list = list.filter(t => t.priceChange24h < 0 || t.symbol === 'TWC').sort((a, b) => a.priceChange24h - b.priceChange24h);
+    } else if (tab === "New") {
+      // For now, list as provided
+    } else if (tab === "Favourite") {
+      list = list.filter(t => favourites.includes(t.id));
     }
 
-    return list; // Default to Hot/Top
+    // Always ensure TWC is at index 0 if it exists in the list
+    const twcIndex = list.findIndex(t => t.symbol === 'TWC' || t.symbol === 'TWC/USD');
+    if (twcIndex > 0) {
+      const [twc] = list.splice(twcIndex, 1);
+      list.unshift(twc);
+    }
+
+    return list;
   };
 
   const desktopFiltered = useMemo(() => getFilteredTokens(activeTab), [allEnrichedTokens, activeTab, favourites]);

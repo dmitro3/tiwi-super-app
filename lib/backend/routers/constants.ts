@@ -27,9 +27,9 @@ export const MAX_AUTO_SLIPPAGE = 30.5;
 export const QUOTE_EXPIRATION_SECONDS = 60;
 
 /**
- * Router timeout (20 seconds)
+ * Router timeout (25 seconds)
  */
-export const ROUTER_TIMEOUT_MS = 20000;
+export const ROUTER_TIMEOUT_MS = 25000;
 
 /**
  * Maximum retry attempts for router calls

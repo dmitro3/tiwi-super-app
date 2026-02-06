@@ -34,6 +34,7 @@ import SwapStatusToast from "@/components/swap/swap-status-toast";
 import type { SwapStage } from "@/lib/frontend/services/swap-executor/types";
 import FromWalletSelectorModal from "@/components/swap/from-wallet-selector-modal";
 import ToAddressModal from "@/components/swap/to-address-modal";
+import { useLimitOrder } from "@/hooks/useLimitOrder";
 
 // Default tokens (ensure chainId/address/logo for routing + display)
 export const DEFAULT_FROM_TOKEN: Token = {
@@ -104,9 +105,9 @@ export default function SwapPage() {
     closeToast,
     handleChainModalBack,
   } = useWalletConnection();
-  const { 
-    primaryWallet, 
-    secondaryWallet, 
+  const {
+    primaryWallet,
+    secondaryWallet,
     secondaryAddress,
     connectedWallets,
     connectAdditionalWallet,
@@ -123,7 +124,7 @@ export default function SwapPage() {
 
   // Get wallet icons
   const fromWalletIcon = getWalletIconFromAccount(primaryWallet);
-  
+
   // Determine recipient address (secondary wallet or manual address)
   const effectiveRecipientAddress = secondaryWallet?.address || secondaryAddress || null;
   // Initialize default tokens on mount (use real chainId/address to avoid quote errors)
@@ -172,27 +173,27 @@ export default function SwapPage() {
   // Token selector modal state (stays local - UI only)
   const [isTokenModalOpen, setIsTokenModalOpen] = useState(false);
   const [tokenModalType, setTokenModalType] = useState<"from" | "to">("from");
-  
+
   // Error toast state
   const [isErrorToastOpen, setIsErrorToastOpen] = useState(false);
-  const [errorInfo, setErrorInfo] = useState<{ 
-    title: string; 
-    message: string; 
+  const [errorInfo, setErrorInfo] = useState<{
+    title: string;
+    message: string;
     nextSteps?: string[];
     actions?: ErrorToastAction[];
   } | null>(null);
-  
+
   // Get quote error and route from store
   const route = useSwapStore((state) => state.route);
   const quoteError = useSwapStore((state) => state.quoteError);
-  
+
   // Get settings store for slippage actions
   const setSlippageMode = useSettingsStore((state) => state.setSlippageMode);
   const setSlippageTolerance = useSettingsStore((state) => state.setSlippageTolerance);
-  
+
   // Get currency preference
   const currency = useCurrencyStore((state) => state.currency);
-  
+
   // State for converted USD values (async conversion)
   const [fromUsdValueFormatted, setFromUsdValueFormatted] = useState<string>("$0");
   const [toUsdValueFormatted, setToUsdValueFormatted] = useState<string>("$0");
@@ -201,12 +202,12 @@ export default function SwapPage() {
   const [isFromWalletModalOpen, setIsFromWalletModalOpen] = useState(false);
   const [isToAddressModalOpen, setIsToAddressModalOpen] = useState(false);
   const [isConnectingFromSection, setIsConnectingFromSection] = useState(false);
-  
+
   // Show error toast when quote error occurs
   useEffect(() => {
     if (quoteError) {
       const parsed = parseRouteError(quoteError);
-      
+
       // Convert RouteErrorAction[] to ErrorToastAction[]
       const toastActions: ErrorToastAction[] | undefined = parsed.actions?.map((action) => ({
         label: action.label,
@@ -218,10 +219,10 @@ export default function SwapPage() {
         },
         variant: 'primary' as const,
       }));
-      
-      setErrorInfo({ 
-        title: parsed.title, 
-        message: parsed.message, 
+
+      setErrorInfo({
+        title: parsed.title,
+        message: parsed.message,
         nextSteps: parsed.nextSteps,
         actions: toastActions,
       });
@@ -231,10 +232,10 @@ export default function SwapPage() {
     }
   }, [quoteError, setSlippageMode, setSlippageTolerance]);
 
-  
+
 
   // ===== Event Handlers =====
-  
+
   const handleTabChange = (tab: "swap" | "limit") => {
     setActiveTab(tab);
   };
@@ -265,7 +266,7 @@ export default function SwapPage() {
     // This sets activeInput to 'from' automatically
     const sanitized = sanitizeDecimal(value);
     setFromAmount(sanitized);
-    
+
     // When user clears input, clear both fields (user requirement)
     if (sanitized === '') {
       const setToAmount = useSwapStore.getState().setToAmount;
@@ -279,7 +280,7 @@ export default function SwapPage() {
     const sanitized = sanitizeDecimal(value);
     const setToAmount = useSwapStore.getState().setToAmount;
     setToAmount(sanitized);
-    
+
     // When user clears input, clear both fields (user requirement)
     if (sanitized === '') {
       setFromAmount('');
@@ -331,7 +332,7 @@ export default function SwapPage() {
     // After swap:
     // - New fromToken (was toToken) needs the address that was previously the toAddress
     // - New toToken (was fromToken) needs the address that was previously the fromAddress
-    
+
     // The new fromToken is the old toToken
     const newFromToken = currentToToken;
     // The new toToken is the old fromToken
@@ -369,7 +370,7 @@ export default function SwapPage() {
     if (userChangedRecipientRef.current) {
       return;
     }
-    
+
     const newRecipient = effectiveRecipientAddress || walletAddress;
     if (newRecipient !== recipientAddress) {
       // Only update if it's compatible with current toToken
@@ -407,15 +408,15 @@ export default function SwapPage() {
   // Manual addresses won't have icons
   const toWalletIcon = useMemo(() => {
     if (!recipientAddress) return null;
-    
+
     if (secondaryWallet && recipientAddress.toLowerCase() === secondaryWallet.address.toLowerCase()) {
       return getWalletIconFromAccount(secondaryWallet);
     }
-    
+
     if (primaryWallet && recipientAddress.toLowerCase() === primaryWallet.address.toLowerCase()) {
       return getWalletIconFromAccount(primaryWallet);
     }
-    
+
     // Manual address - no icon
     return null;
   }, [recipientAddress, secondaryWallet, primaryWallet]);
@@ -451,14 +452,14 @@ export default function SwapPage() {
     chainId?: number;
   } | null>(null);
 
-    // Swap execution hook
-    const {
-      execute: executeSwap,
-      isExecuting: isExecutingSwap,
-      status: swapStatus,
-      error: swapError,
-      reset: resetSwapExecution,
-    } = useSwapExecution();
+  // Swap execution hook
+  const {
+    execute: executeSwap,
+    isExecuting: isExecutingSwap,
+    status: swapStatus,
+    error: swapError,
+    reset: resetSwapExecution,
+  } = useSwapExecution();
 
   // Sync swap execution status with toast system
   useEffect(() => {
@@ -479,6 +480,32 @@ export default function SwapPage() {
       }
     }
   }, [swapStatus, fromToken?.chainId, setFromAmount, setToAmount]);
+
+  // Limit Order execution hook
+  const {
+    createOrder: executeLimitOrder,
+    isExecuting: isExecutingLimit,
+    status: limitStatus,
+    error: limitError,
+  } = useLimitOrder();
+
+  // Sync limit order status with toast system
+  useEffect(() => {
+    if (limitStatus) {
+      setToastState({
+        open: true,
+        stage: limitStatus.stage as any, // Map LimitOrderStage to SwapStage
+        message: limitStatus.message,
+        txHash: (limitStatus as any).orderHash, // For limit orders, orderHash is used
+        chainId: fromToken?.chainId,
+      });
+
+      if (limitStatus.stage === 'completed') {
+        setFromAmount('');
+        setToAmount('');
+      }
+    }
+  }, [limitStatus, fromToken?.chainId, setFromAmount, setToAmount]);
 
   // Handle swap execution errors
   useEffect(() => {
@@ -524,7 +551,13 @@ export default function SwapPage() {
   }, [walletAddress, recipientAddress]);
 
   const handleSwapClick = async () => {
-    // Check if this is a wallet-to-wallet transfer (same token, same chain, different recipient)
+    // 1. If limit tab is active, execute limit order
+    if (activeTab === 'limit') {
+      await executeLimitOrderTransaction();
+      return;
+    }
+
+    // 2. Check if this is a wallet-to-wallet transfer (same token, same chain, different recipient)
     const isSameToken = fromToken && toToken &&
       fromToken.address.toLowerCase() === toToken.address.toLowerCase();
     const isSameChain = fromToken?.chainId === toToken?.chainId;
@@ -536,7 +569,7 @@ export default function SwapPage() {
       return;
     }
 
-    // Execute swap using swap executor
+    // 3. Execute swap using swap executor
     await executeSwapTransaction();
   };
 
@@ -606,7 +639,7 @@ export default function SwapPage() {
       // The hook watches for changes and will refetch when needed
     } catch (error: any) {
       console.error("Swap execution error:", error);
-      
+
       // Extract user-friendly error message
       let errorMessage = "Swap failed. Please try again.";
       if (error?.message) {
@@ -619,6 +652,56 @@ export default function SwapPage() {
         open: true,
         stage: 'failed',
         message: errorMessage,
+      });
+    } finally {
+      setIsExecutingTransfer(false);
+    }
+  };
+
+  /**
+   * Execute 1inch limit order transaction
+   */
+  const executeLimitOrderTransaction = async () => {
+    if (!fromToken || !toToken || !fromAmount || !limitPrice || !walletAddress) {
+      setToastState({
+        open: true,
+        stage: 'failed',
+        message: "Please select tokens, amount, and limit price",
+      });
+      return;
+    }
+
+    try {
+      setIsExecutingTransfer(true);
+
+      const { getWalletClient } = await import("@wagmi/core");
+      const { config } = await import("@/lib/wallet/wagmi/config");
+      const walletClient = await getWalletClient(config);
+
+      if (!walletClient) {
+        throw new Error("No wallet connected");
+      }
+
+      // Map expires label to seconds
+      let expiresInSeconds = 0;
+      if (expires === '24h') expiresInSeconds = 24 * 60 * 60;
+      else if (expires === '7d') expiresInSeconds = 7 * 24 * 60 * 60;
+
+      await executeLimitOrder({
+        fromToken,
+        toToken,
+        fromAmount,
+        limitPrice,
+        userAddress: walletAddress,
+        expiresInSeconds
+      }, walletClient as any);
+
+    } catch (error: any) {
+      console.error("Limit order execution error:", error);
+      setToastState({
+        open: true,
+        stage: 'failed',
+        message: error.message || "Failed to place limit order",
       });
     } finally {
       setIsExecutingTransfer(false);
@@ -662,7 +745,7 @@ export default function SwapPage() {
 
   const executeSolanaTransfer = async () => {
     if (!fromToken || !fromAmount || !recipientAddress) return;
-    
+
     if (fromToken.decimals === undefined) {
       throw new Error("Token decimals not available");
     }
@@ -682,8 +765,8 @@ export default function SwapPage() {
     }
 
     const amountForTransfer = BigInt(toSmallestUnit(fromAmount, fromToken.decimals));
-    const isNativeSOL = fromToken.address === NATIVE_SOL_MINT || 
-                       fromToken.address.toLowerCase() === NATIVE_SOL_MINT.toLowerCase();
+    const isNativeSOL = fromToken.address === NATIVE_SOL_MINT ||
+      fromToken.address.toLowerCase() === NATIVE_SOL_MINT.toLowerCase();
 
     if (isNativeSOL) {
       setToastState({
@@ -692,16 +775,16 @@ export default function SwapPage() {
         message: "Sending SOL...",
       });
       const signature = await transferSOL(solanaWallet, recipientAddress, amountForTransfer);
-      
+
       setToastState({
         open: true,
         stage: 'confirming',
         message: "Waiting for confirmation...",
       });
-      
+
       // Wait a bit for confirmation
       await new Promise(resolve => setTimeout(resolve, 2000));
-      
+
       setToastState({
         open: true,
         stage: 'completed',
@@ -709,7 +792,7 @@ export default function SwapPage() {
         txHash: signature,
         chainId: fromToken.chainId,
       });
-      
+
       // Clear amounts on success
       setFromAmount('');
       setToAmount('');
@@ -720,16 +803,16 @@ export default function SwapPage() {
         message: "Sending SPL token...",
       });
       const signature = await transferSPLToken(solanaWallet, fromToken.address, recipientAddress, amountForTransfer);
-      
+
       setToastState({
         open: true,
         stage: 'confirming',
         message: "Waiting for confirmation...",
       });
-      
+
       // Wait a bit for confirmation
       await new Promise(resolve => setTimeout(resolve, 2000));
-      
+
       setToastState({
         open: true,
         stage: 'completed',
@@ -737,7 +820,7 @@ export default function SwapPage() {
         txHash: signature,
         chainId: fromToken.chainId,
       });
-      
+
       // Clear amounts on success
       setFromAmount('');
       setToAmount('');
@@ -746,11 +829,11 @@ export default function SwapPage() {
 
   const executeEVMTransfer = async () => {
     if (!fromToken || !fromAmount || !recipientAddress || !walletAddress) return;
-    
+
     if (fromToken.chainId === undefined) {
       throw new Error("Token chain ID not available");
     }
-    
+
     if (fromToken.decimals === undefined) {
       throw new Error("Token decimals not available");
     }
@@ -765,7 +848,7 @@ export default function SwapPage() {
     // For now, we'll use a placeholder that needs to be connected to your actual wallet system
     const { createWalletClient, custom } = await import("viem");
     const { mainnet, arbitrum, optimism, polygon, base, bsc } = await import("viem/chains");
-    
+
     const chainMap: Record<number, any> = {
       1: mainnet,
       42161: arbitrum,
@@ -793,7 +876,7 @@ export default function SwapPage() {
     });
 
     const { transferNativeToken, transferERC20Token, isNativeToken, toSmallestUnit, getPublicClient } = await import("@/lib/wallet/utils/transfer");
-    
+
     const amountForTransfer = BigInt(toSmallestUnit(fromAmount, fromToken.decimals));
 
     if (isNativeToken(fromToken.address)) {
@@ -803,22 +886,22 @@ export default function SwapPage() {
         message: "Sending native token...",
       });
       const hash = await transferNativeToken(walletClient, recipientAddress, amountForTransfer);
-      
+
       setToastState({
         open: true,
         stage: 'confirming',
         message: "Waiting for confirmation...",
       });
       const publicClient = getPublicClient(fromToken.chainId);
-      const receipt = await publicClient.waitForTransactionReceipt({ 
+      const receipt = await publicClient.waitForTransactionReceipt({
         hash: hash as `0x${string}`,
         timeout: 60000,
       });
-      
+
       if (receipt.status === "reverted") {
         throw new Error("Transfer reverted");
       }
-      
+
       setToastState({
         open: true,
         stage: 'completed',
@@ -826,7 +909,7 @@ export default function SwapPage() {
         txHash: hash,
         chainId: fromToken.chainId,
       });
-      
+
       // Clear amounts on success
       setFromAmount('');
       setToAmount('');
@@ -837,22 +920,22 @@ export default function SwapPage() {
         message: "Preparing ERC20 transfer...",
       });
       const hash = await transferERC20Token(walletClient, fromToken.address, recipientAddress, amountForTransfer);
-      
+
       setToastState({
         open: true,
         stage: 'confirming',
         message: "Waiting for confirmation...",
       });
       const publicClient = getPublicClient(fromToken.chainId);
-      const receipt = await publicClient.waitForTransactionReceipt({ 
+      const receipt = await publicClient.waitForTransactionReceipt({
         hash: hash as `0x${string}`,
         timeout: 60000,
       });
-      
+
       if (receipt.status === "reverted") {
         throw new Error("Transfer reverted");
       }
-      
+
       setToastState({
         open: true,
         stage: 'completed',
@@ -860,7 +943,7 @@ export default function SwapPage() {
         txHash: hash,
         chainId: fromToken.chainId,
       });
-      
+
       // Clear amounts on success
       setFromAmount('');
       setToAmount('');
@@ -869,18 +952,18 @@ export default function SwapPage() {
 
   // Get connected provider IDs for filtering
   const connectedProviders = connectedWallets.map(w => w.provider);
-  
+
   const handleConnectClick = () => {
     setIsConnectingFromSection(false);
     openModal();
   };
-  
+
   // Handler for connecting additional wallet from "From" section
   const handleConnectFromSection = () => {
     setIsConnectingFromSection(true);
     openModal();
   };
-  
+
   // Helper to determine chain from wallet ID
   const getChainForWallet = (walletId: string): 'ethereum' | 'solana' => {
     const solanaOnlyWallets = ['solflare', 'glow', 'slope', 'nightly', 'jupiter', 'phantom'];
@@ -889,7 +972,7 @@ export default function SwapPage() {
     }
     return 'ethereum';
   };
-  
+
   // Unified wallet connection handler
   const handleWalletConnect = async (walletType: any) => {
     try {
@@ -897,7 +980,7 @@ export default function SwapPage() {
         // Connecting from "From" section with existing wallets - use connectAdditionalWallet
         let walletId: string;
         let chain: 'ethereum' | 'solana' = 'ethereum';
-        
+
         if (typeof walletType === 'string') {
           // Simple wallet ID string
           walletId = walletType;
@@ -909,7 +992,7 @@ export default function SwapPage() {
         } else {
           throw new Error('Invalid wallet type');
         }
-        
+
         await connectAdditionalWallet(walletId, chain, true);
         setIsConnectingFromSection(false);
         closeModal();
@@ -940,7 +1023,7 @@ export default function SwapPage() {
         return route.fromToken.amountUSD;
       }
     }
-    
+
     // Second priority: Calculate from token price (if available)
     if (fromAmountNum > 0 && fromToken?.price) {
       const price = parseFloat(fromToken.price);
@@ -952,7 +1035,7 @@ export default function SwapPage() {
         }
       }
     }
-    
+
     return undefined;
   };
 
@@ -966,7 +1049,7 @@ export default function SwapPage() {
         return route.toToken.amountUSD;
       }
     }
-    
+
     // Second priority: Calculate from token price (if available)
     if (toAmountNum > 0 && toToken?.price) {
       const price = parseFloat(toToken.price);
@@ -978,7 +1061,7 @@ export default function SwapPage() {
         }
       }
     }
-    
+
     return undefined;
   };
 
@@ -1023,7 +1106,7 @@ export default function SwapPage() {
         <div className="flex flex-col lg:flex-row lg:items-start gap-3 sm:gap-4 lg:gap-5 xl:gap-6 relative z-30 pb-[80px] sm:pb-[95px] md:pb-[110px] lg:pb-[125px] xl:pb-[145px] 2xl:pb-[160px]">
           {/* Chart Section - Left Side (Desktop) */}
           <div className="flex-1 order-2 lg:order-1 hidden lg:block relative z-30">
-            <TradingChart 
+            <TradingChart
               fromToken={fromToken}
               toToken={toToken}
             />
@@ -1033,7 +1116,7 @@ export default function SwapPage() {
           <div className="w-full lg:w-[480px] xl:w-[540px] 2xl:w-[606px] order-1 lg:order-2 relative z-30">
             {/* Mobile Chart Section */}
             <div className="lg:hidden mb-3 sm:mb-4 relative z-30">
-              <TradingChart 
+              <TradingChart
                 fromToken={fromToken}
                 toToken={toToken}
               />

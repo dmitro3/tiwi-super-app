@@ -141,18 +141,28 @@ const findSimpleRoute = async (
     }
   }
 
-  // Try each path and collect valid routes
-  const validRoutes: Route[] = [];
-  
-  for (const path of paths) {
-    try {
-      const amounts = await publicClient.readContract({
+  // Optimized: Fire all path checks in PARALLEL
+  console.log(`[PancakeSwapRouter] ⚡ Scanning ${paths.length} paths in parallel...`);
+  const startTime = Date.now();
+
+  const results = await Promise.allSettled(
+    paths.map(path =>
+      publicClient.readContract({
         address: routerAddress,
         abi: ROUTER_ABI,
         functionName: 'getAmountsOut',
         args: [amountIn, path],
-      }) as bigint[];
+      }).then((amounts: bigint[]) => ({ path, amounts }))
+    )
+  );
 
+  console.log(`[PancakeSwapRouter] ⚡ Parallel scan took ${Date.now() - startTime}ms`);
+
+  const validRoutes: Route[] = [];
+
+  for (const result of results) {
+    if (result.status === 'fulfilled' && result.value) {
+      const { path, amounts } = result.value;
       if (amounts && amounts.length > 0 && amounts[amounts.length - 1] > BigInt(0)) {
         // Calculate price impact (simplified)
         const inputAmount = parseFloat(amountIn.toString()) / 1e18;
@@ -167,9 +177,6 @@ const findSimpleRoute = async (
           liquidity: BigInt(0), // Unknown without pair reserves
         });
       }
-    } catch (error) {
-      // Path doesn't exist or has insufficient liquidity, continue to next
-      continue;
     }
   }
 
@@ -199,10 +206,10 @@ export const detectFeeOnTransfer = async (
     // Try a test transfer simulation
     // If actual balance received < amount sent, it's a fee-on-transfer token
     // This is a simplified check - in production, you'd want more sophisticated detection
-    
+
     // Check if token has known fee-on-transfer patterns
     // Many fee tokens have specific totalSupply patterns or transfer functions
-    
+
     // For now, we'll use a heuristic: if getAmountsOut fails but pairs exist,
     // it might be a fee-on-transfer token
     return false; // Default to false, will be detected during swap attempts

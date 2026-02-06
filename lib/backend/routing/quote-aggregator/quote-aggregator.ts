@@ -11,6 +11,11 @@
 import type { Address } from 'viem';
 import type { UniversalRoute } from '../types';
 import type { RouterRoute } from '@/lib/backend/routers/types';
+import { isNativeToken, getWrappedNativeToken } from '@/lib/backend/utils/token-address-helper';
+import { getSameChainRouteFinder } from '../same-chain-finder';
+import { getCrossChainRouteFinder } from '../cross-chain-finder';
+import { getMultiHopRouter } from '../multi-hop-router';
+import { convertSameChainRouteToRouterRoute, convertCrossChainRouteToRouterRoute } from '../route-converter';
 // TODO: Replace with on-demand route finder
 
 /**
@@ -59,7 +64,7 @@ export class QuoteAggregator {
   constructor() {
     // Old graph builder removed, will be replaced with on-demand finder
   }
-  
+
   /**
    * Aggregate quotes from all sources
    * 
@@ -89,10 +94,9 @@ export class QuoteAggregator {
       inputTokenPriceUSD,
       outputTokenPriceUSD,
     } = options;
-    
+
     // Convert native tokens to wrapped tokens for routing
     // Native tokens (0x0000...0000) can't be in DEX pairs, need wrapped versions
-    const { isNativeToken, getWrappedNativeToken } = await import('@/lib/backend/utils/token-address-helper');
 
     let routingFromToken = fromToken;
     let routingToToken = toToken;
@@ -116,9 +120,9 @@ export class QuoteAggregator {
         routingFromToken = wrappedToken;
       }
     }
-    
+
     const quotes: AggregatedQuote[] = [];
-    
+
     // 1. Get quotes from universal routing (new system)
     // Use wrapped tokens for routing
     if (includeUniversalRouting) {
@@ -127,7 +131,7 @@ export class QuoteAggregator {
         console.log(`[QuoteAggregator]   recipient: ${options.recipient || 'NOT PROVIDED ⚠️'}`);
         console.log(`[QuoteAggregator]   fromAddress: ${options.fromAddress || 'NOT PROVIDED ⚠️'}`);
         console.log(`[QuoteAggregator]   toChainId: ${options.toChainId || 'NOT PROVIDED (assuming same-chain)'}`);
-        
+
         const universalQuotes = await this.getUniversalRoutes(
           routingFromToken,
           routingToToken,
@@ -150,7 +154,7 @@ export class QuoteAggregator {
         // Continue with other sources
       }
     }
-    
+
     // 2. Get quotes from existing routers
     if (includeExistingRouters && existingRoutes.length > 0) {
       const existingQuotes = this.convertExistingRoutes(
@@ -161,14 +165,14 @@ export class QuoteAggregator {
       );
       quotes.push(...existingQuotes);
     }
-    
+
     // 3. Rank and sort quotes
     const rankedQuotes = this.rankQuotes(quotes);
-    
+
     // 4. Return top N quotes
     return rankedQuotes.slice(0, maxQuotes);
   }
-  
+
   /**
    * Get routes from universal routing system
    * 
@@ -199,149 +203,152 @@ export class QuoteAggregator {
     console.log(`[QuoteAggregator] Amount In: ${amountIn.toString()}`);
     console.log(`[QuoteAggregator] Min Liquidity: $${options.minLiquidityUSD.toLocaleString()}`);
     console.log(`[QuoteAggregator] ========================================\n`);
-    
+
+    // Add global time budget (45 seconds) to ensure we return before Vercel 60s maxDuration
+    // Adjusted from 55s to 45s for safety against browser/proxy timeouts
+    const TIME_BUDGET_MS = 45000;
+    const timeoutPromise = new Promise<AggregatedQuote[]>((_, reject) => {
+      setTimeout(() => reject(new Error('Quote aggregation timed out (Vercel 10s limit)')), TIME_BUDGET_MS);
+    });
+
     try {
-      // CRITICAL FIX: For cross-chain swaps, toToken is on destination chain, not source chain
-      const toTokenChainId = options.toChainId || chainId;
-      const isCrossChain = toTokenChainId !== chainId;
+      // Execute the routing logic with a race against the timeout
+      return await Promise.race([
+        (async () => {
+          // CRITICAL FIX: For cross-chain swaps, toToken is on destination chain, not source chain
+          const toTokenChainId = options.toChainId || chainId;
+          const isCrossChain = toTokenChainId !== chainId;
 
-      const fromTokenSymbol: string | undefined = undefined;
-      const toTokenSymbol: string | undefined = undefined;
+          const fromTokenSymbol: string | undefined = undefined;
+          const toTokenSymbol: string | undefined = undefined;
 
-      console.log(`[QuoteAggregator] 📍 STEP 2: Determining routing strategy...`);
-      console.log(`[QuoteAggregator]   From Chain: ${chainId}`);
-      console.log(`[QuoteAggregator]   To Chain: ${toTokenChainId}`);
-      console.log(`[QuoteAggregator]   Is Cross-Chain: ${isCrossChain}`);
+          console.log(`[QuoteAggregator] 📍 STEP 2: Determining routing strategy...`);
+          console.log(`[QuoteAggregator]   From Chain: ${chainId}`);
+          console.log(`[QuoteAggregator]   To Chain: ${toTokenChainId}`);
+          console.log(`[QuoteAggregator]   Is Cross-Chain: ${isCrossChain}`);
 
-      // Pre-import modules upfront (avoids repeated dynamic imports)
-      const [
-        { getSameChainRouteFinder },
-        { getCrossChainRouteFinder },
-        { getMultiHopRouter },
-        { convertSameChainRouteToRouterRoute, convertCrossChainRouteToRouterRoute },
-      ] = await Promise.all([
-        import('../same-chain-finder'),
-        import('../cross-chain-finder'),
-        import('../multi-hop-router'),
-        import('../route-converter'),
+          // Using static imports for performance
+
+          const startTime = Date.now();
+
+          if (isCrossChain) {
+            // CROSS-CHAIN: Run cross-chain finder AND multi-hop router in PARALLEL
+            console.log(`[QuoteAggregator] ⚡ Cross-chain: running cross-chain finder + multi-hop in parallel`);
+
+            const crossChainFinder = getCrossChainRouteFinder();
+            const multiHopRouter = getMultiHopRouter();
+
+            const [crossChainResult, multiHopResult] = await Promise.allSettled([
+              // Cross-chain finder (direct bridge)
+              crossChainFinder.findRoute(
+                fromToken, toToken, chainId, toTokenChainId,
+                amountIn, options.recipient, options.fromAddress
+              ),
+              // Multi-hop router (swap + bridge + swap)
+              multiHopRouter.findMultiHopRoute(
+                fromToken, toToken, chainId, toTokenChainId,
+                amountIn.toString(), options.fromAddress
+              ),
+            ]);
+
+            console.log(`[QuoteAggregator] ⚡ Parallel cross-chain search took ${Date.now() - startTime}ms`);
+
+            // Collect all valid quotes
+            const crossChainQuotes: AggregatedQuote[] = [];
+
+            // Process cross-chain finder result
+            if (crossChainResult.status === 'fulfilled' && crossChainResult.value && crossChainResult.value.totalOutput > BigInt(0)) {
+              const routerRoute = await convertCrossChainRouteToRouterRoute(
+                crossChainResult.value,
+                { address: fromToken, symbol: fromTokenSymbol },
+                { address: toToken, symbol: toTokenSymbol },
+                amountIn, options.recipient
+              );
+              crossChainQuotes.push(this.convertRouterRouteToQuote(
+                routerRoute, options.gasPrice, options.inputTokenPriceUSD, options.outputTokenPriceUSD
+              ));
+              console.log(`[QuoteAggregator] ✅ Cross-chain finder returned quote`);
+            }
+
+            // Process multi-hop result
+            if (multiHopResult.status === 'fulfilled' && multiHopResult.value) {
+              crossChainQuotes.push(this.convertRouterRouteToQuote(
+                multiHopResult.value.combinedRoute, options.gasPrice,
+                options.inputTokenPriceUSD, options.outputTokenPriceUSD
+              ));
+              console.log(`[QuoteAggregator] ✅ Multi-hop router returned quote`);
+            }
+
+            if (crossChainQuotes.length > 0) {
+              // Return best quote (highest output)
+              crossChainQuotes.sort((a, b) => parseFloat(b.outputAmount) - parseFloat(a.outputAmount));
+              console.log(`[QuoteAggregator] ✅ Returning best of ${crossChainQuotes.length} cross-chain quotes (${Date.now() - startTime}ms total)`);
+              return crossChainQuotes;
+            }
+
+            console.log(`[QuoteAggregator] ❌ No cross-chain route found`);
+          } else {
+            // SAME-CHAIN: Run same-chain finder AND multi-hop in PARALLEL
+            console.log(`[QuoteAggregator] ⚡ Same-chain: running finder + multi-hop in parallel`);
+
+            const sameChainFinder = getSameChainRouteFinder();
+            const multiHopRouter = getMultiHopRouter();
+
+            const [sameChainResult, multiHopResult] = await Promise.allSettled([
+              // Direct same-chain finder
+              sameChainFinder.findRoute(
+                fromToken, toToken, chainId, amountIn,
+                fromTokenSymbol, toTokenSymbol
+              ),
+              // Multi-hop router (through intermediaries)
+              multiHopRouter.findMultiHopRoute(
+                fromToken, toToken, chainId, chainId,
+                amountIn.toString(), options.fromAddress
+              ),
+            ]);
+
+            console.log(`[QuoteAggregator] ⚡ Parallel same-chain search took ${Date.now() - startTime}ms`);
+
+            const sameChainQuotes: AggregatedQuote[] = [];
+
+            // Process same-chain finder result
+            if (sameChainResult.status === 'fulfilled' && sameChainResult.value) {
+              const routerRoute = await convertSameChainRouteToRouterRoute(
+                sameChainResult.value,
+                { address: fromToken, symbol: fromTokenSymbol },
+                { address: toToken, symbol: toTokenSymbol },
+                amountIn, chainId
+              );
+              sameChainQuotes.push(this.convertRouterRouteToQuote(
+                routerRoute, options.gasPrice, options.inputTokenPriceUSD, options.outputTokenPriceUSD
+              ));
+              console.log(`[QuoteAggregator] ✅ Same-chain finder returned quote`);
+            }
+
+            // Process multi-hop result
+            if (multiHopResult.status === 'fulfilled' && multiHopResult.value) {
+              sameChainQuotes.push(this.convertRouterRouteToQuote(
+                multiHopResult.value.combinedRoute, options.gasPrice,
+                options.inputTokenPriceUSD, options.outputTokenPriceUSD
+              ));
+              console.log(`[QuoteAggregator] ✅ Multi-hop router returned quote`);
+            }
+
+            if (sameChainQuotes.length > 0) {
+              sameChainQuotes.sort((a, b) => parseFloat(b.outputAmount) - parseFloat(a.outputAmount));
+              console.log(`[QuoteAggregator] ✅ Returning best of ${sameChainQuotes.length} same-chain quotes (${Date.now() - startTime}ms total)`);
+              return sameChainQuotes;
+            }
+
+            console.log(`[QuoteAggregator] ❌ No same-chain route found`);
+          }
+
+          console.log(`[QuoteAggregator] ❌ No route found (${Date.now() - startTime}ms total)`);
+          return [];
+        })(),
+        timeoutPromise
       ]);
 
-      const startTime = Date.now();
-
-      if (isCrossChain) {
-        // CROSS-CHAIN: Run cross-chain finder AND multi-hop router in PARALLEL
-        console.log(`[QuoteAggregator] ⚡ Cross-chain: running cross-chain finder + multi-hop in parallel`);
-
-        const crossChainFinder = getCrossChainRouteFinder();
-        const multiHopRouter = getMultiHopRouter();
-
-        const [crossChainResult, multiHopResult] = await Promise.allSettled([
-          // Cross-chain finder (direct bridge)
-          crossChainFinder.findRoute(
-            fromToken, toToken, chainId, toTokenChainId,
-            amountIn, options.recipient, options.fromAddress
-          ),
-          // Multi-hop router (swap + bridge + swap)
-          multiHopRouter.findMultiHopRoute(
-            fromToken, toToken, chainId, toTokenChainId,
-            amountIn.toString(), options.fromAddress
-          ),
-        ]);
-
-        console.log(`[QuoteAggregator] ⚡ Parallel cross-chain search took ${Date.now() - startTime}ms`);
-
-        // Collect all valid quotes
-        const crossChainQuotes: AggregatedQuote[] = [];
-
-        // Process cross-chain finder result
-        if (crossChainResult.status === 'fulfilled' && crossChainResult.value && crossChainResult.value.totalOutput > BigInt(0)) {
-          const routerRoute = await convertCrossChainRouteToRouterRoute(
-            crossChainResult.value,
-            { address: fromToken, symbol: fromTokenSymbol },
-            { address: toToken, symbol: toTokenSymbol },
-            amountIn, options.recipient
-          );
-          crossChainQuotes.push(this.convertRouterRouteToQuote(
-            routerRoute, options.gasPrice, options.inputTokenPriceUSD, options.outputTokenPriceUSD
-          ));
-          console.log(`[QuoteAggregator] ✅ Cross-chain finder returned quote`);
-        }
-
-        // Process multi-hop result
-        if (multiHopResult.status === 'fulfilled' && multiHopResult.value) {
-          crossChainQuotes.push(this.convertRouterRouteToQuote(
-            multiHopResult.value.combinedRoute, options.gasPrice,
-            options.inputTokenPriceUSD, options.outputTokenPriceUSD
-          ));
-          console.log(`[QuoteAggregator] ✅ Multi-hop router returned quote`);
-        }
-
-        if (crossChainQuotes.length > 0) {
-          // Return best quote (highest output)
-          crossChainQuotes.sort((a, b) => parseFloat(b.outputAmount) - parseFloat(a.outputAmount));
-          console.log(`[QuoteAggregator] ✅ Returning best of ${crossChainQuotes.length} cross-chain quotes (${Date.now() - startTime}ms total)`);
-          return crossChainQuotes;
-        }
-
-        console.log(`[QuoteAggregator] ❌ No cross-chain route found`);
-      } else {
-        // SAME-CHAIN: Run same-chain finder AND multi-hop in PARALLEL
-        console.log(`[QuoteAggregator] ⚡ Same-chain: running finder + multi-hop in parallel`);
-
-        const sameChainFinder = getSameChainRouteFinder();
-        const multiHopRouter = getMultiHopRouter();
-
-        const [sameChainResult, multiHopResult] = await Promise.allSettled([
-          // Direct same-chain finder
-          sameChainFinder.findRoute(
-            fromToken, toToken, chainId, amountIn,
-            fromTokenSymbol, toTokenSymbol
-          ),
-          // Multi-hop router (through intermediaries)
-          multiHopRouter.findMultiHopRoute(
-            fromToken, toToken, chainId, chainId,
-            amountIn.toString(), options.fromAddress
-          ),
-        ]);
-
-        console.log(`[QuoteAggregator] ⚡ Parallel same-chain search took ${Date.now() - startTime}ms`);
-
-        const sameChainQuotes: AggregatedQuote[] = [];
-
-        // Process same-chain finder result
-        if (sameChainResult.status === 'fulfilled' && sameChainResult.value) {
-          const routerRoute = await convertSameChainRouteToRouterRoute(
-            sameChainResult.value,
-            { address: fromToken, symbol: fromTokenSymbol },
-            { address: toToken, symbol: toTokenSymbol },
-            amountIn, chainId
-          );
-          sameChainQuotes.push(this.convertRouterRouteToQuote(
-            routerRoute, options.gasPrice, options.inputTokenPriceUSD, options.outputTokenPriceUSD
-          ));
-          console.log(`[QuoteAggregator] ✅ Same-chain finder returned quote`);
-        }
-
-        // Process multi-hop result
-        if (multiHopResult.status === 'fulfilled' && multiHopResult.value) {
-          sameChainQuotes.push(this.convertRouterRouteToQuote(
-            multiHopResult.value.combinedRoute, options.gasPrice,
-            options.inputTokenPriceUSD, options.outputTokenPriceUSD
-          ));
-          console.log(`[QuoteAggregator] ✅ Multi-hop router returned quote`);
-        }
-
-        if (sameChainQuotes.length > 0) {
-          sameChainQuotes.sort((a, b) => parseFloat(b.outputAmount) - parseFloat(a.outputAmount));
-          console.log(`[QuoteAggregator] ✅ Returning best of ${sameChainQuotes.length} same-chain quotes (${Date.now() - startTime}ms total)`);
-          return sameChainQuotes;
-        }
-
-        console.log(`[QuoteAggregator] ❌ No same-chain route found`);
-      }
-
-      console.log(`[QuoteAggregator] ❌ No route found (${Date.now() - startTime}ms total)`);
-      return [];
     } catch (error) {
       console.error('[QuoteAggregator] ❌ Error getting universal routes:', error);
       console.error('[QuoteAggregator] Error stack:', error instanceof Error ? error.stack : 'No stack trace');
@@ -349,7 +356,7 @@ export class QuoteAggregator {
       return [];
     }
   }
-  
+
   /**
    * Convert RouterRoute to AggregatedQuote
    */
@@ -360,7 +367,7 @@ export class QuoteAggregator {
     outputTokenPriceUSD?: number
   ): AggregatedQuote {
     const score = this.calculateRouteScore(route, gasPrice, inputTokenPriceUSD, outputTokenPriceUSD);
-    
+
     return {
       route,
       source: 'universal',
@@ -373,8 +380,8 @@ export class QuoteAggregator {
       gasUSD: route.fees.gasUSD || '0.00',
     };
   }
-  
-  
+
+
   /**
    * Convert existing router routes to aggregated quotes
    */
@@ -387,7 +394,7 @@ export class QuoteAggregator {
     return routes.map(route => {
       // Calculate score for existing routes
       const score = this.calculateRouteScore(route, gasPrice, inputTokenPriceUSD, outputTokenPriceUSD);
-      
+
       return {
         route,
         source: this.getRouteSource(route.router),
@@ -401,7 +408,7 @@ export class QuoteAggregator {
       };
     });
   }
-  
+
   /**
    * Calculate score for an existing route
    */
@@ -418,14 +425,14 @@ export class QuoteAggregator {
     const gasUSD = parseFloat(route.fees.gasUSD || '0');
     const protocolFees = parseFloat(route.fees.protocol || '0');
     const priceImpact = parseFloat(route.priceImpact?.toString() || '0');
-    
+
     // Calculate net value
     const totalCost = gasUSD + protocolFees + (inputUSD * priceImpact / 100);
     const netValue = outputUSD - inputUSD - totalCost;
-    
+
     return netValue;
   }
-  
+
   /**
    * Get quote source from router name
    */
@@ -438,7 +445,7 @@ export class QuoteAggregator {
     if (routerLower.includes('universal')) return 'universal';
     return 'other';
   }
-  
+
   /**
    * Rank quotes by score
    */
@@ -448,19 +455,19 @@ export class QuoteAggregator {
       if (b.score !== a.score) {
         return b.score - a.score;
       }
-      
+
       // Secondary: output amount (higher is better)
       const outputA = parseFloat(a.outputAmount);
       const outputB = parseFloat(b.outputAmount);
       if (outputB !== outputA) {
         return outputB - outputA;
       }
-      
+
       // Tertiary: lower price impact is better
       return a.priceImpact - b.priceImpact;
     });
   }
-  
+
   /**
    * Get best quote (highest score)
    */
@@ -480,7 +487,7 @@ export class QuoteAggregator {
       existingRoutes,
       { ...options, maxQuotes: 1 }
     );
-    
+
     return quotes.length > 0 ? quotes[0] : null;
   }
 }

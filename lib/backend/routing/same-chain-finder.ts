@@ -103,10 +103,10 @@ export class SameChainRouteFinder {
 
     console.log(`[SameChainFinder]   ${candidates.length} candidates (${dexIds.length} DEXes, ${intermediaries.length} intermediaries)`);
 
-    // Verify with concurrency limit of 8 to avoid RPC rate limiting
+    // Verify with concurrency limit of 4 to avoid RPC rate limiting and memory pressure on Vercel Hobby plan
     const startTime = Date.now();
     const tasks = candidates.map(c => () => verifyRoute(c.path, chainId, c.dexId, amountIn));
-    const results = await withConcurrency(tasks, 8);
+    const results = await withConcurrency(tasks, 4);
     console.log(`[SameChainFinder]   Verification took ${Date.now() - startTime}ms`);
 
     let bestRoute: SameChainRoute | null = null;

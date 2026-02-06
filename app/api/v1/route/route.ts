@@ -10,6 +10,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getRouteService } from '@/lib/backend/services/route-service';
 import type { RouteRequest, RouteResponse } from '@/lib/backend/routers/types';
+
+// Vercel Serverless Function Config
+export const maxDuration = 60; // 60 seconds (Pro plan limit)
 // ============================================================================
 // Request Types
 // ============================================================================
@@ -69,14 +72,14 @@ interface RouteAPIResponse {
 export async function GET(req: NextRequest) {
   try {
     const searchParams = req.nextUrl.searchParams;
-    
+
     // Parse required parameters
     const fromChainId = searchParams.get('fromChainId');
     const fromToken = searchParams.get('fromToken');
     const toChainId = searchParams.get('toChainId');
     const toToken = searchParams.get('toToken');
     const fromAmount = searchParams.get('fromAmount');
-    
+
     // Validate required parameters
     if (!fromChainId || !fromToken || !toChainId || !toToken || !fromAmount) {
       return NextResponse.json(
@@ -86,7 +89,7 @@ export async function GET(req: NextRequest) {
         { status: 400 }
       );
     }
-    
+
     // Parse optional parameters
     const slippage = searchParams.get('slippage');
     const slippageMode = searchParams.get('slippageMode') as 'fixed' | 'auto' | null;
@@ -94,7 +97,7 @@ export async function GET(req: NextRequest) {
     const fromAddress = searchParams.get('fromAddress'); // User's wallet address (for LiFi getQuote)
     const order = searchParams.get('order') as 'RECOMMENDED' | 'FASTEST' | 'CHEAPEST' | null;
     const liquidityUSD = searchParams.get('liquidityUSD');
-    
+
     // Build route request
     const routeRequest: RouteRequest = {
       fromToken: {
@@ -115,7 +118,7 @@ export async function GET(req: NextRequest) {
       order: order || 'RECOMMENDED',
       liquidityUSD: liquidityUSD ? parseFloat(liquidityUSD) : undefined, // Pass liquidity from query params (if provided)
     };
-    
+
     // Validate chain IDs
     if (isNaN(routeRequest.fromToken.chainId) || isNaN(routeRequest.toToken.chainId)) {
       return NextResponse.json(
@@ -125,7 +128,7 @@ export async function GET(req: NextRequest) {
         { status: 400 }
       );
     }
-    
+
     // Handle request
     return await handleRouteRequest(routeRequest);
   } catch (error: any) {
@@ -147,7 +150,7 @@ export async function POST(req: NextRequest) {
   try {
     const body: RouteRequestBody = await req.json();
     console.log("🚀 ~ POST ~ body:check", body)
-    
+
     // Validate required fields
     if (!body.fromToken || !body.toToken) {
       return NextResponse.json(
@@ -157,7 +160,7 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
-    
+
     // Validate that exactly one of fromAmount or toAmount is provided
     if (!body.fromAmount && !body.toAmount) {
       return NextResponse.json(
@@ -167,7 +170,7 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
-    
+
     if (body.fromAmount && body.toAmount) {
       return NextResponse.json(
         {
@@ -176,7 +179,7 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
-    
+
     if (!body.fromToken.chainId || !body.fromToken.address) {
       return NextResponse.json(
         {
@@ -185,7 +188,7 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
-    
+
     if (!body.toToken.chainId || !body.toToken.address) {
       return NextResponse.json(
         {
@@ -194,7 +197,7 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
-    
+
     // Build route request
     // Decimals can be undefined (will be fetched from blockchain if needed)
     const routeRequest: RouteRequest = {
@@ -219,12 +222,12 @@ export async function POST(req: NextRequest) {
       order: body.order || 'RECOMMENDED',
       liquidityUSD: body.liquidityUSD, // Pass liquidity from frontend
     };
-    
+
     // Handle request
     return await handleRouteRequest(routeRequest);
   } catch (error: any) {
     console.error('[API] /api/v1/route POST error:', error);
-    
+
     // Handle JSON parse errors
     if (error instanceof SyntaxError || error.message?.includes('JSON')) {
       return NextResponse.json(
@@ -234,7 +237,7 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
-    
+
     return NextResponse.json(
       {
         error: error?.message || 'Failed to fetch route',
@@ -253,10 +256,10 @@ async function handleRouteRequest(
 ): Promise<NextResponse<RouteAPIResponse>> {
   try {
     const routeService = getRouteService();
-    
+
     // Get route from service
     const routeResponse: RouteResponse = await routeService.getRoute(routeRequest);
-    
+
     // Build API response
     const apiResponse: RouteAPIResponse = {
       route: routeResponse.route,
@@ -264,11 +267,11 @@ async function handleRouteRequest(
       timestamp: routeResponse.timestamp,
       expiresAt: routeResponse.expiresAt,
     };
-    
+
     return NextResponse.json(apiResponse);
   } catch (error: any) {
     console.error('[API] Route service error:', error);
-    
+
     // Determine error status code
     let statusCode = 500;
     if (error?.message?.includes('No route found') || error?.message?.includes('No routers support')) {
@@ -276,7 +279,7 @@ async function handleRouteRequest(
     } else if (error?.message?.includes('Missing') || error?.message?.includes('Invalid')) {
       statusCode = 400;
     }
-    
+
     // Return error response
     // IMPORTANT: Don't return empty route object - return null or omit route field
     // Frontend checks for route.router, so empty object passes validation incorrectly
@@ -286,7 +289,7 @@ async function handleRouteRequest(
       expiresAt: Date.now(),
       error: error?.message || 'Failed to fetch route',
     };
-    
+
     return NextResponse.json(errorResponse, { status: statusCode });
   }
 }

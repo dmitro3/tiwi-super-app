@@ -44,22 +44,36 @@ export class RouteService {
    * If slippageMode is 'fixed', uses user's specified slippage.
    */
   async getRoute(request: RouteRequest): Promise<RouteResponse> {
-    // 1. Validate request
-    this.validateRequest(request);
+    const startTime = Date.now();
+    console.log(`[RouteService] 🚀 Starting route fetch for ${request.fromToken.symbol} -> ${request.toToken.symbol}`);
 
-    // 2. Handle reverse routing (toAmount -> fromAmount)
-    // If toAmount is provided, swap tokens and use normal routing, then swap result back
-    if (request.toAmount) {
-      return this.handleReverseRouting(request);
+    try {
+      // 1. Validate request
+      this.validateRequest(request);
+
+      // 2. Handle reverse routing (toAmount -> fromAmount)
+      // If toAmount is provided, swap tokens and use normal routing, then swap result back
+      if (request.toAmount) {
+        const result = await this.handleReverseRouting(request);
+        console.log(`[RouteService] ✅ Route fetch completed in ${Date.now() - startTime}ms`);
+        return result;
+      }
+
+      // 3. Handle auto slippage mode
+      if (request.slippageMode === 'auto') {
+        const result = await this.getRouteWithAutoSlippage(request);
+        console.log(`[RouteService] ✅ Route fetch completed in ${Date.now() - startTime}ms`);
+        return result;
+      }
+
+      // 4. Continue with fixed slippage logic (existing implementation)
+      const result = await this.getRouteWithFixedSlippage(request);
+      console.log(`[RouteService] ✅ Route fetch completed in ${Date.now() - startTime}ms`);
+      return result;
+    } catch (error) {
+      console.error(`[RouteService] ❌ Route fetch failed after ${Date.now() - startTime}ms:`, error);
+      throw error;
     }
-
-    // 3. Handle auto slippage mode
-    if (request.slippageMode === 'auto') {
-      return this.getRouteWithAutoSlippage(request);
-    }
-
-    // 4. Continue with fixed slippage logic (existing implementation)
-    return this.getRouteWithFixedSlippage(request);
   }
 
   /**
@@ -254,7 +268,7 @@ export class RouteService {
         const enhancedResponse = await enhancer.enhanceRoute(
           request,
           {
-            route: null,
+            route: null as any,
             alternatives: undefined,
             timestamp: Date.now(),
             expiresAt: Date.now() + 60000,

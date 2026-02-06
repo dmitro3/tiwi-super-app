@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getBinanceTickers } from '@/lib/backend/services/binance-ticker-service';
 import { getDydxMarkets } from '@/lib/backend/services/dydx-service';
+import { getTwcMarketData } from '@/lib/backend/services/twc-service';
 
 /**
  * GET /api/v1/market/list
@@ -16,7 +17,20 @@ export async function GET(req: NextRequest) {
         const limit = parseInt(searchParams.get('limit') || '500', 10);
         const promises: Promise<any>[] = [];
 
-        // Fetch enriched dYdX markets (perps)
+        // 1. Fetch TWC Market Data (Always fetched and prioritized)
+        promises.push(getTwcMarketData().then(twc => {
+            if (!twc) return [];
+            // If user wants perps, we present TWC as a virtual perp or keep its spot tag
+            // but return it anyway to satisfy "both perps and market data"
+            return [{
+                ...twc,
+                // If the user requested perps, we label it as perp for UI consistency if needed,
+                // but keep the original metadata reliable
+                marketType: marketType === 'perp' ? 'perp' : 'spot'
+            }];
+        }));
+
+        // 2. Fetch enriched dYdX markets (perps)
         console.log("🚀 ~ GET ~ marketType:", marketType)
         if (marketType === 'all' || marketType === 'perp' || marketType === 'spot') {
             promises.push(getDydxMarkets().then(markets => markets.map(m => ({
@@ -49,32 +63,18 @@ export async function GET(req: NextRequest) {
 
         // Fetch Binance spot markets
         // if (marketType === 'all' || marketType === 'spot') {
-        //     promises.push(getBinanceTickers('spot', 'top', limit).then(tickers => tickers.map(t => ({
-        //         id: `0-${t.symbol.toLowerCase()}`,
-        //         symbol: t.baseAsset,
-        //         name: t.name,
-        //         logo: t.logo,
-        //         price: t.lastPrice,
-        //         priceChange24h: t.priceChangePercent,
-        //         volume24h: t.quoteVolume,
-        //         high24h: t.highPrice,
-        //         low24h: t.lowPrice,
-        //         marketType: 'spot',
-        //         provider: 'binance',
-        //         marketCap: undefined,
-        //         fdv: undefined,
-        //         rank: undefined,
-        //         marketCapRank: undefined,
-        //         liquidity: undefined,
-        //         chainId: 0
-        //     }))));
+        // ...
         // }
 
         const results = await Promise.all(promises);
-        const combined = results.flat();
+        let combined = results.flat();
 
-        // Sort by volume by default
-        combined.sort((a, b) => (b.volume24h || 0) - (a.volume24h || 0));
+        // Sort by volume, but PIN TWC to the top (index 0)
+        combined.sort((a, b) => {
+            if (a.symbol === 'TWC') return -1;
+            if (b.symbol === 'TWC') return 1;
+            return (b.volume24h || 0) - (a.volume24h || 0);
+        });
 
         return NextResponse.json({
             success: true,

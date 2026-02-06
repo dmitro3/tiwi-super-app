@@ -70,7 +70,7 @@ function getPublicClient(chainId: number) {
     chain,
     transport: http(getRpcUrl(chainId), {
       retryCount: 2,
-      timeout: 12_000,   // 12s timeout for fast failures
+      timeout: 8_000,   // 8s timeout for faster failures (avoids Vercel 10s limit)
     }),
   });
   clientCache.set(chainId, client);
