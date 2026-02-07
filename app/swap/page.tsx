@@ -338,7 +338,7 @@ export default function SwapPage() {
     }
   };
 
-  const handle30PercentClick = () => handlePercentageClick(30);
+  const handle25PercentClick = () => handlePercentageClick(25);
   const handle50PercentClick = () => handlePercentageClick(50);
   const handle75PercentClick = () => handlePercentageClick(75);
 
@@ -667,6 +667,9 @@ export default function SwapPage() {
       // Amounts will be cleared via swapStatus effect
       // Note: Balances will automatically refresh via useTokenBalance hook
       // The hook watches for changes and will refetch when needed
+      // Force immediate refetch to update UI instantly
+      fromTokenBalance.refetch();
+      toTokenBalance.refetch();
     } catch (error: any) {
       console.error("Swap execution error:", error);
 
@@ -1033,7 +1036,7 @@ export default function SwapPage() {
           throw new Error('Invalid wallet type');
         }
 
-        await connectAdditionalWallet(walletId, chain, true);
+        await connectAdditionalWallet(walletId, chain, false); // false = don't set as active wallet
         setIsConnectingFromSection(false);
         closeModal();
       } else {
@@ -1211,7 +1214,7 @@ export default function SwapPage() {
               onExpiresChange={setExpires}
               onCustomExpiryChange={useSwapStore((state) => state.setCustomExpiryMinutes)}
               onMaxClick={handleMaxClick}
-              on30PercentClick={handle30PercentClick}
+              on25PercentClick={handle25PercentClick}
               on50PercentClick={handle50PercentClick}
               on75PercentClick={handle75PercentClick}
               onSwapClick={handleSwapClick}

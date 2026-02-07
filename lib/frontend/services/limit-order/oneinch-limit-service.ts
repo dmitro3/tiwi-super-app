@@ -21,7 +21,7 @@ import type { CreateLimitOrderParams, LimitOrderResult, LimitOrderStatus } from 
 const LIMIT_ORDER_V4_CONTRACT = '0x111111125421caae952e9030e29267d33d1ee0b9' as `0x${string}`;
 
 export class OneInchLimitService {
-    private readonly API_BASE = 'https://api.1inch.dev/limit-order/v4.0';
+    private readonly API_BASE = 'https://api.1inch.dev/orderbook/v4.1';
     private readonly API_KEY = process.env.NEXT_PUBLIC_ONEINCH_API_KEY || ''; // Use public key if possible, or proxy through backend
 
     /**

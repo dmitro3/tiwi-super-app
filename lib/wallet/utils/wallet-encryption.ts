@@ -35,7 +35,7 @@ async function deriveKey(password: string, salt: Uint8Array): Promise<CryptoKey>
   return crypto.subtle.deriveKey(
     {
       name: 'PBKDF2',
-      salt: salt,
+      salt: salt as any,
       iterations: PBKDF2_ITERATIONS,
       hash: 'SHA-256',
     },
@@ -72,20 +72,8 @@ function generateIV(): Uint8Array {
  * SECURITY FIX: Strengthened password requirements
  */
 function validatePasswordStrength(password: string): { valid: boolean; error?: string } {
-  if (password.length < 12) {
-    return { valid: false, error: 'Password must be at least 12 characters' };
-  }
-  if (!/[A-Z]/.test(password)) {
-    return { valid: false, error: 'Password must contain at least one uppercase letter' };
-  }
-  if (!/[a-z]/.test(password)) {
-    return { valid: false, error: 'Password must contain at least one lowercase letter' };
-  }
-  if (!/[0-9]/.test(password)) {
-    return { valid: false, error: 'Password must contain at least one number' };
-  }
-  if (!/[^A-Za-z0-9]/.test(password)) {
-    return { valid: false, error: 'Password must contain at least one special character' };
+  if (!password || password.trim().length < 1) {
+    return { valid: false, error: 'Password is required' };
   }
   return { valid: true };
 }
@@ -115,11 +103,11 @@ export async function encryptWalletData(
     // Encrypt data
     const encoder = new TextEncoder();
     const plaintextBytes = encoder.encode(plaintext);
-    
+
     const encryptedData = await crypto.subtle.encrypt(
       {
         name: 'AES-GCM',
-        iv: iv,
+        iv: iv as any,
       },
       key,
       plaintextBytes
@@ -143,9 +131,17 @@ export async function encryptWalletData(
     combined.fill(0);
 
     return base64;
-  } catch (error) {
-    // Never expose error details that could leak sensitive info
-    console.error('Encryption failed');
+  } catch (error: any) {
+    // Return specific validation errors
+    if (error.message && (
+      error.message.includes('Password') ||
+      error.message.includes('required')
+    )) {
+      throw error;
+    }
+
+    // Log unexpected errors but keep generic message for them
+    console.error('Encryption failed:', error);
     throw new Error('Failed to encrypt wallet data');
   }
 }

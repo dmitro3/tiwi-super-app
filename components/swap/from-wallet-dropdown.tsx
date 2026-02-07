@@ -23,13 +23,13 @@ export default function FromWalletDropdown({
   currentAddress,
   chainId,
 }: FromWalletDropdownProps) {
-  const { 
-    connectedWallets, 
-    activeWallet, 
+  const {
+    connectedWallets,
+    activeWallet,
     activeWalletId,
     setActiveWallet,
   } = useWallet();
-  
+
   // Filter wallets to only show those compatible with the token's chain
   const compatibleWallets = chainId
     ? connectedWallets.filter((wallet) => wallet && isWalletChainCompatible(wallet, chainId))
@@ -37,12 +37,13 @@ export default function FromWalletDropdown({
 
   const handleWalletSelect = (wallet: typeof connectedWallets[0]) => {
     if (!wallet) return;
-    
-    // Set as active wallet
-    const walletId = genWalletId(wallet);
-    setActiveWallet(walletId);
-    
-    // Callback for parent component
+
+    // DO NOT set as active wallet - only notify parent component
+    // This keeps the wallet selection local to the swap form
+    // const walletId = genWalletId(wallet);
+    // setActiveWallet(walletId); // REMOVED: This was changing the global active wallet
+
+    // Callback for parent component to update swap form state only
     if (onSelectWallet) {
       onSelectWallet(wallet.address);
     }
@@ -55,7 +56,7 @@ export default function FromWalletDropdown({
   };
 
   return (
-      <WalletDropdown open={open} onClose={onClose} className="top-full mt-1.5">
+    <WalletDropdown open={open} onClose={onClose} className="top-full mt-1.5">
       <div className="py-2">
         {/* Connected Wallets Section - Only show compatible wallets */}
         {compatibleWallets.length > 0 && (
@@ -64,7 +65,7 @@ export default function FromWalletDropdown({
               if (!wallet) return null;
               const walletIcon = getWalletIconFromAccount(wallet);
               const walletId = genWalletId(wallet);
-              const isActive = activeWalletId === walletId || 
+              const isActive = activeWalletId === walletId ||
                 (currentAddress?.toLowerCase() === wallet.address.toLowerCase());
 
               return (
@@ -72,11 +73,10 @@ export default function FromWalletDropdown({
                   key={`${wallet.provider}-${wallet.address}`}
                   type="button"
                   onClick={() => handleWalletSelect(wallet)}
-                  className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-sm transition-colors ${
-                    isActive
+                  className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-sm transition-colors ${isActive
                       ? "bg-[#121712]"
                       : "hover:bg-[#121712]"
-                  }`}
+                    }`}
                 >
                   {/* Wallet Icon - Small */}
                   {walletIcon && (
@@ -91,7 +91,7 @@ export default function FromWalletDropdown({
                       }}
                     />
                   )}
-                  
+
                   {/* Truncated Address - Inline */}
                   <span className="text-white text-xs font-medium truncate flex-1 text-left">
                     {truncateAddress(wallet.address)}
@@ -114,7 +114,7 @@ export default function FromWalletDropdown({
 
         {/* Connect New Wallet Button */}
         <div className="px-2">
-          <button 
+          <button
             type="button"
             onClick={handleConnectNew}
             className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-[#121712] transition-colors cursor-pointer"

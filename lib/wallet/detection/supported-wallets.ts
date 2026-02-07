@@ -16,6 +16,7 @@ export interface SupportedWallet {
   description?: string;
   walletConnectId?: string; // WalletConnect Explorer ID
   imageId?: string; // WalletConnect image ID for icon fetching
+  mobileLink?: string;
 }
 
 /**
@@ -33,7 +34,8 @@ export const SUPPORTED_WALLETS: SupportedWallet[] = [
     installUrl: 'https://metamask.io/',
     description: 'Whether you are an experienced user or brand new to blockchain, MetaMask helps you connect to the decentralized web: a new internet.',
     walletConnectId: 'c57ca95b47569778a828d19178114f4db188b89b763c899ba0be274e97267d96',
-    imageId: 'eebe4a7f-7166-402f-92e0-1f64ca2aa800'
+    imageId: 'eebe4a7f-7166-402f-92e0-1f64ca2aa800',
+    mobileLink: 'https://metamask.app.link/dapp/{{domain}}'
   },
   {
     id: 'rabby',
@@ -55,7 +57,8 @@ export const SUPPORTED_WALLETS: SupportedWallet[] = [
     installUrl: 'https://jup.ag/mobile',
     description: 'Jupiter Mobile: Best Mobile Swap in Crypto',
     walletConnectId: '0ef262ca2a56b88d179c93a21383fee4e135bd7bc6680e5c2356ff8e38301037',
-    imageId: '7601bec3-144f-4c9d-30a1-2d4a372ede00'
+    imageId: '7601bec3-144f-4c9d-30a1-2d4a372ede00',
+    mobileLink: 'https://jup.ag/mobile'
   },
   {
     id: 'phantom',
@@ -66,7 +69,8 @@ export const SUPPORTED_WALLETS: SupportedWallet[] = [
     installUrl: 'https://phantom.app/',
     description: 'Phantom makes it safe & easy for you to store, buy, send, receive, swap tokens and collect NFTs on the Solana blockchain.',
     walletConnectId: 'a797aa35c0fadbfc1a53e7f675162ed5226968b44a19ee3d24385c64d1d3c393',
-    imageId: 'b6ec7b81-bb4f-427d-e290-7631e6e50d00'
+    imageId: 'b6ec7b81-bb4f-427d-e290-7631e6e50d00',
+    mobileLink: 'https://phantom.app/ul/browse/{{url}}'
   },
   {
     id: 'trust-wallet',
@@ -77,7 +81,8 @@ export const SUPPORTED_WALLETS: SupportedWallet[] = [
     installUrl: 'https://trustwallet.com/',
     description: 'Trust Wallet supports over 10 Million tokens including Ethereum, Solana, Polygon Matic, BNB, and Avalanche.',
     walletConnectId: '4622a2b2d6af1c9844944291e5e7351a6aa24cd7b23099efac1b2fd875da31a0',
-    imageId: '7677b54f-3486-46e2-4e37-bf8747814f00'
+    imageId: '7677b54f-3486-46e2-4e37-bf8747814f00',
+    mobileLink: 'https://link.trustwallet.com/open_url?coin_id=60&url={{url}}'
   },
   {
     id: 'base-formerly-coinbase-wallet',
@@ -88,7 +93,8 @@ export const SUPPORTED_WALLETS: SupportedWallet[] = [
     installUrl: 'https://base.app',
     description: 'It pays to be here. Create, trade and earn all in one place.',
     walletConnectId: 'fd20dc426fb37566d803205b19bbc1d4096b248ac04548e3cfb6b3a38bd033aa',
-    imageId: '04c88bf0-f115-4686-8c29-90a3d018a400'
+    imageId: '04c88bf0-f115-4686-8c29-90a3d018a400',
+    mobileLink: 'https://go.cb-w.com/dapp?cb_url={{url}}'
   },
   {
     id: 'ledger-live',
@@ -143,7 +149,8 @@ export const SUPPORTED_WALLETS: SupportedWallet[] = [
     installUrl: 'https://solflare.com/',
     description: 'Solflare is the safest way to start exploring Solana. Buy, store, swap tokens & NFTs and access Solana DeFi from web or mobile.',
     walletConnectId: '1ca0bdd4747578705b1939af023d120677c64fe6ca76add81fda36e350605e79',
-    imageId: '34c0e38d-66c4-470e-1aed-a6fabe2d1e00'
+    imageId: '34c0e38d-66c4-470e-1aed-a6fabe2d1e00',
+    mobileLink: 'https://solflare.com/ul/v1/browse/{{url}}'
   },
   {
     id: 'backpack',
@@ -154,7 +161,8 @@ export const SUPPORTED_WALLETS: SupportedWallet[] = [
     installUrl: 'https://backpack.app',
     description: 'Backpack Wallet',
     walletConnectId: '2bd8c14e035c2d48f184aaa168559e86b0e3433228d3c4075900a221785019b0',
-    imageId: '71ca9daf-a31e-4d2a-fd01-f5dc2dc66900'
+    imageId: '71ca9daf-a31e-4d2a-fd01-f5dc2dc66900',
+    mobileLink: 'https://backpack.app/download'
   },
   {
     id: '1inch-wallet',
@@ -255,7 +263,7 @@ export const SUPPORTED_WALLETS: SupportedWallet[] = [
     walletConnectId: '34af9f895e03259fb008e8ff4ea5ca5d75fcfcb606ec563c332004f39ab47803',
     imageId: 'b530c52a-1b19-4184-18f9-f0d292b88a00'
   },
-  
+
   {
     id: 'bitget-wallet',
     name: 'Bitget Wallet',

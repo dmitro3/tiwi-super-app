@@ -56,7 +56,7 @@ interface SwapCardProps {
   onExpiresChange?: (value: "never" | "24h" | "7d" | "custom") => void;
   onCustomExpiryChange?: (value: string) => void;
   onMaxClick?: () => void;
-  on30PercentClick?: () => void;
+  on25PercentClick?: () => void;
   on50PercentClick?: () => void;
   on75PercentClick?: () => void;
   onSwapClick?: () => void;
@@ -98,7 +98,7 @@ export default function SwapCard({
   onExpiresChange,
   onCustomExpiryChange,
   onMaxClick,
-  on30PercentClick,
+  on25PercentClick,
   on50PercentClick,
   on75PercentClick,
   onSwapClick,
@@ -217,7 +217,7 @@ export default function SwapCard({
               usdValue={fromUsdValue}
               onTokenSelect={onFromTokenSelect}
               onMaxClick={onMaxClick}
-              on30PercentClick={on30PercentClick}
+              on25PercentClick={on25PercentClick}
               on50PercentClick={on50PercentClick}
               on75PercentClick={on75PercentClick}
               onAmountChange={onFromAmountChange}

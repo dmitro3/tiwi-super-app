@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
 
         console.log(`[LimitOrderProxy] Submitting order to chain ${chainId}...`);
 
-        const response = await fetch(`https://api.1inch.dev/limit-order/v4.0/${chainId}`, {
+        const response = await fetch(`https://api.1inch.dev/orderbook/v4.1/${chainId}/`, {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${apiKey}`,

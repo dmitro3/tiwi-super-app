@@ -18,7 +18,7 @@ interface AddNewWalletProps {
   onComplete?: () => void; // Called when success modal closes (after successful creation)
 }
 
-type Step = "create" | "reveal" | "confirm";
+type Step = "create" | "reveal" | "confirm" | "success";
 
 export default function AddNewWallet({ onGoBack, onWalletCreated, onComplete }: AddNewWalletProps) {
   const { t } = useTranslation();
@@ -27,6 +27,7 @@ export default function AddNewWallet({ onGoBack, onWalletCreated, onComplete }: 
   const [walletAddress, setWalletAddress] = useState<string>("");
   const [revealedWords, setRevealedWords] = useState<Set<number>>(new Set());
   const [confirmedWords, setConfirmedWords] = useState<string[]>(Array(12).fill(""));
+  const [verificationIndices, setVerificationIndices] = useState<number[]>([]);
   const [copied, setCopied] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -41,17 +42,17 @@ export default function AddNewWallet({ onGoBack, onWalletCreated, onComplete }: 
     try {
       setIsGenerating(true);
       setError(null);
-      
+
       // Generate new wallet with secure mnemonic
       const wallet = generateNewWallet();
-      
+
       // Store mnemonic and address
       setMnemonic(wallet.mnemonic);
       setWalletAddress(wallet.address);
-      
+
       // Clear revealed words
       setRevealedWords(new Set());
-      
+
       // Move to reveal step
       setStep("reveal");
     } catch (err) {
@@ -86,45 +87,59 @@ export default function AddNewWallet({ onGoBack, onWalletCreated, onComplete }: 
     setConfirmedWords(newConfirmed);
   }, [confirmedWords]);
 
-  const handlePasteMnemonic = useCallback((e: React.ClipboardEvent<HTMLInputElement>) => {
+  const handlePasteMnemonic = useCallback((e: React.ClipboardEvent<HTMLInputElement>, targetIndex: number) => {
     e.preventDefault();
     const pastedText = e.clipboardData.getData('text');
-    
+
     // Split by whitespace (spaces, newlines, tabs, etc.)
     const words = pastedText
       .trim()
       .split(/\s+/)
       .map(word => word.toLowerCase().trim())
-      .filter(word => word.length > 0)
-      .slice(0, 12); // Only take first 12 words
-    
-    if (words.length > 0) {
-      const newConfirmed = [...confirmedWords];
-      words.forEach((word, idx) => {
-        if (idx < 12) {
-          newConfirmed[idx] = word;
-        }
+      .filter(word => word.length > 0);
+
+    // Logic for pasting:
+    // If user pastes a single word, just put it in the target field
+    // If user pastes multiple words, try to distribute them starting from the target index if possible,
+    // or just fill the available fields if they match the verification pattern (advanced).
+    // For simplicity in this random-check UI: 
+    // If 1 word: paste into target
+    // If >1 words: assume they might be pasting the whole phrase. Check if we can find the words for the requested indices.
+
+    const newConfirmed = [...confirmedWords];
+
+    if (words.length === 1) {
+      newConfirmed[targetIndex] = words[0];
+    } else if (words.length >= 12) {
+      // If user pastes the full phrase (>= 12 words), fill the fields based on the indices we need.
+      // We use the first 12 words from the clipboard.
+      verificationIndices.forEach(idx => {
+        newConfirmed[idx] = words[idx];
       });
-      setConfirmedWords(newConfirmed);
     }
-  }, [confirmedWords]);
+
+    setConfirmedWords(newConfirmed);
+  }, [confirmedWords, verificationIndices]);
 
   const handleVerifyAndConfirm = useCallback(async () => {
     try {
       setError(null);
-      
-      // Verify mnemonic
-      const userMnemonic = confirmedWords.join(" ").trim();
-      const expectedMnemonic = mnemonic.trim();
-      
-      if (userMnemonic !== expectedMnemonic) {
-        setError("Recovery phrase doesn't match. Please check and try again.");
-        return;
+
+      // Verify mnemonic (partial check)
+      // Check only the requested indices
+      const originalWords = mnemonic.trim().split(/\s+/);
+
+      for (const idx of verificationIndices) {
+        // Safe comparison: ensure both sides are trimmed and lowercased
+        if (confirmedWords[idx]?.toLowerCase().trim() !== originalWords[idx]?.toLowerCase().trim()) {
+          setError(`Word #${idx + 1} is incorrect. Please check and try again.`);
+          return;
+        }
       }
 
       // Validate password (master password for local keystore)
-      if (!password || password.length < 8) {
-        setError("Please set a strong password (at least 8 characters).");
+      if (!password || !password.trim()) {
+        setError("Password is required.");
         return;
       }
       if (password !== passwordConfirm) {
@@ -157,61 +172,53 @@ export default function AddNewWallet({ onGoBack, onWalletCreated, onComplete }: 
         });
         setActiveManagedWallet(id);
 
-        // 2) Best-effort: register this wallet address with the TIWI backend (public info only)
-        try {
-          await fetch("/api/v1/wallets", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              address: walletAddress,
-              source: "local",
-            }),
-          });
-        } catch (registerError) {
-          console.warn("[AddNewWallet] Failed to register wallet address:", registerError);
-          // Do not block user flow on analytics failure
-        }
-      }
+        // Call callback with wallet address (public info only)
+        onWalletCreated?.(walletAddress);
 
-      // Clear confirmation words array
-      setConfirmedWords(Array(12).fill(""));
-      
-      // Mark as confirmed
-      setHasConfirmed(true);
-      
-      // Show success modal
-      setIsSuccessModalOpen(true);
-      
-      // Call callback with wallet address (public info only)
-      onWalletCreated?.(walletAddress);
-      
-      // SECURITY: Clear mnemonic from state after a delay
-      // (Note: This is best effort - JavaScript doesn't guarantee memory clearing)
-      setTimeout(() => {
-        setMnemonic("");
-      }, 5000);
+        // Show success step IMMEDIATELY
+        setStep("success");
+        setHasConfirmed(true);
+
+        // 2) Non-critical background tasks
+        setTimeout(async () => {
+          // Best-effort: register this wallet address with the TIWI backend
+          try {
+            await fetch("/api/v1/wallets", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                address: walletAddress,
+                source: "local",
+              }),
+            });
+          } catch (registerError) {
+            console.warn("[AddNewWallet] Failed to register wallet address:", registerError);
+          }
+
+          // SECURITY: Clear mnemonic from state
+          setMnemonic("");
+          // Clear confirmation words array
+          setConfirmedWords(Array(12).fill(""));
+        }, 100);
+      }
     } catch (err) {
       setError("Verification failed. Please try again.");
       console.error("Error verifying mnemonic:", err);
     }
   }, [confirmedWords, mnemonic, walletAddress, onWalletCreated]);
 
-  const handleSuccessModalClose = useCallback((open: boolean) => {
-    if (!open) {
-      setIsSuccessModalOpen(false);
-    // Clear all sensitive data before going back
+  const handleDone = useCallback(() => {
+    // Clear all sensitive data
     setMnemonic("");
     setConfirmedWords(Array(12).fill(""));
     setRevealedWords(new Set());
-      setPassword("");
-      setPasswordConfirm("");
-      setStep("create");
-      // Call onComplete if provided (e.g., to close parent modal)
-      onComplete?.();
+    setPassword("");
+    setPasswordConfirm("");
+    // Call onComplete if provided
+    onComplete?.();
     onGoBack();
-    }
   }, [onGoBack, onComplete]);
 
   const mnemonicWords = mnemonic.split(" ").filter(Boolean);
@@ -253,12 +260,12 @@ export default function AddNewWallet({ onGoBack, onWalletCreated, onComplete }: 
               </div>
             </div>
 
-        <p className="text-sm text-[#B5B5B5]">
-          Create a new wallet to manage your assets securely. You'll be able to
-          generate a new seed phrase and set up your wallet.
-        </p>
+            <p className="text-sm text-[#B5B5B5]">
+              Create a new wallet to manage your assets securely. You'll be able to
+              generate a new seed phrase and set up your wallet.
+            </p>
 
-        <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-4">
               <button
                 onClick={handleCreateWallet}
                 disabled={isGenerating}
@@ -271,17 +278,17 @@ export default function AddNewWallet({ onGoBack, onWalletCreated, onComplete }: 
                   </>
                 ) : (
                   <>
-            <FiPlus size={20} />
-            {t("wallet.create_button")}
+                    <FiPlus size={20} />
+                    {t("wallet.create_button")}
                   </>
                 )}
-          </button>
+              </button>
 
-          <p className="text-xs text-center text-[#6E7873]">
-            By creating a wallet, you agree to our Terms & Conditions and
-            Privacy Policy.
-          </p>
-        </div>
+              <p className="text-xs text-center text-[#6E7873]">
+                By creating a wallet, you agree to our Terms & Conditions and
+                Privacy Policy.
+              </p>
+            </div>
           </>
         )}
 
@@ -344,7 +351,16 @@ export default function AddNewWallet({ onGoBack, onWalletCreated, onComplete }: 
             </div>
 
             <button
-              onClick={() => setStep("confirm")}
+              onClick={() => {
+                // Generate 3 random unique indices between 0 and 11
+                const indices = new Set<number>();
+                while (indices.size < 3) {
+                  indices.add(Math.floor(Math.random() * 12));
+                }
+                const sortedIndices = Array.from(indices).sort((a, b) => a - b);
+                setVerificationIndices(sortedIndices);
+                setStep("confirm");
+              }}
               className="w-full bg-[#B1F128] text-[#010501] font-semibold py-4 px-6 rounded-full hover:opacity-90 transition-opacity"
             >
               {t("wallet.backup_phrase")}
@@ -356,9 +372,9 @@ export default function AddNewWallet({ onGoBack, onWalletCreated, onComplete }: 
           <>
             <div className="bg-blue-500/10 border border-blue-500/50 rounded-lg p-4 mb-4">
               <p className="text-sm text-blue-400">
-                <strong>Verify your recovery phrase:</strong> Enter the words in order to confirm you've saved them correctly.
+                <strong>Verify your recovery phrase:</strong> To verify you have saved your phrase, please enter the following words.
                 <span className="block mt-1 text-xs text-blue-300/80">
-                  💡 Tip: You can paste the entire phrase in any field to automatically fill all words.
+                  💡 Tip: You can pass the check by entering just the requested words.
                 </span>
               </p>
             </div>
@@ -373,7 +389,7 @@ export default function AddNewWallet({ onGoBack, onWalletCreated, onComplete }: 
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Enter a strong password (min 8 characters)"
+                  placeholder="Enter a password"
                   className="w-full bg-[#010501] border border-[#1f261e] rounded-lg px-4 py-2 text-white placeholder-[#6E7873] outline-none focus:ring-2 focus:ring-[#B1F128] focus:border-[#B1F128]"
                 />
               </div>
@@ -396,28 +412,26 @@ export default function AddNewWallet({ onGoBack, onWalletCreated, onComplete }: 
             </div>
 
             <div className="space-y-3 mb-4 max-h-96 overflow-y-auto">
-              {Array(12)
-                .fill(0)
-                .map((_, index) => (
-                  <div key={index} className="flex items-center gap-3">
-                    <span className="text-sm text-[#6E7873] w-8">{index + 1}.</span>
-                    <input
-                      type="text"
-                      value={confirmedWords[index]}
-                      onChange={(e) => handleConfirmWord(index, e.target.value)}
-                      onPaste={handlePasteMnemonic}
-                      placeholder={`Word ${index + 1}`}
-                      className="flex-1 bg-[#010501] border border-[#1f261e] rounded-lg px-4 py-2 text-white placeholder-[#6E7873] outline-none focus:ring-2 focus:ring-[#B1F128] focus:border-[#B1F128]"
-                      autoComplete="off"
-                      spellCheck="false"
-                    />
-                  </div>
-                ))}
+              {verificationIndices.map((index) => (
+                <div key={index} className="flex items-center gap-3">
+                  <span className="text-sm text-[#6E7873] w-20">Word #{index + 1}</span>
+                  <input
+                    type="text"
+                    value={confirmedWords[index]}
+                    onChange={(e) => handleConfirmWord(index, e.target.value)}
+                    onPaste={(e) => handlePasteMnemonic(e, index)}
+                    placeholder={`Enter word #${index + 1}`}
+                    className="flex-1 bg-[#010501] border border-[#1f261e] rounded-lg px-4 py-2 text-white placeholder-[#6E7873] outline-none focus:ring-2 focus:ring-[#B1F128] focus:border-[#B1F128]"
+                    autoComplete="off"
+                    spellCheck="false"
+                  />
+                </div>
+              ))}
             </div>
 
             <button
               onClick={handleVerifyAndConfirm}
-              disabled={confirmedWords.some((w) => !w.trim())}
+              disabled={verificationIndices.some(idx => !confirmedWords[idx]?.trim()) || !password || !passwordConfirm}
               className="w-full bg-[#B1F128] text-[#010501] font-semibold py-4 px-6 rounded-full hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {t("wallet.complete")}
@@ -425,17 +439,52 @@ export default function AddNewWallet({ onGoBack, onWalletCreated, onComplete }: 
           </>
         )}
 
-      </div>
+        {step === "success" && (
+          <div className="flex flex-col gap-6 items-center w-full py-4">
+            {/* Success Icon */}
+            <div className="flex items-center justify-center size-20 rounded-full bg-[#081F02] border-2 border-[#B1F128]">
+              <FiCheck className="text-[#B1F128]" size={40} />
+            </div>
 
-      {/* Success Modal */}
-      {walletAddress && (
-        <WalletSuccessModal
-          open={isSuccessModalOpen}
-          onOpenChange={handleSuccessModalClose}
-          type="create"
-          walletAddress={walletAddress}
-        />
-      )}
+            {/* Success Message */}
+            <div className="flex flex-col gap-2 items-center text-center">
+              <h3 className="text-xl font-semibold text-white">
+                Wallet Created Successfully!
+              </h3>
+              <p className="text-sm text-[#b5b5b5]">
+                You can now start using your new wallet to manage your assets.
+              </p>
+            </div>
+
+            {/* Wallet Address */}
+            <div className="flex flex-col gap-2 items-center w-full">
+              <p className="text-xs text-[#6E7873]">Wallet Address</p>
+              <div className="bg-[#010501] border border-[#1f261e] rounded-xl px-4 py-3 w-full">
+                <p className="text-sm font-mono text-white text-center break-all">
+                  {walletAddress}
+                </p>
+              </div>
+            </div>
+
+            {/* Security Reminder */}
+            <div className="bg-yellow-500/10 border border-yellow-500/50 rounded-lg p-4 w-full">
+              <p className="text-xs text-yellow-300/90 text-center">
+                <strong className="text-yellow-400">Remember:</strong> Keep your recovery phrase safe and secure.
+                We cannot recover your wallet if you lose it.
+              </p>
+            </div>
+
+            {/* Continue Button */}
+            <button
+              onClick={handleDone}
+              className="w-full bg-[#B1F128] text-[#010501] font-semibold py-4 px-6 rounded-full hover:opacity-90 transition-opacity"
+            >
+              Continue
+            </button>
+          </div>
+        )}
+
+      </div>
     </div>
   );
 }
