@@ -56,6 +56,7 @@ export const useWalletStore = create<WalletStore>()(
       activeWalletId: null,
 
       isConnecting: false,
+      isBackgroundConnection: false,
       error: null,
 
 
@@ -493,11 +494,11 @@ export const useWalletStore = create<WalletStore>()(
         walletId: string,
         chain: 'ethereum' | 'solana',
         setAsActive = true
-      ) => {
+      ): Promise<string> => {
         const state = get();
         const providerId = mapWalletIdToProviderId(walletId);
 
-        set({ isConnecting: true, error: null });
+        set({ isConnecting: true, isBackgroundConnection: !setAsActive, error: null });
 
         try {
           // Connect to new wallet
@@ -524,15 +525,24 @@ export const useWalletStore = create<WalletStore>()(
 
           set({
             isConnecting: false,
+            isBackgroundConnection: false,
             error: null,
           });
+
+          return accountWithOriginalId.address;
         } catch (error: any) {
           set({
             isConnecting: false,
+            isBackgroundConnection: false,
             error: error?.message || 'Failed to connect wallet',
           });
           throw error;
         }
+      },
+
+      // Helper to manually set background connection flag
+      setIsBackgroundConnection: (isBackground: boolean) => {
+        set({ isBackgroundConnection: isBackground });
       },
     }),
     {

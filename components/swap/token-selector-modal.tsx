@@ -32,6 +32,7 @@ interface TokenSelectorModalProps {
   connectedAddress?: string | null;
   recipientAddress?: string | null;
   tokenModalType?: "from" | "to";
+  connectedChainType?: "EVM" | "Solana" | null;
 }
 
 export default function TokenSelectorModal({
@@ -42,6 +43,7 @@ export default function TokenSelectorModal({
   connectedAddress,
   recipientAddress,
   tokenModalType = "from",
+  connectedChainType,
 }: TokenSelectorModalProps) {
   const [selectedChain, setSelectedChain] = useState<Chain | "all">("all");
   const [chainSearchQuery, setChainSearchQuery] = useState("");
@@ -88,7 +90,7 @@ export default function TokenSelectorModal({
         chains: chainIds,
         limit: 30,
       };
-      
+
       queryClient.prefetchQuery({
         queryKey: getTokensQueryKey(prefetchParams),
         queryFn: () => fetchTokens(prefetchParams),
@@ -103,7 +105,7 @@ export default function TokenSelectorModal({
       const prefetchParams = {
         limit: 30,
       };
-      
+
       queryClient.prefetchQuery({
         queryKey: getTokensQueryKey(prefetchParams),
         queryFn: () => fetchTokens(prefetchParams),
@@ -218,7 +220,7 @@ export default function TokenSelectorModal({
 
   // Create a map of wallet balances by token address and chainId for quick lookup
   const walletBalanceMap = useMemo(() => {
-    const map = new Map<string, { balance: string; usdValue: string }>();
+    const map = new Map<string, { balance: string; usdValue: string | undefined }>();
     if (walletBalances) {
       walletBalances.forEach((walletToken) => {
         const key = `${walletToken.address.toLowerCase()}-${walletToken.chainId}`;
@@ -245,26 +247,26 @@ export default function TokenSelectorModal({
         return !isSpamToken(walletToken.name, walletToken.symbol, walletToken.address, walletToken.chainId);
       })
       .map((walletToken) => {
-      // Find chain info for this token
-      const chainMatch = chainsById.get(walletToken.chainId);
+        // Find chain info for this token
+        const chainMatch = chainsById.get(walletToken.chainId);
 
-      return {
-        id: `${walletToken.address.toLowerCase()}-${walletToken.chainId}`,
-        name: walletToken.name,
-        symbol: walletToken.symbol,
-        address: walletToken.address,
-        logo: walletToken.logoURI || '/assets/logos/default-token.svg',
-        logoURI: walletToken.logoURI,
-        chain: walletToken.chain || chainMatch?.name || 'Unknown',
-        chainId: walletToken.chainId,
-        chainLogo: chainMatch?.logo ? cleanImageUrl(chainMatch.logo) : undefined,
-        decimals: walletToken.decimals,
-        balance: walletToken.balanceFormatted,
-        usdValue: walletToken.usdValue,
-        price: walletToken.priceUSD,
-        verified: true, // Wallet tokens are verified (spam already filtered by API)
-      } as Token;
-    });
+        return {
+          id: `${walletToken.address.toLowerCase()}-${walletToken.chainId}`,
+          name: walletToken.name,
+          symbol: walletToken.symbol,
+          address: walletToken.address,
+          logo: walletToken.logoURI || '/assets/logos/default-token.svg',
+          logoURI: walletToken.logoURI,
+          chain: chainMatch?.name || 'Unknown',
+          chainId: walletToken.chainId,
+          chainLogo: chainMatch?.logo ? cleanImageUrl(chainMatch.logo) : undefined,
+          decimals: walletToken.decimals,
+          balance: walletToken.balanceFormatted,
+          usdValue: walletToken.usdValue,
+          price: walletToken.priceUSD,
+          verified: true, // Wallet tokens are verified (spam already filtered by API)
+        } as Token;
+      });
   }, [walletBalances, chainsById]);
 
   // Merge API tokens with wallet tokens, avoiding duplicates
@@ -328,19 +330,38 @@ export default function TokenSelectorModal({
 
   // Apply chain filter to tokens (like portfolio does)
   const chainFilteredTokens = useMemo(() => {
-    // If "all" chains selected, return all tokens
+    let tokensToFilter = tokensWithChainLogo;
+
+    // If connectedChainType is set, filter tokens by chain type even when "all" is selected
+    if (connectedChainType) {
+      tokensToFilter = tokensWithChainLogo.filter(token => {
+        // Check if token matches the connected chain type
+        const chainId = token.chainId;
+        if (!chainId) return true; // Keep if unknown (unlikely)
+
+        if (connectedChainType === 'Solana') {
+          return chainId === 7565164; // Solana Chain ID
+        }
+        if (connectedChainType === 'EVM') {
+          return chainId !== 7565164; // Assuming non-Solana is EVM for now (revise if more non-EVMs added)
+        }
+        return true;
+      });
+    }
+
+    // If "all" chains selected, return the type-filtered tokens
     if (selectedChain === "all") {
-      return tokensWithChainLogo;
+      return tokensToFilter;
     }
 
     // Filter by selected chain
     const selectedChainId = parseInt(selectedChain.id, 10);
     if (isNaN(selectedChainId)) {
-      return tokensWithChainLogo;
+      return tokensToFilter;
     }
 
-    return tokensWithChainLogo.filter((token) => token.chainId === selectedChainId);
-  }, [tokensWithChainLogo, selectedChain]);
+    return tokensToFilter.filter((token) => token.chainId === selectedChainId);
+  }, [tokensWithChainLogo, selectedChain, connectedChainType]);
 
   // Apply search filter (like portfolio does)
   const searchFilteredTokens = useMemo(() => {
@@ -408,10 +429,27 @@ export default function TokenSelectorModal({
     if (!chainSearchQuery.trim()) return chains;
 
     const query = chainSearchQuery.toLowerCase().trim();
-    return chains.filter((chain) =>
+    let chainsToFilter = chains;
+
+    // Apply strict filtering if a chain type is enforced (e.g. from connected wallet)
+    if (connectedChainType) {
+      chainsToFilter = chains.filter(chain => {
+        // Handle Solana specifically (ID 7565164 or type 'Solana')
+        if (connectedChainType === 'Solana') {
+          return chain.id === '7565164' || chain.type === 'Solana';
+        }
+        // Handle EVM (type 'EVM' or not Solana/other non-EVMs)
+        if (connectedChainType === 'EVM') {
+          return chain.type === 'EVM' || (chain.type !== 'Solana' && chain.id !== '7565164');
+        }
+        return true;
+      });
+    }
+
+    return chainsToFilter.filter((chain) =>
       chain.name.toLowerCase().includes(query)
     );
-  }, [chains, chainSearchQuery]);
+  }, [chains, chainSearchQuery, connectedChainType]);
 
   const handleTokenSelect = (token: Token) => {
     onTokenSelect(token);

@@ -63,8 +63,10 @@ interface SwapCardProps {
   onSwapTokens?: () => void; // Handler for middle swap arrow button (swaps tokens, amounts, addresses)
   onConnectClick?: () => void;
   onConnectFromSection?: () => void; // Handler for connecting from "From" section (uses connectAdditionalWallet)
+  onConnectToSection?: () => void; // Handler for connecting from "To" section
   isConnected?: boolean;
   isExecutingTransfer?: boolean;
+  swapButtonLabel?: string;
 }
 
 export default function SwapCard({
@@ -105,8 +107,10 @@ export default function SwapCard({
   onSwapTokens,
   onConnectClick,
   onConnectFromSection,
+  onConnectToSection,
   isConnected = false,
   isExecutingTransfer = false,
+  swapButtonLabel,
 }: SwapCardProps) {
   const isLimit = activeTab === "limit";
 
@@ -154,12 +158,17 @@ export default function SwapCard({
 
   // Determine compatible wallets and addresses for To section
   const toCompatibleWallets = useMemo(() => {
-    if (!toToken?.chainId) return [];
-    const allWallets = [primaryWallet, secondaryWallet].filter((w): w is NonNull<typeof w> => w !== null);
-    return allWallets.filter((wallet) => isWalletChainCompatible(wallet, toToken.chainId));
-  }, [primaryWallet, secondaryWallet, toToken?.chainId]);
+    // If no token selected, show all connected wallets (so user can select one)
+    if (!toToken?.chainId) return connectedWallets;
+    return connectedWallets.filter((wallet) => wallet && isWalletChainCompatible(wallet, toToken.chainId));
+  }, [connectedWallets, toToken?.chainId]);
 
   const toCompatibleAddress = useMemo(() => {
+    // If no token selected but we have a recipient, show it (Mirror FROM behavior)
+    if (recipientAddress && !toToken?.chainId) {
+      return recipientAddress;
+    }
+
     // Check if recipientAddress is compatible with toToken chain
     if (recipientAddress && toToken?.chainId) {
       if (isAddressChainCompatible(recipientAddress, toToken.chainId)) {
@@ -271,7 +280,7 @@ export default function SwapCard({
                 <ToWalletDropdown
                   open={isToWalletDropdownOpen}
                   onClose={() => setIsToWalletDropdownOpen(false)}
-                  onConnectNewWallet={onConnectClick || (() => { })}
+                  onConnectNewWallet={onConnectToSection || onConnectClick || (() => { })}
                   onAddressSelect={(address) => {
                     onRecipientChange?.(address);
                   }}
@@ -334,6 +343,7 @@ export default function SwapCard({
             toCompatibleAddress={toCompatibleAddress}
             fromTokenChainId={fromToken?.chainId}
             toTokenChainId={toToken?.chainId}
+            customLabel={swapButtonLabel}
           />
         </div>
 

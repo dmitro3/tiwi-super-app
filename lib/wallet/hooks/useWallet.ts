@@ -43,11 +43,11 @@ export function useWallet() {
       // Determine which provider this is from (check connector)
       // IMPORTANT: Check in order of specificity (most specific first)
       let providerId: string | null = null;
-      
+
       if (connector) {
         const connectorId = (connector.id || '').toLowerCase();
         const connectorName = (connector.name || '').toLowerCase();
-        
+
         // Check for specific wallets first (most specific)
         // Rabby - check for "io.rabby" (reverse DNS format) or "rabby"
         if (connectorId === 'io.rabby' || connectorId.includes('rabby') || connectorName.includes('rabby')) {
@@ -105,12 +105,12 @@ export function useWallet() {
         // Only if it's actually MetaMask and not one of the above
         else if (connectorId.includes('metamask') || connectorName.includes('metamask')) {
           // Additional verification: check if it's NOT Rabby/OKX/Trust masquerading
-          if (!connectorId.includes('rabby') && 
-              !connectorId.includes('okx') && 
-              !connectorId.includes('trust') &&
-              !connectorName.includes('rabby') &&
-              !connectorName.includes('okx') &&
-              !connectorName.includes('trust')) {
+          if (!connectorId.includes('rabby') &&
+            !connectorId.includes('okx') &&
+            !connectorId.includes('trust') &&
+            !connectorName.includes('rabby') &&
+            !connectorName.includes('okx') &&
+            !connectorName.includes('trust')) {
             providerId = 'metamask';
           }
         }
@@ -122,7 +122,7 @@ export function useWallet() {
         const existingWalletByAddress = store.connectedWallets.find(
           (w) => w.address.toLowerCase() === wagmiAddress.toLowerCase() && w.chain === 'ethereum'
         );
-        
+
         if (existingWalletByAddress) {
           // We already have this wallet with a correct provider, don't overwrite
           console.log('[useWallet] Wallet already exists with correct provider, skipping sync:', {
@@ -133,7 +133,7 @@ export function useWallet() {
           });
           return; // Exit early - don't overwrite
         }
-        
+
         // No existing wallet found, but we can't detect provider
         // Default to 'metamask' as fallback (but this should rarely happen)
         console.warn('[useWallet] Could not detect wallet provider from connector, defaulting to metamask:', {
@@ -173,10 +173,18 @@ export function useWallet() {
           chain: 'ethereum',
           provider: walletId,
         };
-        
+
         try {
-          // Use setAccount which handles account switching logic
-          store.setAccount(updatedAccount);
+          // Check if this is a background connection (e.g. TO wallet)
+          if (store.isBackgroundConnection) {
+            // Add wallet but DON'T set as active
+            store.addWallet(updatedAccount, false);
+            console.log('[useWallet] Background wallet connection synced:', updatedAccount);
+          } else {
+            // Normal connection - set as active
+            // Use setAccount which handles account switching logic
+            store.setAccount(updatedAccount);
+          }
         } catch (error) {
           console.warn('[useWallet] Error syncing account change:', error);
         }
@@ -187,9 +195,14 @@ export function useWallet() {
           chain: 'ethereum',
           provider: walletId,
         };
-        
+
         try {
-          store.setAccount(newAccount);
+          if (store.isBackgroundConnection) {
+            store.addWallet(newAccount, false);
+            console.log('[useWallet] Background wallet added:', newAccount);
+          } else {
+            store.setAccount(newAccount);
+          }
         } catch (error) {
           console.warn('[useWallet] Error adding new account from wagmi:', error);
         }
@@ -204,15 +217,22 @@ export function useWallet() {
           connectorId: connector?.id,
           connectorName: connector?.name,
         });
-        
+
         const updatedAccount: WalletAccount = {
           address: wagmiAddress,
           chain: 'ethereum',
           provider: walletId,
         };
-        
+
         try {
-          store.setAccount(updatedAccount);
+          if (store.isBackgroundConnection) {
+            // Even for updates, respect background flag
+            // But for updates we might need to be careful not to create duplicates
+            // addWallet handles duplicates gracefully
+            store.addWallet(updatedAccount, false);
+          } else {
+            store.setAccount(updatedAccount);
+          }
         } catch (error) {
           console.warn('[useWallet] Error updating wallet provider:', error);
         }
@@ -231,38 +251,38 @@ export function useWallet() {
     primaryWallet: store.primaryWallet,
     secondaryWallet: store.secondaryWallet,
     secondaryAddress: store.secondaryAddress,
-    
+
     // New multi-wallet state
     connectedWallets: store.connectedWallets,
     activeWallet: activeWallet,
     activeWalletId: store.activeWalletId,
-    
+
     // Common state
     isConnecting: store.isConnecting,
     error: store.error,
-    
+
     // Computed (backward compatible)
     isConnected: store.connectedWallets.length > 0 || !!store.primaryWallet,
     address: activeWallet?.address || null,
-    
+
     // Legacy actions (for backward compatibility)
     connect: store.connect,
     disconnect: async () => {
       // Disconnect from both our store and Wagmi
       await store.disconnect();
-      
+
       // Disconnect from Wagmi
       if (wagmiConnected) {
         wagmiDisconnect();
       }
-      
+
       // Clear all Wagmi localStorage keys
       if (typeof window !== 'undefined') {
         try {
           // Clear Wagmi store
           localStorage.removeItem('wagmi.store');
           localStorage.removeItem('wagmi.connections');
-          
+
           // Clear chain-specific Wagmi storage (format: {chain}-{origin})
           // Common origins: http://localhost:3000, https://domain.com
           const origin = window.location.origin;
@@ -271,26 +291,26 @@ export function useWallet() {
             const key = `${chain}-${origin}`;
             localStorage.removeItem(key);
           });
-          
+
           // Also try clearing with just the origin (some Wagmi versions use this format)
           localStorage.removeItem(origin);
-          
+
           console.log('[useWallet] Cleared Wagmi localStorage keys');
         } catch (error) {
           console.warn('[useWallet] Error clearing Wagmi localStorage:', error);
         }
-        
+
         // Clear LiFi storage if it exists
         try {
           // LiFi SDK may store connection state - clear common keys
-          const lifiKeys = Object.keys(localStorage).filter(key => 
-            key.toLowerCase().includes('lifi') || 
+          const lifiKeys = Object.keys(localStorage).filter(key =>
+            key.toLowerCase().includes('lifi') ||
             key.toLowerCase().includes('walletconnect')
           );
           lifiKeys.forEach(key => {
             localStorage.removeItem(key);
           });
-          
+
           if (lifiKeys.length > 0) {
             console.log('[useWallet] Cleared LiFi/WalletConnect localStorage keys:', lifiKeys);
           }
@@ -301,7 +321,7 @@ export function useWallet() {
     },
     setSecondaryWallet: store.setSecondaryWallet,
     setSecondaryAddress: store.setSecondaryAddress,
-    
+
     // New multi-wallet actions
     addWallet: store.addWallet,
     removeWallet: store.removeWallet,
@@ -310,7 +330,7 @@ export function useWallet() {
     isProviderConnected: store.isProviderConnected,
     getWalletByAddress: store.getWalletByAddress,
     connectAdditionalWallet: store.connectAdditionalWallet,
-    
+
     // Utility actions
     clearError: store.clearError,
   };

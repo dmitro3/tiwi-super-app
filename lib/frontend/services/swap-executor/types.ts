@@ -18,20 +18,21 @@ import type { RouterRoute } from '@/lib/backend/routers/types';
 export interface SwapExecutionParams {
   // Route information
   route: RouterRoute;
-  
+
   // Token information
   fromToken: Token;
   toToken: Token;
   fromAmount: string;  // Human-readable amount (e.g., "100.5")
-  
+
   // User information
   userAddress: string;  // User's wallet address
   recipientAddress?: string;  // Optional recipient (for cross-chain)
-  
+
   // Execution options
   slippage?: number;  // Override slippage (optional)
   isFeeOnTransfer?: boolean;  // Whether to use fee-on-transfer supporting functions (defaults to true)
   onStatusUpdate?: (status: SwapExecutionStatus) => void;  // Status callback
+  walletClient?: any; // Wallet client for signing (optional)
 }
 
 /**
@@ -82,7 +83,7 @@ export interface SwapRouterExecutor {
    * Execute a swap using this router
    */
   execute(params: SwapExecutionParams): Promise<SwapExecutionResult>;
-  
+
   /**
    * Check if this executor can handle the given route
    */

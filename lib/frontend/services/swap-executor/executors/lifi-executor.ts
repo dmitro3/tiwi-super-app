@@ -48,7 +48,7 @@ export class LiFiExecutor implements SwapRouterExecutor {
           }
         });
       }
-      
+
       lifiRoute.fromAddress = userAddress;
       lifiRoute.toAddress = toAddress;
 
@@ -66,6 +66,7 @@ export class LiFiExecutor implements SwapRouterExecutor {
       });
 
       const executedRoute = await executeRoute(lifiRoute, {
+        walletClient: params.walletClient, // Pass the specific wallet client
         updateRouteHook: (updatedRoute: RouteExtended) => {
           const latestStep = updatedRoute.steps[0];
           const latestProcess = latestStep?.execution?.process?.slice(-1)[0];

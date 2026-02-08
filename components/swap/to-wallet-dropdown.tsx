@@ -25,15 +25,12 @@ export default function ToWalletDropdown({
   chainId,
   currentRecipientAddress,
 }: ToWalletDropdownProps) {
-  const { primaryWallet, secondaryWallet } = useWallet();
+  const { primaryWallet, secondaryWallet, connectedWallets } = useWallet();
   const [showPasteModal, setShowPasteModal] = useState(false);
 
-  // Get available wallets (primary + secondary if exists)
-  const allAvailableWallets = [
-    primaryWallet,
-    secondaryWallet,
-  ].filter((w): w is NonNull<typeof w> => w !== null);
-  
+  // Get available wallets (all connected wallets)
+  const allAvailableWallets = connectedWallets.filter((w): w is NonNull<typeof w> => w !== null);
+
   // Filter wallets to only show those compatible with the token's chain
   const availableWallets = chainId
     ? allAvailableWallets.filter((wallet) => isWalletChainCompatible(wallet, chainId))
@@ -77,11 +74,10 @@ export default function ToWalletDropdown({
                     key={`${wallet.provider}-${wallet.address}`}
                     type="button"
                     onClick={() => handleWalletSelect(wallet)}
-                    className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-sm transition-colors ${
-                      isSelected
-                        ? "bg-[#121712]"
-                        : "hover:bg-[#121712]"
-                    }`}
+                    className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-sm transition-colors ${isSelected
+                      ? "bg-[#121712]"
+                      : "hover:bg-[#121712]"
+                      }`}
                   >
                     {/* Wallet Icon - Small */}
                     {walletIcon && (
@@ -96,7 +92,7 @@ export default function ToWalletDropdown({
                         }}
                       />
                     )}
-                    
+
                     {/* Truncated Address - Inline */}
                     <span className="text-white text-xs font-medium truncate flex-1 text-left">
                       {truncateAddress(wallet.address)}
