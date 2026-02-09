@@ -5,7 +5,7 @@ export const maxDuration = 60; // 60 seconds (Pro plan limit)
 
 import { getDydxMarkets } from '@/lib/backend/services/dydx-service';
 import { getBinanceTickers } from '@/lib/backend/services/binance-ticker-service';
-import { getEnrichedMetadata, getSurgicalMetadata } from '@/lib/backend/services/enrichment-service';
+import { getEnrichedMetadata, getSurgicalMetadata, getDeepInstitutionalMetadata } from '@/lib/backend/services/enrichment-service';
 import { getCryptoMetadata } from '@/lib/backend/data/crypto-metadata';
 import { getTokenService } from '@/lib/backend/services/token-service';
 import { getTokenPrice } from '@/lib/backend/providers/price-provider';
@@ -51,7 +51,7 @@ export async function GET(
         // ============================================================
         // 2. Try dYdX (Perp)
         // ============================================================
-        if (marketType === 'all' || marketType === 'perp') {
+        if (marketType === 'all' || marketType === 'perp' || marketType === 'spot') {
             const { getDydxMarkets } = await import('@/lib/backend/services/dydx-service');
             const markets = await getDydxMarkets();
             const pairSymbol = `${baseSymbol}-${quoteSymbol}`;
@@ -62,6 +62,9 @@ export async function GET(
                 const circulatingSupply = market.marketCap ? market.marketCap / tickerPrice : null;
                 const totalSupply = market.fdv ? market.fdv / tickerPrice : (circulatingSupply || null);
 
+                // PHASE 2 Override: Get deep institutional data for individual page
+                const cgInfo = await getDeepInstitutionalMetadata(baseSymbol);
+
                 return NextResponse.json({
                     success: true,
                     data: {
@@ -70,23 +73,28 @@ export async function GET(
                         pair: `${baseSymbol}/${quoteSymbol}`,
                         price: tickerPrice,
                         priceUSD: tickerPrice,
-                        priceChange24h: market.priceChange24h,
-                        high24h: market.high24h || tickerPrice,
-                        low24h: market.low24h || tickerPrice,
-                        volume24h: market.volume24h,
+                        priceChange24h: cgInfo?.priceChange24h || market.priceChange24h,
+                        high24h: cgInfo?.high24h || market.high24h || tickerPrice,
+                        low24h: cgInfo?.low24h || market.low24h || tickerPrice,
+                        volume24h: cgInfo?.totalVolume || market.volume24h,
                         fundingRate: market.fundingRate,
                         openInterest: market.openInterest,
-                        marketCap: market.marketCap,
-                        fdv: market.fdv,
+                        marketCap: cgInfo?.marketCap || market.marketCap,
+                        fdv: cgInfo?.fdv || market.fdv,
                         liquidity: market.liquidity,
-                        circulatingSupply,
-                        totalSupply,
+                        circulatingSupply: cgInfo?.circulatingSupply || circulatingSupply,
+                        totalSupply: cgInfo?.totalSupply || totalSupply,
+                        maxSupply: cgInfo?.maxSupply || null,
+                        rank: cgInfo?.marketCapRank,
+                        marketCapRank: cgInfo?.marketCapRank,
                         baseToken: {
                             symbol: baseSymbol,
-                            name: market.name,
-                            address: baseSymbol, // Symbol is address for dYdX
-                            chainId: 4,
-                            logo: market.logo,
+                            name: cgInfo?.name || market.name,
+                            address: cgInfo?.contractAddress || baseSymbol,
+                            chainId: cgInfo?.chainId || 4,
+                            logo: cgInfo?.logo || market.logo,
+                            networkName: cgInfo?.networkName,
+                            decimals: cgInfo?.decimals,
                         },
                         quoteToken: {
                             symbol: quoteSymbol,
@@ -96,16 +104,22 @@ export async function GET(
                             logo: '',
                         },
                         metadata: {
-                            name: market.name,
-                            logo: market.logo,
-                            description: market.description,
-                            socials: market.socials,
-                            websites: market.websites,
-                            website: market.website,
+                            name: cgInfo?.name || market.name,
+                            logo: cgInfo?.logo || market.logo,
+                            description: cgInfo?.description || market.description,
+                            socials: cgInfo ? [
+                                ...(cgInfo.twitter ? [{ type: 'twitter', url: cgInfo.twitter }] : []),
+                                ...(cgInfo.telegram ? [{ type: 'telegram', url: cgInfo.telegram }] : [])
+                            ] : market.socials,
+                            websites: cgInfo?.website ? [{ label: 'Website', url: cgInfo.website }] : market.websites,
+                            website: cgInfo?.website || market.website,
                         },
+                        chainId: cgInfo?.chainId || 4,
+                        networkName: cgInfo?.networkName,
+                        contractAddress: cgInfo?.contractAddress,
+                        decimals: cgInfo?.decimals,
                         provider: 'dydx',
                         marketType: 'perp',
-                        chainId: 4
                     }
                 });
             }
@@ -126,6 +140,9 @@ export async function GET(
                 const circulatingSupply = meta.marketCap ? meta.marketCap / currentPrice : null;
                 const totalSupply = meta.fdv ? meta.fdv / currentPrice : (circulatingSupply || null);
 
+                // PHASE 2 Override: Get deep institutional data for individual page
+                const cgInfo = await getDeepInstitutionalMetadata(baseSymbol);
+
                 return NextResponse.json({
                     success: true,
                     data: {
@@ -134,21 +151,25 @@ export async function GET(
                         pair: `${baseSymbol}/${quoteSymbol}`,
                         price: currentPrice,
                         priceUSD: currentPrice,
-                        priceChange24h: ticker.priceChangePercent,
-                        high24h: ticker.highPrice,
-                        low24h: ticker.lowPrice,
-                        volume24h: ticker.quoteVolume,
-                        marketCap: meta.marketCap,
-                        fdv: meta.fdv,
+                        priceChange24h: cgInfo?.priceChange24h || ticker.priceChangePercent,
+                        high24h: cgInfo?.high24h || ticker.highPrice,
+                        low24h: cgInfo?.low24h || ticker.lowPrice,
+                        volume24h: cgInfo?.totalVolume || ticker.quoteVolume,
+                        marketCap: cgInfo?.marketCap || meta.marketCap,
+                        fdv: cgInfo?.fdv || meta.fdv,
                         liquidity: meta.liquidity,
-                        circulatingSupply,
-                        totalSupply,
+                        circulatingSupply: cgInfo?.circulatingSupply || circulatingSupply,
+                        totalSupply: cgInfo?.totalSupply || totalSupply,
+                        rank: cgInfo?.marketCapRank,
+                        marketCapRank: cgInfo?.marketCapRank,
                         baseToken: {
                             symbol: baseSymbol,
-                            name: meta.name,
-                            address: baseSymbol,
-                            chainId: 0, // Binance internal
-                            logo: meta.logo,
+                            name: cgInfo?.name || meta.name,
+                            address: cgInfo?.contractAddress || baseSymbol,
+                            chainId: cgInfo?.chainId || 0,
+                            logo: cgInfo?.logo || meta.logo,
+                            networkName: cgInfo?.networkName,
+                            decimals: cgInfo?.decimals,
                         },
                         quoteToken: {
                             symbol: quoteSymbol,
@@ -158,16 +179,22 @@ export async function GET(
                             logo: quoteMeta.logo,
                         },
                         metadata: {
-                            name: meta.name,
-                            logo: meta.logo,
-                            description: meta.description,
-                            socials: meta.socials,
-                            websites: meta.websites,
-                            website: meta.website,
+                            name: cgInfo?.name || meta.name,
+                            logo: cgInfo?.logo || meta.logo,
+                            description: cgInfo?.description || meta.description,
+                            socials: cgInfo ? [
+                                ...(cgInfo.twitter ? [{ type: 'twitter', url: cgInfo.twitter }] : []),
+                                ...(cgInfo.telegram ? [{ type: 'telegram', url: cgInfo.telegram }] : [])
+                            ] : meta.socials,
+                            websites: cgInfo?.website ? [{ label: 'Website', url: cgInfo.website }] : meta.websites,
+                            website: cgInfo?.website || meta.website,
                         },
+                        chainId: cgInfo?.chainId || 0,
+                        networkName: cgInfo?.networkName,
+                        contractAddress: cgInfo?.contractAddress,
+                        decimals: cgInfo?.decimals,
                         provider: 'binance',
-                        marketType: 'spot',
-                        chainId: 0
+                        marketType: 'spot'
                     }
                 });
             }

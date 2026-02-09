@@ -41,7 +41,6 @@ export default function OrderbookSection({
   const dydxResult = useDydxOrderbook(
     isDydxMarket ? `${baseSymbol}-${quoteSymbol}` : ''
   );
-  console.log("🚀 ~ OrderbookSection ~ dydxResult:", dydxResult)
 
   const currentResult = isDydxMarket ? dydxResult : binanceResult;
   const {
@@ -328,5 +327,5 @@ function TradesView({ market, quoteSymbol, baseSymbol }: { market: string, quote
         </div>
       </div>
     </div>
-  );
+  );  
 }

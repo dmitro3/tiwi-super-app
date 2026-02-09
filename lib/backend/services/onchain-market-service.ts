@@ -39,6 +39,8 @@ export interface OnChainMarketData {
         address: string;
         chainId: number;
         logo?: string;
+        networkName?: string;
+        decimals?: number;
     };
     quoteToken: {
         symbol: string;
@@ -58,6 +60,8 @@ export interface OnChainMarketData {
     provider: 'onchain';
     marketType: 'spot' | 'perp';
     chainId: number;
+    networkName?: string;
+    contractAddress?: string;
 }
 
 /**
@@ -126,6 +130,7 @@ export async function resolveOnChainMarket(
             marketCapRank: meta.marketCapRank,
             circulatingSupply,
             totalSupply,
+            maxSupply: meta.maxSupply,
             socials: meta.socials,
             website: meta.website,
             websites: meta.websites,
@@ -137,8 +142,10 @@ export async function resolveOnChainMarket(
                 symbol: baseSymbol,
                 name: meta.name || existingToken?.name || baseSymbol,
                 address: address,
-                chainId,
+                chainId: meta.chainId || chainId,
                 logo: meta.logo || existingToken?.logoURI,
+                networkName: meta.networkName,
+                decimals: meta.decimals || 18,
             },
             quoteToken: {
                 symbol: quoteSymbol,
@@ -157,7 +164,9 @@ export async function resolveOnChainMarket(
             },
             provider: 'onchain',
             marketType: 'spot',
-            chainId
+            chainId: meta.chainId || chainId,
+            networkName: meta.networkName,
+            contractAddress: meta.contractAddress || address
         };
     } catch (error) {
         console.error('[OnChainMarketService] Error resolving market:', error);

@@ -43,10 +43,6 @@ export async function searchTokenProfile(symbol: string): Promise<DexScreenerPro
 
         const data = await response.json();
 
-        if (symbol.toUpperCase() === 'BTC' && data.pairs?.[0]) {
-            console.log('Base Token:', data.pairs);
-        }
-
         if (!data.pairs || data.pairs.length === 0) return null;
 
         // 1. Sort pairs by liquidity to find the quantitative "best" pair
@@ -171,7 +167,6 @@ export async function searchTokenByAddress(address: string, chainId?: number): P
                 relevantPairs = data.pairs.filter((p: any) => p.chainId === dexChain);
             }
         }
-        console.log("🚀 ~ searchTokenByAddress ~ relevantPairs:", relevantPairs)
 
         if (relevantPairs.length === 0) relevantPairs = data.pairs; // Fallback to any chain if no match
 

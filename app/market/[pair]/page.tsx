@@ -105,7 +105,6 @@ export default function TradingPage() {
 
         // Check cache first
         const cached = getMarketDetail(baseSymbol);
-        console.log("🚀 ~ fetchMarketData ~ cached:", cached)
         if (cached) {
           // We still want fresh stats (price/vol), but can show metadata instantly
           setTokenData(cached);
