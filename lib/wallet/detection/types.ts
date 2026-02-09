@@ -16,6 +16,7 @@ export interface SupportedWallet {
   description?: string;
   walletConnectId?: string;
   imageId?: string;
+  mobileLink?: string; // Deep link template for mobile (e.g. "https://metamask.app.link/dapp/{{url}}")
 }
 
 export interface WalletProvider {
@@ -26,5 +27,6 @@ export interface WalletProvider {
   installed: boolean;
   imageId?: string;
   homepage?: string;
+  mobileLink?: string;
 }
 

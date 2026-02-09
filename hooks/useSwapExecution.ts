@@ -31,6 +31,7 @@ export interface ExecuteSwapParams {
   recipientAddress?: string;
   slippage?: number;
   isFeeOnTransfer?: boolean;  // Whether to use fee-on-transfer supporting functions (defaults to true)
+  walletClient?: any;
 }
 
 /**
@@ -58,13 +59,14 @@ export function useSwapExecution(): UseSwapExecutionReturn {
         recipientAddress: params.recipientAddress,
         slippage: params.slippage,
         isFeeOnTransfer: params.isFeeOnTransfer,
+        walletClient: params.walletClient,
         onStatusUpdate: (newStatus: any) => {
           setStatus(newStatus);
         },
       };
 
       const executionResult = await swapExecutor.execute(executionParams);
-      
+
       setResult(executionResult);
       setStatus({
         stage: 'completed',

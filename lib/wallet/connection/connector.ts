@@ -20,7 +20,7 @@ export const getWalletForChain = async (
   switch (chain) {
     case 'solana': {
       const win = window as any;
-      
+
       // Check for specific wallets first
       if (providerId === 'phantom' && win.phantom?.solana) {
         return win.phantom.solana;
@@ -52,12 +52,12 @@ export const getWalletForChain = async (
       if (providerId === 'torus' && win.torus) {
         return win.torus;
       }
-      
+
       // Generic Solana provider fallback
       if (win.solana) {
         return win.solana;
       }
-      
+
       throw new Error(`Solana wallet not found for provider: ${providerId}`);
     }
 
@@ -80,7 +80,7 @@ export const getWalletForChain = async (
       if (providerId === 'trust' && (win.trustwallet || win.trustWallet)) {
         return win.trustwallet || win.trustWallet;
       }
-      
+
       // Check for EIP-6963 providers array (multiple wallets installed)
       const ethereum = (window as any).ethereum;
       if (ethereum?.providers && Array.isArray(ethereum.providers)) {
@@ -110,13 +110,13 @@ export const getWalletForChain = async (
               return true;
             }
             // Third priority: isMetaMask property, but exclude Rabby and OKX
-            if (p.isMetaMask === true && 
-                p.isRabby !== true && 
-                p.isOkxWallet !== true &&
-                !rdns.includes('rabby') &&
-                !rdns.includes('okx') &&
-                !name.includes('rabby') &&
-                !name.includes('okx')) {
+            if (p.isMetaMask === true &&
+              p.isRabby !== true &&
+              p.isOkxWallet !== true &&
+              !rdns.includes('rabby') &&
+              !rdns.includes('okx') &&
+              !name.includes('rabby') &&
+              !name.includes('okx')) {
               return true;
             }
             return false;
@@ -133,10 +133,10 @@ export const getWalletForChain = async (
           const binanceProvider = ethereum.providers.find((p: any) => {
             const rdns = (p.info?.rdns || '').toLowerCase();
             const name = (p.info?.name || '').toLowerCase();
-            return rdns.includes('binance') || 
-                   name.includes('binance') ||
-                   p.isBinance === true ||
-                   p.isBinanceWallet === true;
+            return rdns.includes('binance') ||
+              name.includes('binance') ||
+              p.isBinance === true ||
+              p.isBinanceWallet === true;
           });
           if (binanceProvider) return binanceProvider;
           // Also check window.BinanceChain directly (Binance's own provider)
@@ -148,10 +148,10 @@ export const getWalletForChain = async (
           const trustProvider = ethereum.providers.find((p: any) => {
             const rdns = (p.info?.rdns || '').toLowerCase();
             const name = (p.info?.name || '').toLowerCase();
-            return p.isTrust === true || 
-                   p.isTrustWallet === true ||
-                   rdns.includes('trust') ||
-                   name.includes('trust');
+            return p.isTrust === true ||
+              p.isTrustWallet === true ||
+              rdns.includes('trust') ||
+              name.includes('trust');
           });
           if (trustProvider) return trustProvider;
         } else if (providerId === 'okx') {
@@ -160,8 +160,8 @@ export const getWalletForChain = async (
             const rdns = (p.info?.rdns || '').toLowerCase();
             const name = (p.info?.name || '').toLowerCase();
             return p.isOkxWallet === true ||
-                   rdns.includes('okx') ||
-                   name.includes('okx');
+              rdns.includes('okx') ||
+              name.includes('okx');
           });
           if (okxProvider) return okxProvider;
         } else if (providerId === 'zerion') {
@@ -186,11 +186,11 @@ export const getWalletForChain = async (
           const provider = ethereum.providers.find((p: any) => p.isTokenary);
           if (provider) return provider;
         }
-        
+
         // NO FALLBACKS - if wallet not found in providers array, fall through to single-provider detection
         // This ensures each wallet uses its own provider and doesn't get routed to wrong wallets
       }
-      
+
       // Single provider case - check window.ethereum directly
       if (ethereum) {
         // CRITICAL: Check Rabby FIRST - always check isRabby before isMetaMask
@@ -208,9 +208,9 @@ export const getWalletForChain = async (
             return ethereum;
           }
           // Fallback to isMetaMask property, but exclude Rabby and OKX
-          if (ethereum.isMetaMask === true && 
-              ethereum.isRabby !== true && 
-              ethereum.isOkxWallet !== true) {
+          if (ethereum.isMetaMask === true &&
+            ethereum.isRabby !== true &&
+            ethereum.isOkxWallet !== true) {
             return ethereum;
           }
         }
@@ -275,7 +275,7 @@ export const getWalletForChain = async (
           return ethereum;
         }
       }
-      
+
       // NO FALLBACKS - throw error if wallet not found
       // Each wallet must use its own provider, no routing through other wallets
       throw new Error(`Wallet provider "${providerId}" not found`);
@@ -300,7 +300,7 @@ export const connectWallet = async (
     // For MetaMask, verify it's actually MetaMask and not OKX or Rabby
     if (providerId === 'metamask') {
       if (wallet.isOkxWallet === true) {
-        console.error('[connectWallet] ERROR: Got OKX wallet instead of MetaMask!', {
+        console.warn('[connectWallet] WARNING: OKX wallet detected instead of MetaMask. Proceeding with connection as OKX handles MetaMask requests.', {
           providerId,
           walletProps: {
             isOkxWallet: wallet.isOkxWallet,
@@ -311,10 +311,10 @@ export const connectWallet = async (
             name: (wallet as any).info?.name,
           }
         });
-        throw new Error('MetaMask connection failed: OKX wallet detected instead of MetaMask. Please ensure MetaMask is installed and enabled.');
+        // Allow connection to proceed - OKX mimics MetaMask intentionally
       }
       if (wallet.isRabby === true) {
-        console.error('[connectWallet] ERROR: Got Rabby wallet instead of MetaMask!', {
+        console.warn('[connectWallet] WARNING: Rabby wallet detected instead of MetaMask. Proceeding with connection as Rabby handles MetaMask requests.', {
           providerId,
           walletProps: {
             isOkxWallet: wallet.isOkxWallet,
@@ -325,12 +325,12 @@ export const connectWallet = async (
             name: (wallet as any).info?.name,
           }
         });
-        throw new Error('MetaMask connection failed: Rabby wallet detected instead of MetaMask. Please ensure MetaMask is installed and enabled.');
+        // Allow connection to proceed - Rabby mimics MetaMask intentionally
       }
       // Verify it's actually MetaMask by checking MetaMask-specific properties
-      const isActuallyMetaMask = wallet._metamask !== undefined || 
-                                  wallet._state !== undefined || 
-                                  (wallet.isMetaMask === true && wallet.isRabby !== true && wallet.isOkxWallet !== true);
+      const isActuallyMetaMask = wallet._metamask !== undefined ||
+        wallet._state !== undefined ||
+        (wallet.isMetaMask === true && wallet.isRabby !== true && wallet.isOkxWallet !== true);
       if (!isActuallyMetaMask) {
         console.error('[connectWallet] ERROR: Provider is not MetaMask!', {
           providerId,
@@ -377,10 +377,10 @@ export const connectWallet = async (
             console.warn('Error disconnecting wallet before reconnect (this is OK):', error);
           }
         }
-        
+
         // Now connect - this will always prompt for user approval since we disconnected first
         const response = await wallet.connect();
-        
+
         // Handle different response formats from Solana wallets
         let publicKey;
         if (response?.publicKey) {
@@ -395,14 +395,14 @@ export const connectWallet = async (
         } else {
           throw new Error('Failed to get public key from wallet connection');
         }
-        
+
         // Convert to string
         const address = typeof publicKey === 'string' ? publicKey : publicKey.toString();
-        
+
         if (!address) {
           throw new Error('Failed to get wallet address');
         }
-        
+
         return {
           address,
           chain: 'solana',
@@ -419,7 +419,7 @@ export const connectWallet = async (
             const permissions = await wallet.request({
               method: 'wallet_getPermissions',
             });
-            
+
             if (permissions && permissions.length > 0) {
               try {
                 await wallet.request({
@@ -437,27 +437,27 @@ export const connectWallet = async (
             // Ignore errors - wallet might not be connected
             console.warn('Error checking Phantom Ethereum permissions (this is OK):', error);
           }
-          
+
           // Now request accounts - this will prompt for user approval
           const accounts = await wallet.request({ method: 'eth_requestAccounts' });
-          
+
           if (!accounts || accounts.length === 0) {
             throw new Error('User rejected connection or no accounts returned');
           }
-          
+
           return {
             address: accounts[0],
             chain: chain,
             provider: providerId,
           };
         }
-        
+
         // For other EVM wallets, force fresh authentication by revoking permissions
         try {
           const permissions = await wallet.request({
             method: 'wallet_getPermissions',
           });
-          
+
           if (permissions && permissions.length > 0) {
             try {
               await wallet.request({
@@ -472,26 +472,26 @@ export const connectWallet = async (
         } catch (e) {
           // Ignore permission check errors
         }
-        
+
         // Always use eth_requestAccounts which prompts for approval
         const accounts = await wallet.request({ method: 'eth_requestAccounts' });
-        
+
         if (!accounts || accounts.length === 0) {
           throw new Error('User rejected connection or no accounts returned');
         }
-        
+
         // CRITICAL: Detect the actual wallet provider after connection
         // This is important because some wallets masquerade as MetaMask (Rabby, OKX, Trust Wallet)
         // We need to detect the actual wallet to show the correct icon
         const detectedProviderId = await detectWalletFromProvider(providerId, chain, wallet);
-        
+
         // Map detected provider ID back to wallet ID for consistency
         // Import mapProviderIdToWalletId at the top of the file
         const { mapProviderIdToWalletId } = await import('../utils/wallet-id-mapper');
-        const finalWalletId = detectedProviderId 
-          ? mapProviderIdToWalletId(detectedProviderId) 
+        const finalWalletId = detectedProviderId
+          ? mapProviderIdToWalletId(detectedProviderId)
           : providerId;
-        
+
         console.log('[connectWallet] Wallet detection result:', {
           requestedProviderId: providerId,
           detectedProviderId,
@@ -503,7 +503,7 @@ export const connectWallet = async (
             isOkxWallet: wallet.isOkxWallet,
           }
         });
-        
+
         return {
           address: accounts[0],
           chain: chain,
@@ -607,7 +607,7 @@ export const disconnectWallet = async (
           // Some wallets don't support revokePermissions - that's okay
           console.warn('[disconnectWallet] wallet_revokePermissions not supported, trying alternative methods');
         }
-        
+
         // Method 2: Try to disconnect if the wallet has a disconnect method
         try {
           if (typeof wallet.disconnect === 'function') {
@@ -617,7 +617,7 @@ export const disconnectWallet = async (
           // Not all wallets have disconnect method
           console.warn('[disconnectWallet] Wallet disconnect method not available');
         }
-        
+
         // Method 3: Clear any cached connection state
         try {
           if (wallet.removeAllListeners) {
@@ -654,83 +654,83 @@ export const detectWalletFromProvider = async (
       if (wallet.isRabby === true) {
         return "rabby";
       }
-      
+
       // 2. OKX - also sets isMetaMask=true, check before MetaMask
       if (wallet.isOkxWallet === true) {
         return "okx";
       }
-      
+
       // 3. Trust Wallet - check before MetaMask
       if (wallet.isTrust === true || wallet.isTrustWallet === true) {
         return "trust";
       }
-      
+
       // 4. Brave Wallet - check before MetaMask (can have isMetaMask=true)
       if (wallet.isBraveWallet === true && wallet.isMetaMask !== true) {
         return "brave";
       }
-      
+
       // 5. Coinbase Wallet
       if (wallet.isCoinbaseWallet === true || wallet.isCoinbaseBrowser === true) {
         return "coinbase";
       }
-      
+
       // 6. Binance Wallet
       if (wallet.isBinance === true || wallet.isBinanceWallet === true) {
         return "binance";
       }
-      
+
       // 7. Zerion
       if (wallet.isZerion === true) {
         return "zerion";
       }
-      
+
       // 8. TokenPocket
       if (wallet.isTokenPocket === true) {
         return "tokenpocket";
       }
-      
+
       // 9. BitKeep
       if (wallet.isBitKeep === true) {
         return "bitkeep";
       }
-      
+
       // 10. MathWallet
       if (wallet.isMathWallet === true) {
         return "mathwallet";
       }
-      
+
       // 11. Frame
       if (wallet.isFrame === true) {
         return "frame";
       }
-      
+
       // 12. Frontier
       if (wallet.isFrontier === true) {
         return "frontier";
       }
-      
+
       // 13. Tokenary
       if (wallet.isTokenary === true) {
         return "tokenary";
       }
-      
+
       // 14. MetaMask - check LAST after excluding masquerading wallets
       // Only return MetaMask if it's actually MetaMask and NOT Rabby/OKX/Trust
-      if (wallet.isMetaMask === true && 
-          wallet.isRabby !== true && 
-          wallet.isOkxWallet !== true &&
-          wallet.isTrust !== true &&
-          wallet.isTrustWallet !== true) {
+      if (wallet.isMetaMask === true &&
+        wallet.isRabby !== true &&
+        wallet.isOkxWallet !== true &&
+        wallet.isTrust !== true &&
+        wallet.isTrustWallet !== true) {
         return "metamask";
       }
-      
+
       // 15. Fallback: Check wallet.info for rdns/name if available
       // This helps detect wallets that don't set standard properties
       if (wallet.info) {
         const rdns = (wallet.info.rdns || '').toLowerCase();
         const name = (wallet.info.name || '').toLowerCase();
-        
+
         // Check for specific wallets by rdns/name
         if (rdns.includes('rabby') || name.includes('rabby')) {
           return "rabby";
@@ -757,7 +757,7 @@ export const detectWalletFromProvider = async (
           return "binance";
         }
       }
-      
+
       // 16. Final fallback: return the requested providerId
       // This handles wallets that don't set detection properties
       return providerId;

@@ -25,7 +25,7 @@ interface TokenInputProps {
   usdValue?: string;
   onTokenSelect?: () => void;
   onMaxClick?: () => void;
-  on30PercentClick?: () => void;
+  on25PercentClick?: () => void;
   on50PercentClick?: () => void;
   on75PercentClick?: () => void;
   onAmountChange?: (value: string) => void;
@@ -48,7 +48,7 @@ export default function TokenInput({
   usdValue = "$0",
   onTokenSelect,
   onMaxClick,
-  on30PercentClick,
+  on25PercentClick,
   on50PercentClick,
   on75PercentClick,
   onAmountChange,
@@ -229,10 +229,10 @@ export default function TokenInput({
                   </div>
                   <div className="flex items-center gap-1 sm:gap-1.5">
                     <button
-                      onClick={on30PercentClick}
+                      onClick={on25PercentClick}
                       className="bg-[#1f261e] text-[#b1f128] font-medium text-[10px] sm:text-xs px-1.5 sm:px-2.5 py-1 sm:py-1.5 rounded-full hover:bg-[#2a3229] transition-colors cursor-pointer shrink-0"
                     >
-                      30%
+                      25%
                     </button>
                     <button
                       onClick={on50PercentClick}

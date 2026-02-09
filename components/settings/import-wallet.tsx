@@ -43,8 +43,8 @@ export default function ImportWallet({ onGoBack, onWalletImported, onComplete }:
         return;
       }
 
-      if (!password || password.length < 8) {
-        setError("Please set a strong password (at least 8 characters).");
+      if (!password || !password.trim()) {
+        setError("Password is required.");
         return;
       }
       if (password !== passwordConfirm) {
@@ -84,9 +84,9 @@ export default function ImportWallet({ onGoBack, onWalletImported, onComplete }:
       try {
         const encryptedPrivateKey = await encryptWalletData(privateKey, password);
         saveEncryptedPrivateKey(address, encryptedPrivateKey);
-      } catch (encErr) {
+      } catch (encErr: any) {
         console.error("[ImportWallet] Failed to encrypt imported key:", encErr);
-        setError("Failed to securely store this wallet. Please try again.");
+        setError(encErr.message || "Failed to securely store this wallet. Please try again.");
         setIsImporting(false);
         return;
       }
@@ -102,38 +102,42 @@ export default function ImportWallet({ onGoBack, onWalletImported, onComplete }:
       });
       setActiveManagedWallet(id);
 
-      // Best-effort: register wallet with backend (public info only)
-      try {
-        await fetch("/api/v1/wallets", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            address,
-            source: "local",
-          }),
-        });
-      } catch (registerError) {
-        console.warn("[ImportWallet] Failed to register imported wallet:", registerError);
-      }
-
-      // Store address and show success modal
+      // Store address and show success modal IMMEDIATELY
       setImportedWalletAddress(address);
       setIsSuccessModalOpen(true);
 
       onWalletImported?.(address);
+      setIsImporting(false);
 
-      // Optionally navigate back to settings main view if used there
-      try {
-        router.refresh();
-      } catch {
-        // ignore if not in a navigable context
-      }
+      // Non-critical background tasks
+      setTimeout(async () => {
+        // Best-effort: register wallet with backend
+        try {
+          await fetch("/api/v1/wallets", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              address,
+              source: "local",
+            }),
+          });
+        } catch (registerError) {
+          console.warn("[ImportWallet] Failed to register imported wallet:", registerError);
+        }
+
+        // Refresh router if needed
+        try {
+          router.refresh();
+        } catch {
+          // ignore
+        }
+      }, 100);
+
     } catch (e: any) {
       console.error("[ImportWallet] Unexpected error:", e);
       setError("An unexpected error occurred while importing the wallet.");
-    } finally {
       setIsImporting(false);
     }
   }, [
@@ -209,7 +213,7 @@ export default function ImportWallet({ onGoBack, onWalletImported, onComplete }:
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="Set a strong password"
+                placeholder="Enter password"
                 className="w-full bg-[#010501] border border-[#1f261e] rounded-xl px-4 py-3 text-white placeholder-[#6E7873] outline-none focus:ring-2 focus:ring-[#B1F128] focus:border-[#B1F128]"
               />
             </div>

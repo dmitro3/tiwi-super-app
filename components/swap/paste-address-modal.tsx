@@ -137,13 +137,13 @@ export default function PasteAddressModal({
   const handleRecentAddressClick = (addr: string) => {
     // Use the full address (not truncated) to update the input
     const fullAddress = addr.trim();
-    
+
     // Update the input box with the full address immediately
     setAddress(fullAddress);
-    
+
     // Clear any previous errors
     setError(null);
-    
+
     // Validate the address format
     if (!isValidAddress(fullAddress)) {
       setError(
@@ -153,15 +153,17 @@ export default function PasteAddressModal({
       );
       return;
     }
-    
+
     // Check chain compatibility
     if (chainId && !isAddressChainCompatible(fullAddress, chainId)) {
       setError("This address is not compatible with the selected token's chain");
       return;
     }
-    
-    // If valid, clear error (user can then click Save when ready)
-    setError(null);
+
+    // If valid, auto-save immediately (no need to click Save button)
+    saveRecentAddress(fullAddress);
+    onSave(fullAddress);
+    onOpenChange(false);
   };
 
   const handleRemoveRecentAddress = (addrToRemove: string, e: React.MouseEvent) => {
@@ -200,9 +202,8 @@ export default function PasteAddressModal({
               value={address}
               onChange={(e) => handleAddressChange(e.target.value)}
               placeholder="Enter address"
-              className={`bg-[#121712] border ${
-                error ? "border-red-500" : "border-[#1f261e]"
-              } text-white placeholder-[#7c7c7c] focus:border-[#b1f128] focus:ring-1 focus:ring-[#b1f128] rounded-lg px-4 py-3 text-base h-auto`}
+              className={`bg-[#121712] border ${error ? "border-red-500" : "border-[#1f261e]"
+                } text-white placeholder-[#7c7c7c] focus:border-[#b1f128] focus:ring-1 focus:ring-[#b1f128] rounded-lg px-4 py-3 text-base h-auto`}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !error && address.trim()) {
                   handleSave();
@@ -227,11 +228,10 @@ export default function PasteAddressModal({
                       key={addr}
                       type="button"
                       onClick={() => handleRecentAddressClick(addr)}
-                      className={`group flex items-center gap-2 px-3 py-2 rounded-lg border transition-colors cursor-pointer ${
-                        isCompatible
+                      className={`group flex items-center gap-2 px-3 py-2 rounded-lg border transition-colors cursor-pointer ${isCompatible
                           ? "bg-[#121712] border-[#1f261e] hover:bg-[#1f261e] hover:border-[#b1f128]/30"
                           : "bg-[#121712] border-[#1f261e] opacity-70 hover:opacity-90"
-                      }`}
+                        }`}
                     >
                       <Wallet className="w-4 h-4 text-[#7c7c7c] shrink-0" />
                       <span className="text-sm text-white font-medium">

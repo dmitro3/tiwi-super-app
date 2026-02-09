@@ -23,13 +23,13 @@ import NFTGrid from "@/components/nft/nft-grid";
 import NFTDetailCard from "@/components/nft/nft-detail-card";
 import type { NFT } from "@/lib/backend/types/nft";
 import type { Transaction, WalletToken } from "@/lib/backend/types/wallet";
-import { 
-  transferNativeToken, 
-  transferERC20Token, 
-  isNativeToken, 
+import {
+  transferNativeToken,
+  transferERC20Token,
+  isNativeToken,
   toSmallestUnit,
   getPublicClient,
-  SOLANA_CHAIN_ID 
+  SOLANA_CHAIN_ID
 } from "@/lib/wallet/utils/transfer";
 import { useWalletManagerStore } from "@/lib/wallet/state/wallet-manager-store";
 import { getEncryptedPrivateKey } from "@/lib/wallet/state/local-keystore";
@@ -39,6 +39,8 @@ import { createLocalWalletClient } from "@/lib/frontend/utils/viem-clients";
 import { getCanonicalChain, CHAIN_REGISTRY } from "@/lib/backend/registry/chains";
 import { useTokensQuery } from "@/hooks/useTokensQuery";
 import type { Token } from "@/lib/frontend/types/tokens";
+import { batchTransferNative, batchTransferERC20, DISPERSE_APP_ADDRESS } from "@/lib/wallet/utils/batch-transfer";
+import { erc20Abi } from "viem";
 import SecurePasswordModal from "@/components/wallet/secure-password-modal";
 // Option A: Token Selector Modal (prepared but disabled)
 // import TokenSelectorModal from "@/components/swap/token-selector-modal";
@@ -59,7 +61,7 @@ import {
 } from "react-icons/io5";
 import { Eye, EyeOff } from "lucide-react";
 import { RiSendPlaneLine } from "react-icons/ri";
-import { HiDownload } from "react-icons/hi";
+import { HiDownload, HiUpload, HiClipboard } from "react-icons/hi";
 import { MdHistory } from "react-icons/md";
 import { FaArrowUp } from "react-icons/fa";
 import { BsWallet2 } from "react-icons/bs";
@@ -132,9 +134,9 @@ const assets = [
 // ==========================================
 //  NFT ACTIVITY ROW COMPONENT
 // ==========================================
-function NFTActivityRow({ 
-  activity 
-}: { 
+function NFTActivityRow({
+  activity
+}: {
   activity: {
     type: 'received' | 'sent' | 'mint' | 'burn' | 'list' | 'sale' | 'transfer';
     date: string;
@@ -153,12 +155,12 @@ function NFTActivityRow({
 }) {
   const isReceived = activity.type === "received" || activity.type === "mint";
   const activityTypeLabel = activity.type.charAt(0).toUpperCase() + activity.type.slice(1);
-  
-  const priceText = activity.price 
+
+  const priceText = activity.price
     ? `${activity.price} ETH`
     : activity.priceUSD
-    ? `$${parseFloat(activity.priceUSD).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-    : "";
+      ? `$${parseFloat(activity.priceUSD).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+      : "";
 
   const displayName = activity.nftName || `${activity.contractAddress.slice(0, 6)}...${activity.contractAddress.slice(-4)} #${activity.tokenId}`;
 
@@ -204,7 +206,7 @@ function NFTActivityRow({
   );
 
   // Build explorer URL if possible
-  const explorerUrl = activity.transactionHash 
+  const explorerUrl = activity.transactionHash
     ? `https://etherscan.io/tx/${activity.transactionHash}` // Default to Etherscan, could be enhanced with chain-specific explorers
     : null;
 
@@ -305,7 +307,7 @@ function WalletPageDesktop() {
 
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
-  
+
   // Search and filter state
   const [assetSearchQuery, setAssetSearchQuery] = useState<string>('');
   const [sortBy, setSortBy] = useState<'value' | 'recent'>('value');
@@ -325,12 +327,20 @@ function WalletPageDesktop() {
   const [estimatedGasFee, setEstimatedGasFee] = useState<{ native: string; usd: string; symbol: string } | null>(null);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [passwordError, setPasswordError] = useState<string | null>(null);
-  
+
   // Receive token selection state
   const [selectedReceiveToken, setSelectedReceiveToken] = useState<WalletToken | null>(null);
   const [receiveTokenSearchQuery, setReceiveTokenSearchQuery] = useState<string>('');
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
-  
+
+  // Multi-Send State
+  const [multiSendInput, setMultiSendInput] = useState<string>('');
+  const [parsedRecipients, setParsedRecipients] = useState<string[]>([]);
+  const [isParsing, setIsParsing] = useState(false);
+  const [isMultiSending, setIsMultiSending] = useState(false);
+  const [multiSendProgress, setMultiSendProgress] = useState<{ current: number; total: number; success: number; failed: number }>({ current: 0, total: 0, success: 0, failed: 0 });
+  const [multiSendStatus, setMultiSendStatus] = useState<string>('');
+
   // Wagmi hooks for wallet interaction (external wallets)
   const { data: walletClient } = useWalletClient();
   const publicClient = usePublicClient();
@@ -346,13 +356,13 @@ function WalletPageDesktop() {
     [managedWallets, activeWalletId]
   );
   const isLocalActiveWallet = !!activeManagedWallet?.isLocal;
-  
+
   // Get wallet info for chain detection
   const wallet = useWallet();
-  
+
   // Option A: Token Selector Modal state (prepared but disabled)
   // const [receiveModalOpen, setReceiveModalOpen] = useState(false);
-  
+
   // Dropdown refs for closing on selection
   const sendDropdownRef = useRef<HTMLDetailsElement>(null);
   const receiveDropdownRef = useRef<HTMLDetailsElement>(null);
@@ -361,12 +371,12 @@ function WalletPageDesktop() {
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as HTMLElement;
-      
+
       // Close send dropdown if click is outside
       if (sendDropdownRef.current && !sendDropdownRef.current.contains(target)) {
         sendDropdownRef.current.removeAttribute('open');
       }
-      
+
       // Close receive dropdown if click is outside
       if (receiveDropdownRef.current && !receiveDropdownRef.current.contains(target)) {
         receiveDropdownRef.current.removeAttribute('open');
@@ -392,14 +402,16 @@ function WalletPageDesktop() {
   const {
     data: balanceData,
     isLoading: balanceLoading,
-    error: balanceError
+    error: balanceError,
+    refetch: refetchPortfolio
   } = usePortfolioBalance(activeAddress);
 
   // Fetch wallet token balances
   const {
     balances: walletTokens,
     isLoading: tokensLoading,
-    error: tokensError
+    error: tokensError,
+    refetch: refetchBalances
   } = useWalletBalances(activeAddress);
 
   // Fetch wallet transactions
@@ -437,22 +449,22 @@ function WalletPageDesktop() {
   // Map wallet tokens to portfolio assets format with filtering and sorting
   const assets = useMemo(() => {
     if (!walletTokens || walletTokens.length === 0) return [];
-    
+
     // Start with base assets
     let filteredAssets = mapWalletTokensToAssets(walletTokens, {
       includeZeroBalances: false,
       sortBy: 'value',
     });
-    
+
     // Apply search filter
     if (assetSearchQuery.trim()) {
       const query = assetSearchQuery.trim().toLowerCase();
-      filteredAssets = filteredAssets.filter(asset => 
+      filteredAssets = filteredAssets.filter(asset =>
         asset.symbol.toLowerCase().includes(query) ||
         asset.name.toLowerCase().includes(query)
       );
     }
-    
+
     // Apply chain filter
     if (selectedChains.length > 0) {
       const chainMap: Record<string, number[]> = {
@@ -461,22 +473,22 @@ function WalletPageDesktop() {
         'Ethereum': [1],
         'Solana': [7565164],
       };
-      
+
       const allowedChainIds = new Set<number>();
       selectedChains.forEach(chainName => {
         const chainIds = chainMap[chainName] || [];
         chainIds.forEach(id => allowedChainIds.add(id));
       });
-      
+
       filteredAssets = filteredAssets.filter(asset => {
         const token = walletTokens?.find(t => t.symbol === asset.symbol);
         return token && allowedChainIds.has(token.chainId);
       });
     }
-    
+
     // Apply category filter (placeholder - would need token metadata)
     // For now, we'll skip category filtering as we don't have category data
-    
+
     // Apply sorting
     if (sortBy === 'value') {
       filteredAssets = filteredAssets.sort((a, b) => {
@@ -489,7 +501,7 @@ function WalletPageDesktop() {
       // For now, keep original order (which is already sorted by value)
       // In a real implementation, you'd sort by most recent transaction timestamp
     }
-    
+
     return filteredAssets;
   }, [walletTokens, assetSearchQuery, sortBy, selectedChains]);
 
@@ -538,7 +550,7 @@ function WalletPageDesktop() {
         priceChange24h: twcData.priceChange24h?.toString(),
       };
     }
-    
+
     // Fallback if TWC not loaded yet
     return {
       address: '0xDA1060158F7D593667cCE0a15DB346BB3FfB3596',
@@ -580,8 +592,8 @@ function WalletPageDesktop() {
   const handleAssetClick = (asset: typeof assets[0]) => {
     // Find corresponding WalletToken
     const token = walletTokens?.find(
-      t => t.symbol === asset.symbol && 
-           parseFloat(t.usdValue || '0') > 0
+      t => t.symbol === asset.symbol &&
+        parseFloat(t.usdValue || '0') > 0
     );
     if (token) {
       setSelectedSendToken(token);
@@ -632,7 +644,7 @@ function WalletPageDesktop() {
   // Get chain IDs based on wallet type
   const supportedChainIds = useMemo(() => {
     if (!walletChainType) return [];
-    
+
     if (walletChainType === 'solana') {
       // Return Solana chain ID
       return [SOLANA_CHAIN_ID];
@@ -642,7 +654,7 @@ function WalletPageDesktop() {
         .filter(chain => chain.type === 'EVM')
         .map(chain => chain.id);
     }
-    
+
     return [];
   }, [walletChainType]);
 
@@ -662,10 +674,10 @@ function WalletPageDesktop() {
   // Helper function to validate token icon URL
   const isValidTokenIcon = useCallback((logoUrl?: string | null): boolean => {
     if (!logoUrl || typeof logoUrl !== 'string') return false;
-    
+
     const trimmed = logoUrl.trim();
     if (trimmed === '' || trimmed === 'null' || trimmed === 'undefined') return false;
-    
+
     // Valid if it's a valid HTTP/HTTPS URL
     if (/^https?:\/\//i.test(trimmed)) {
       try {
@@ -675,17 +687,17 @@ function WalletPageDesktop() {
         return false;
       }
     }
-    
+
     // Valid if it's a relative path starting with /
     if (trimmed.startsWith('/')) {
       return true;
     }
-    
+
     // Valid if it's a data URL
     if (trimmed.startsWith('data:')) {
       return true;
     }
-    
+
     return false;
   }, []);
 
@@ -723,7 +735,7 @@ function WalletPageDesktop() {
 
     if (receiveTokenSearchQuery.trim()) {
       const query = receiveTokenSearchQuery.trim().toLowerCase();
-      filtered = filtered.filter(token => 
+      filtered = filtered.filter(token =>
         token.symbol.toLowerCase().includes(query) ||
         token.name.toLowerCase().includes(query) ||
         token.address.toLowerCase().includes(query)
@@ -745,12 +757,12 @@ function WalletPageDesktop() {
     if (!chainId) return null;
     const chain = getCanonicalChain(chainId);
     if (!chain) return null;
-    
+
     // Find native token in wallet tokens
-    const nativeToken = walletTokens?.find(token => 
+    const nativeToken = walletTokens?.find(token =>
       token.chainId === chainId && isNativeToken(token.address)
     );
-    
+
     return {
       symbol: chain.nativeCurrency.symbol,
       decimals: chain.nativeCurrency.decimals,
@@ -771,7 +783,7 @@ function WalletPageDesktop() {
       const amount = parseUnits(sendAmount, decimals);
 
       let gasEstimate: bigint;
-      
+
       if (isNative) {
         gasEstimate = await publicClient.estimateGas({
           account: wagmiAddress as `0x${string}`,
@@ -808,10 +820,10 @@ function WalletPageDesktop() {
 
       const gasPrice = await publicClient.getGasPrice();
       const totalGasCost = gasEstimate * gasPrice;
-      
+
       // Use native token decimals (not always 18, e.g., Solana uses 9)
       const nativeAmount = formatUnits(totalGasCost, nativeTokenInfo.decimals);
-      
+
       // Use native token price (not the token being sent)
       const nativeTokenPrice = parseFloat(nativeTokenInfo.priceUSD || '0');
       const usdValue = parseFloat(nativeAmount) * nativeTokenPrice;
@@ -827,21 +839,79 @@ function WalletPageDesktop() {
     }
   }, [displayToken, recipientAddress, sendAmount, publicClient, wagmiAddress, nativeTokenInfo]);
 
+  // Estimate gas fee for multi-send (approximate)
   useEffect(() => {
-    if (sendStep === 'confirm' && recipientAddress && sendAmount && displayToken) {
-      estimateGasFee();
+    if (activeSendTab === 'multi' && parsedRecipients.length > 0 && sendAmount && displayToken) {
+      // Just estimate for one and multiply
+      // This is a rough estimation as we can't easily predict gas for all
+      const mockAddress = parsedRecipients[0];
+      if (mockAddress && isAddress(mockAddress)) {
+        // We reuse the single estimate logic but scaled
+        // For now, we'll just let the single estimateGasFee run if we set recipientAddress to the first one temporarily?
+        // Better to just have a separate estimation or simpler one.
+        // Let's rely on the single estimateGasFee function but call it manually or derive from it.
+        // For MVP, we can just show "Calculated per transaction" or similar.
+      }
     }
-  }, [sendStep, recipientAddress, sendAmount, displayToken, estimateGasFee]);
+  }, [activeSendTab, parsedRecipients, sendAmount, displayToken]);
+
+  useEffect(() => {
+    if (sendStep === 'confirm' && (recipientAddress || (activeSendTab === 'multi' && parsedRecipients.length > 0)) && sendAmount && displayToken) {
+      if (activeSendTab === 'single') {
+        estimateGasFee();
+      }
+    }
+  }, [sendStep, recipientAddress, sendAmount, displayToken, estimateGasFee, activeSendTab, parsedRecipients]);
+
+  // Parse Multi-Send Input
+  useEffect(() => {
+    if (!multiSendInput.trim()) {
+      setParsedRecipients([]);
+      return;
+    }
+
+    const separators = /[,\n\r\s]+/;
+    const inputs = multiSendInput.split(separators).map(s => s.trim()).filter(Boolean);
+    const validAddresses = inputs.filter(addr => isAddress(addr));
+
+    setParsedRecipients(validAddresses);
+  }, [multiSendInput]);
+
+  const handleCsvUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setIsParsing(true);
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const text = e.target?.result as string;
+      if (text) {
+        // Simple CSV parsing: assume address is in the first column or just list of addresses
+        // We'll treat it similar to text input, split by common separators
+        setMultiSendInput(text); // Update the text area so user can see/edit
+      }
+      setIsParsing(false);
+    };
+    reader.readAsText(file);
+  };
 
   const handleNextClick = useCallback(() => {
-    if (!recipientAddress.trim()) {
-      setSendError('Please enter a recipient address');
-      return;
+    if (activeSendTab === 'single') {
+      if (!recipientAddress.trim()) {
+        setSendError('Please enter a recipient address');
+        return;
+      }
+      if (!isAddress(recipientAddress.trim())) {
+        setSendError('Invalid recipient address');
+        return;
+      }
+    } else {
+      if (parsedRecipients.length === 0) {
+        setSendError('Please enter at least one valid recipient address');
+        return;
+      }
     }
-    if (!isAddress(recipientAddress.trim())) {
-      setSendError('Invalid recipient address');
-      return;
-    }
+
     if (!sendAmount || parseFloat(sendAmount) <= 0) {
       setSendError('Please enter a valid amount');
       return;
@@ -852,16 +922,28 @@ function WalletPageDesktop() {
     }
     setSendError(null);
     setSendStep('confirm');
-  }, [recipientAddress, sendAmount, displayToken]);
+  }, [recipientAddress, sendAmount, displayToken, activeSendTab, parsedRecipients]);
+
+
+
+
 
   // SECURITY FIX: Handle password confirmation for local wallet transactions
   const handlePasswordConfirm = useCallback(async (password: string) => {
-    if (!displayToken || !recipientAddress || !sendAmount || !activeAddress) {
+    if (!displayToken || !sendAmount || !activeAddress) {
       setPasswordError('Missing required information');
       return;
     }
 
+    if (activeSendTab === 'single' && !recipientAddress) {
+      setPasswordError('Missing recipient address'); return;
+    }
+    if (activeSendTab === 'multi' && parsedRecipients.length === 0) {
+      setPasswordError('No recipients found'); return;
+    }
+
     setIsSending(true);
+    if (activeSendTab === 'multi') setIsMultiSending(true);
     setPasswordError(null);
     setShowPasswordModal(false);
 
@@ -875,6 +957,7 @@ function WalletPageDesktop() {
       if (!encrypted) {
         setSendError('This local wallet is not fully set up on this device.');
         setIsSending(false);
+        setIsMultiSending(false);
         return;
       }
 
@@ -887,6 +970,7 @@ function WalletPageDesktop() {
         console.error('[Send] Failed to decrypt local wallet key:', e);
         setPasswordError('Incorrect password. Please try again.');
         setIsSending(false);
+        setIsMultiSending(false);
         setShowPasswordModal(true); // Reopen modal for retry
         return;
       }
@@ -899,35 +983,101 @@ function WalletPageDesktop() {
         }
         const clientToUse = createLocalWalletClient(chainId, account);
 
-        // Execute transaction
-        let hash: `0x${string}`;
-        if (isNative) {
-          hash = await transferNativeToken(clientToUse, recipientAddress.trim(), amount);
+        if (activeSendTab === 'single') {
+          // Execute transaction
+          let hash: `0x${string}`;
+          if (isNative) {
+            hash = await transferNativeToken(clientToUse, recipientAddress.trim(), amount);
+          } else {
+            hash = await transferERC20Token(clientToUse, displayToken.address, recipientAddress.trim(), amount);
+          }
+
+          setTxHash(hash);
+          if (publicClient) {
+            await publicClient.waitForTransactionReceipt({ hash });
+          }
+
+          // Refresh balances immediately
+          refetchBalances();
+          refetchPortfolio();
+
+          setTimeout(() => {
+            setSendStep('form');
+            setSendAmount('');
+            setRecipientAddress('');
+            setTxHash(null);
+            setIsSending(false);
+          }, 2000);
         } else {
-          hash = await transferERC20Token(clientToUse, displayToken.address, recipientAddress.trim(), amount);
+          // Multi-Send Execution (Batch)
+          setMultiSendStatus('Preparing batch transaction...');
+          setMultiSendProgress({ current: 0, total: 1, success: 0, failed: 0 });
+
+          let hash: `0x${string}`;
+
+          if (isNative) {
+            setMultiSendStatus('Signing batch transaction...');
+            hash = await batchTransferNative(clientToUse, parsedRecipients, amount);
+          } else {
+            // ERC20 Batch
+            const totalAmount = amount * BigInt(parsedRecipients.length);
+
+            // Check Allowance
+            const allowance = await publicClient?.readContract({
+              address: displayToken.address as `0x${string}`,
+              abi: erc20Abi,
+              functionName: 'allowance',
+              args: [account.address, DISPERSE_APP_ADDRESS as `0x${string}`],
+            }) as bigint;
+
+            if (allowance < totalAmount) {
+              setMultiSendStatus('Approving tokens...');
+              const approveHash = await clientToUse.writeContract({
+                address: displayToken.address as `0x${string}`,
+                abi: erc20Abi,
+                functionName: 'approve',
+                args: [DISPERSE_APP_ADDRESS as `0x${string}`, totalAmount],
+                chain: clientToUse.chain,
+                account: account,
+              });
+              setMultiSendStatus('Waiting for approval...');
+              if (publicClient) await publicClient.waitForTransactionReceipt({ hash: approveHash });
+            }
+
+            setMultiSendStatus('Signing batch transfer...');
+            hash = await batchTransferERC20(clientToUse, displayToken.address, parsedRecipients, amount);
+          }
+
+          setMultiSendStatus('Transaction sent! Waiting for confirmation...');
+          if (publicClient) await publicClient.waitForTransactionReceipt({ hash });
+
+          setMultiSendProgress({ current: 1, total: 1, success: 1, failed: 0 });
+          setMultiSendStatus('Batch transfer completed successfully!');
+
+          refetchBalances();
+          refetchPortfolio();
+
+          setTimeout(() => {
+            setSendStep('form');
+            setSendAmount('');
+            setMultiSendInput('');
+            setParsedRecipients([]);
+            setIsSending(false);
+            setIsMultiSending(false);
+          }, 3000);
         }
 
-        setTxHash(hash);
-        if (publicClient) {
-          await publicClient.waitForTransactionReceipt({ hash });
-        }
-
-        setTimeout(() => {
-          setSendStep('form');
-          setSendAmount('');
-          setRecipientAddress('');
-          setTxHash(null);
-          setIsSending(false);
-        }, 2000);
       } catch (e: any) {
         console.error('[Send] Failed to create local signer:', e);
         setSendError('Failed to create local signer for this wallet.');
         setIsSending(false);
+        setIsMultiSending(false);
       }
     } catch (error: any) {
       console.error('Error sending transaction:', error);
       setSendError(error?.message || 'Failed to send transaction');
       setIsSending(false);
+      setIsMultiSending(false);
     }
   }, [
     displayToken,
@@ -992,6 +1142,9 @@ function WalletPageDesktop() {
         await publicClient.waitForTransactionReceipt({ hash });
       }
 
+      refetchBalances();
+      refetchPortfolio();
+
       setTimeout(() => {
         setSendStep('form');
         setSendAmount('');
@@ -1015,6 +1168,179 @@ function WalletPageDesktop() {
     chainId,
   ]);
 
+  const handleMultiSend = useCallback(async () => {
+    if (!displayToken || parsedRecipients.length === 0 || !sendAmount) {
+      setSendError('Missing required information');
+      return;
+    }
+
+    // Initialize progress
+    setIsMultiSending(true);
+    setMultiSendStatus('Preparing batch transaction...');
+    // For batch send, we consider the single transaction as the "total" progress step initially, or we can just show "Sending..."
+    setMultiSendProgress({ current: 0, total: 1, success: 0, failed: 0 });
+    setSendError(null);
+
+    // If local wallet, trigger password modal (handled in handlePasswordConfirm)
+    if (isLocalActiveWallet) {
+      setShowPasswordModal(true);
+      return;
+    }
+
+    try {
+      const decimals = displayToken.decimals || 18;
+      const amountPerRecipient = parseUnits(sendAmount, decimals);
+      const isNative = isNativeToken(displayToken.address);
+
+      if (!walletClient) {
+        setSendError('No wallet client available.');
+        setIsMultiSending(false);
+        return;
+      }
+
+      let hash: `0x${string}`;
+
+      if (isNative) {
+        // --- NATIVE TOKEN BATCH SEND ---
+        setMultiSendStatus('Please sign the transaction in your wallet...');
+        hash = await batchTransferNative(walletClient, parsedRecipients, amountPerRecipient);
+      } else {
+        // --- ERC20 TOKEN BATCH SEND ---
+        const totalAmount = amountPerRecipient * BigInt(parsedRecipients.length);
+
+        // 1. Check Allowance for Disperse Contract
+        const allowance = await publicClient.readContract({
+          address: displayToken.address as `0x${string}`,
+          abi: erc20Abi,
+          functionName: 'allowance',
+          args: [wagmiAddress!, DISPERSE_APP_ADDRESS as `0x${string}`],
+        });
+
+        if (allowance < totalAmount) {
+          setMultiSendStatus('Approving tokens for batch transfer...');
+          const approveHash = await walletClient.writeContract({
+            address: displayToken.address as `0x${string}`,
+            abi: erc20Abi,
+            functionName: 'approve',
+            args: [DISPERSE_APP_ADDRESS as `0x${string}`, totalAmount],
+            chain: walletClient.chain,
+            account: walletClient.account,
+          });
+
+          setMultiSendStatus('Waiting for approval confirmation...');
+          await publicClient.waitForTransactionReceipt({ hash: approveHash });
+        }
+
+        // 2. Execute Batch Transfer
+        setMultiSendStatus('Please sign the batch transfer transaction...');
+        hash = await batchTransferERC20(walletClient, displayToken.address, parsedRecipients, amountPerRecipient);
+      }
+
+      setMultiSendStatus('Transaction sent! Waiting for confirmation...');
+      await publicClient.waitForTransactionReceipt({ hash });
+
+      // Success
+      setMultiSendProgress({ current: 1, total: 1, success: 1, failed: 0 });
+      setMultiSendStatus('Batch transfer completed successfully!');
+
+      refetchBalances();
+      refetchPortfolio();
+
+      setTimeout(() => {
+        setSendStep('form');
+        setMultiSendInput('');
+        setParsedRecipients([]);
+        setIsMultiSending(false);
+        setMultiSendStatus('');
+      }, 3000);
+
+    } catch (error: any) {
+      console.error('Multi-send error:', error);
+      setSendError(error?.message || 'Failed batch execution');
+      setMultiSendStatus('Failed');
+    }
+  }, [displayToken, parsedRecipients, sendAmount, walletClient, publicClient, isLocalActiveWallet, chainId, wagmiAddress]);
+
+  // Handle Multi-Send Logic for Local Wallet (called from password modal)
+  const handleLocalMultiSend = useCallback(async (password: string) => {
+    if (!displayToken || parsedRecipients.length === 0 || !sendAmount || !activeAddress) return;
+
+    setIsMultiSending(true);
+    setShowPasswordModal(false);
+    setPasswordError(null);
+    setMultiSendStatus('Initializing local wallet...');
+    setMultiSendProgress({ current: 0, total: parsedRecipients.length, success: 0, failed: 0 });
+
+    try {
+      // Decrypt ONCE
+      const encrypted = getEncryptedPrivateKey(activeAddress);
+      if (!encrypted) throw new Error('Wallet not found locally');
+
+      let privateKey: `0x${string}`;
+      try {
+        const decrypted = await decryptWalletData(encrypted, password);
+        privateKey = decrypted as `0x${string}`;
+      } catch (e) {
+        setPasswordError('Incorrect password');
+        setShowPasswordModal(true);
+        setIsMultiSending(false);
+        return;
+      }
+
+      const account = privateKeyToAccount(privateKey);
+      const clientToUse = createLocalWalletClient(chainId, account);
+
+      const decimals = displayToken.decimals || 18;
+      const amount = parseUnits(sendAmount, decimals);
+      const isNative = isNativeToken(displayToken.address);
+
+      for (let i = 0; i < parsedRecipients.length; i++) {
+        const recipient = parsedRecipients[i];
+        setMultiSendProgress(prev => ({ ...prev, current: i + 1 }));
+        setMultiSendStatus(`Sending to ${recipient.slice(0, 6)}... (${i + 1}/${parsedRecipients.length})`);
+
+        try {
+          let hash: `0x${string}`;
+          if (isNative) {
+            hash = await transferNativeToken(clientToUse, recipient, amount);
+          } else {
+            hash = await transferERC20Token(clientToUse, displayToken.address, recipient, amount);
+          }
+
+          if (publicClient) {
+            await publicClient.waitForTransactionReceipt({ hash });
+          }
+          setMultiSendProgress(prev => ({ ...prev, success: prev.success + 1 }));
+        } catch (e) {
+          console.error(`Failed to send to ${recipient}`, e);
+          setMultiSendProgress(prev => ({ ...prev, failed: prev.failed + 1 }));
+        }
+      }
+
+      setMultiSendStatus('Completed!');
+      setTimeout(() => {
+        setSendStep('form');
+        setMultiSendInput('');
+        setParsedRecipients([]);
+        setIsMultiSending(false);
+        setMultiSendStatus('');
+      }, 3000);
+
+    } catch (error: any) {
+      setSendError(error.message);
+      setIsMultiSending(false);
+    }
+  }, [displayToken, parsedRecipients, sendAmount, activeAddress, chainId, publicClient]);
+
+  // Modified Password Confirm to route to appropriate handler
+  const onPasswordSubmit = useCallback((password: string) => {
+    if (activeSendTab === 'multi') {
+      handleLocalMultiSend(password);
+    } else {
+      handlePasswordConfirm(password);
+    }
+  }, [activeSendTab, handleLocalMultiSend, handlePasswordConfirm]);
+
   // Calculate USD value of send amount
   const sendAmountUSD = useMemo(() => {
     if (!sendAmount || !displayToken?.priceUSD) return '0.00';
@@ -1029,13 +1355,17 @@ function WalletPageDesktop() {
   const dailyChangeText = balanceData?.dailyChangeFormatted;
   const dailyChangeColor = balanceData?.dailyChangeColor || '#3FEA9B';
 
-  const handleCopy = async () => {
-    if (!inputRef.current) return;
-
-    await navigator.clipboard.writeText(inputRef.current.value);
-    setCopied(true);
-
-    setTimeout(() => setCopied(false), 1500);
+  const handlePaste = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (activeSendTab === 'single') {
+        setRecipientAddress(text);
+      } else {
+        setMultiSendInput(text);
+      }
+    } catch (err) {
+      console.error('Failed to paste:', err);
+    }
   };
 
   return (
@@ -1066,9 +1396,9 @@ function WalletPageDesktop() {
               </div>
             ) : balanceError ? (
               <>
-            <h1 className="mt-1 text-3xl font-bold text-[#E6ECE9]">
+                <h1 className="mt-1 text-3xl font-bold text-[#E6ECE9]">
                   {isBalanceVisible ? "$0.00" : "****"}
-            </h1>
+                </h1>
                 <p className="mt-1 text-sm text-[#FF4444]">
                   Error loading balance
                 </p>
@@ -1081,10 +1411,24 @@ function WalletPageDesktop() {
                 {dailyChangeText ? (
                   <p className="mt-1 text-sm" style={{ color: dailyChangeColor }}>
                     {isBalanceVisible ? dailyChangeText : "****"} <span className="text-[#9DA4AE]">today</span>
-            </p>
+                    <button
+                      onClick={() => { refetchBalances(); refetchPortfolio(); }}
+                      className="ml-2 text-[#B1F128] text-xs hover:underline"
+                      title="Refresh Balance"
+                    >
+                      Refresh
+                    </button>
+                  </p>
                 ) : (
                   <p className="mt-1 text-sm text-[#9DA4AE]">
                     No change data available
+                    <button
+                      onClick={() => { refetchBalances(); refetchPortfolio(); }}
+                      className="ml-2 text-[#B1F128] text-xs hover:underline"
+                      title="Refresh Balance"
+                    >
+                      Refresh
+                    </button>
                   </p>
                 )}
               </>
@@ -1101,18 +1445,18 @@ function WalletPageDesktop() {
               <button
                 onClick={() => setActiveLeftTab("assets")}
                 className={`cursor-pointer rounded-full font-semibold text-base px-4 py-1 ${activeLeftTab === "assets"
-                    ? "bg-[#081F02] text-[#B1F128]"
-                    : "text-[#6E7873]"
-                }`}
+                  ? "bg-[#081F02] text-[#B1F128]"
+                  : "text-[#6E7873]"
+                  }`}
               >
                 Assets
               </button>
               <button
                 onClick={() => setActiveLeftTab("nft")}
                 className={`cursor-pointer rounded-full font-semibold text-base px-4 py-1 ${activeLeftTab === "nft"
-                    ? "bg-[#081F02] text-[#B1F128]"
-                    : "text-[#6E7873]"
-                }`}
+                  ? "bg-[#081F02] text-[#B1F128]"
+                  : "text-[#6E7873]"
+                  }`}
               >
                 NFTs
               </button>
@@ -1136,13 +1480,13 @@ function WalletPageDesktop() {
                   onClick={() => setIsSearchOpen(true)}
                   className="bg-[#1B1B1B] h-5 w-5 flex items-center justify-center rounded-full cursor-pointer transition-colors hover:bg-[#252525]"
                 >
-              <Image
-                src="/assets/icons/search-01.svg"
+                  <Image
+                    src="/assets/icons/search-01.svg"
                     alt="Search"
-                width={20}
-                height={20}
+                    width={20}
+                    height={20}
                     className="p-1"
-              />
+                  />
                 </button>
               )}
               {/* TOGGLE FILTER BUTTON */}
@@ -1190,75 +1534,74 @@ function WalletPageDesktop() {
                     </p>
                   </div>
                 ) : (
-              <ul className="space-y-3">
+                  <ul className="space-y-3">
                     {assets.map((asset, i) => {
                       // Find corresponding WalletToken for this asset
                       const token = walletTokens?.find(
-                        t => t.symbol === asset.symbol && 
-                             parseFloat(t.usdValue || '0') > 0
+                        t => t.symbol === asset.symbol &&
+                          parseFloat(t.usdValue || '0') > 0
                       );
-                      const isSelected = selectedSendToken && token && 
+                      const isSelected = selectedSendToken && token &&
                         selectedSendToken.symbol === token.symbol &&
                         selectedSendToken.address === token.address &&
                         selectedSendToken.chainId === token.chainId;
-                      
+
                       return (
-                  <li
-                    key={i}
-                        onClick={() => handleAssetClick(asset)}
-                        className={`grid grid-cols-[20px_100px_100px_2fr] gap-3 items-center rounded-xl px-2 py-3 cursor-pointer transition-all ${
-                          isSelected 
-                            ? "bg-[#1F261E] border border-[#B1F128]/30" 
+                        <li
+                          key={i}
+                          onClick={() => handleAssetClick(asset)}
+                          className={`grid grid-cols-[20px_100px_100px_2fr] gap-3 items-center rounded-xl px-2 py-3 cursor-pointer transition-all ${isSelected
+                            ? "bg-[#1F261E] border border-[#B1F128]/30"
                             : "bg-[#0E1310] hover:bg-[#141A16]"
-                        }`}
-                  >
-                        {/* Column 1: Logo */}
-                        <div className="shrink-0 flex items-center justify-start">
-                      <Image
-                        src={asset.icon}
-                        alt={`${asset.symbol} icon`}
-                        width={20}
-                        height={20}
-                            className="opacity-90 rounded-full"
-                      />
-                        </div>
-
-                        {/* Column 2: Symbol and Name (Fixed width to keep chart aligned) */}
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium text-[#FFFFFF] truncate">
-                          {asset.symbol}
-                        </p>
-                          <p className="text-xs text-[#8A929A] truncate">{asset.name}</p>
-                    </div>
-
-                        {/* Column 3: Chart (Fixed position, justify-start) */}
-                        <div className="flex justify-start shrink-0">
-                      <Image
-                        src={asset.trend === "bearish" ? bearish : bullish}
-                        alt={`${asset.symbol} chart`}
-                        width={80}
-                        height={28}
-                        className="opacity-90"
-                      />
-                    </div>
-
-                        {/* Column 4: Amount and USD Value (Right-aligned) */}
-                        <div className="text-right min-w-0">
-                          <p className="text-sm font-medium text-[#FFF] break-all">
-                        {isBalanceVisible ? asset.amount : "****"}
-                      </p>
-                      <p className="text-xs text-[#8A929A]">{isBalanceVisible ? asset.value : "****"}</p>
-                    </div>
-                        {/* Selected indicator */}
-                        {isSelected && (
-                          <div className="absolute top-2 right-2">
-                            <div className="w-2 h-2 rounded-full bg-[#B1F128]" />
+                            }`}
+                        >
+                          {/* Column 1: Logo */}
+                          <div className="shrink-0 flex items-center justify-start">
+                            <Image
+                              src={asset.icon}
+                              alt={`${asset.symbol} icon`}
+                              width={20}
+                              height={20}
+                              className="opacity-90 rounded-full"
+                            />
                           </div>
-                        )}
-                  </li>
+
+                          {/* Column 2: Symbol and Name (Fixed width to keep chart aligned) */}
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium text-[#FFFFFF] truncate">
+                              {asset.symbol}
+                            </p>
+                            <p className="text-xs text-[#8A929A] truncate">{asset.name}</p>
+                          </div>
+
+                          {/* Column 3: Chart (Fixed position, justify-start) */}
+                          <div className="flex justify-start shrink-0">
+                            <Image
+                              src={asset.trend === "bearish" ? bearish : bullish}
+                              alt={`${asset.symbol} chart`}
+                              width={80}
+                              height={28}
+                              className="opacity-90"
+                            />
+                          </div>
+
+                          {/* Column 4: Amount and USD Value (Right-aligned) */}
+                          <div className="text-right min-w-0">
+                            <p className="text-sm font-medium text-[#FFF] break-all">
+                              {isBalanceVisible ? asset.amount : "****"}
+                            </p>
+                            <p className="text-xs text-[#8A929A]">{isBalanceVisible ? asset.value : "****"}</p>
+                          </div>
+                          {/* Selected indicator */}
+                          {isSelected && (
+                            <div className="absolute top-2 right-2">
+                              <div className="w-2 h-2 rounded-full bg-[#B1F128]" />
+                            </div>
+                          )}
+                        </li>
                       );
                     })}
-              </ul>
+                  </ul>
                 )}
               </>
             )}
@@ -1272,11 +1615,11 @@ function WalletPageDesktop() {
                   <div className="flex flex-col items-center justify-center py-8 text-center">
                     <p className="text-sm text-[#FF4444] mb-2">
                       Error loading NFTs
-                        </p>
+                    </p>
                     <p className="text-xs text-[#8A929A]">
                       {nftsError}
-                        </p>
-                      </div>
+                    </p>
+                  </div>
                 ) : nfts.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-8 text-center">
                     <p className="text-sm text-[#8A929A] mb-2">
@@ -1285,7 +1628,7 @@ function WalletPageDesktop() {
                     <p className="text-xs text-[#6E7873]">
                       Start collecting NFTs to see them here
                     </p>
-                      </div>
+                  </div>
                 ) : (
                   <NFTGrid
                     nfts={nfts}
@@ -1309,26 +1652,25 @@ function WalletPageDesktop() {
                     { label: "Highest Value → Lowest", value: 'value' as const },
                     { label: "Recent Activity", value: 'recent' as const }
                   ].map((option) => (
-                      <label
+                    <label
                       key={option.value}
-                        className="flex items-center gap-3 cursor-pointer group"
-                      >
-                        <input
-                          type="radio"
-                          name="sort"
+                      className="flex items-center gap-3 cursor-pointer group"
+                    >
+                      <input
+                        type="radio"
+                        name="sort"
                         checked={sortBy === option.value}
                         onChange={() => setSortBy(option.value)}
-                          className="peer sr-only"
-                        />
-                      <div className={`w-4 h-4 rounded border transition-colors ${
-                        sortBy === option.value
-                          ? 'border-[#B1F128] bg-[#B1F128]'
-                          : 'border-[#3E453E]'
-                      }`} />
-                        <span className="text-xs text-[#B5B5B5] group-hover:text-white transition-colors">
+                        className="peer sr-only"
+                      />
+                      <div className={`w-4 h-4 rounded border transition-colors ${sortBy === option.value
+                        ? 'border-[#B1F128] bg-[#B1F128]'
+                        : 'border-[#3E453E]'
+                        }`} />
+                      <span className="text-xs text-[#B5B5B5] group-hover:text-white transition-colors">
                         {option.label}
-                        </span>
-                      </label>
+                      </span>
+                    </label>
                   ))}
                 </div>
               </div>
@@ -1343,10 +1685,10 @@ function WalletPageDesktop() {
                     (label) => {
                       const isChecked = selectedCategories.includes(label);
                       return (
-                      <label
+                        <label
                           key={label}
-                        className="flex items-center gap-3 cursor-pointer group"
-                      >
+                          className="flex items-center gap-3 cursor-pointer group"
+                        >
                           <input
                             type="checkbox"
                             checked={isChecked}
@@ -1359,15 +1701,14 @@ function WalletPageDesktop() {
                             }}
                             className="peer sr-only"
                           />
-                          <div className={`w-4 h-4 rounded border shrink-0 transition-colors ${
-                            isChecked
-                              ? 'border-[#B1F128] bg-[#B1F128]'
-                              : 'border-[#3E453E]'
-                          }`} />
-                        <span className="text-xs text-[#B5B5B5] group-hover:text-white transition-colors whitespace-nowrap">
-                          {label}
-                        </span>
-                      </label>
+                          <div className={`w-4 h-4 rounded border shrink-0 transition-colors ${isChecked
+                            ? 'border-[#B1F128] bg-[#B1F128]'
+                            : 'border-[#3E453E]'
+                            }`} />
+                          <span className="text-xs text-[#B5B5B5] group-hover:text-white transition-colors whitespace-nowrap">
+                            {label}
+                          </span>
+                        </label>
                       );
                     }
                   )}
@@ -1381,10 +1722,10 @@ function WalletPageDesktop() {
                   {["BSC", "Polygon", "Ethereum", "Solana"].map((label) => {
                     const isChecked = selectedChains.includes(label);
                     return (
-                    <label
+                      <label
                         key={label}
-                      className="flex items-center gap-3 cursor-pointer group"
-                    >
+                        className="flex items-center gap-3 cursor-pointer group"
+                      >
                         <input
                           type="checkbox"
                           checked={isChecked}
@@ -1397,15 +1738,14 @@ function WalletPageDesktop() {
                           }}
                           className="peer sr-only"
                         />
-                        <div className={`w-4 h-4 rounded border shrink-0 transition-colors ${
-                          isChecked
-                            ? 'border-[#B1F128] bg-[#B1F128]'
-                            : 'border-[#3E453E]'
-                        }`} />
-                      <span className="text-xs text-[#B5B5B5] group-hover:text-white transition-colors">
-                        {label}
-                      </span>
-                    </label>
+                        <div className={`w-4 h-4 rounded border shrink-0 transition-colors ${isChecked
+                          ? 'border-[#B1F128] bg-[#B1F128]'
+                          : 'border-[#3E453E]'
+                          }`} />
+                        <span className="text-xs text-[#B5B5B5] group-hover:text-white transition-colors">
+                          {label}
+                        </span>
+                      </label>
                     );
                   })}
                 </div>
@@ -1440,7 +1780,7 @@ function WalletPageDesktop() {
                 ${activeTab === "send"
                     ? "bg-[#081F02] text-[#B1F128]"
                     : "bg-[#0B0F0A] text-[#B5B5B5]"
-                }`}
+                  }`}
               >
                 <RiSendPlaneLine size={16} />
                 Send
@@ -1452,7 +1792,7 @@ function WalletPageDesktop() {
                 ${activeTab === "receive"
                     ? "bg-[#081F02] text-[#B1F128]"
                     : "bg-[#0B0F0A] text-[#B5B5B5]"
-                }`}
+                  }`}
               >
                 <HiDownload size={16} />
                 Receive
@@ -1462,8 +1802,8 @@ function WalletPageDesktop() {
                 onClick={() => setActiveTab("activities")}
                 className={`flex h-full w-full cursor-pointer items-center justify-center gap-2 rounded-2xl py-3.25 text-sm font-medium transition
                   ${activeTab === "activities"
-                      ? "bg-[#081F02] text-[#B1F128]"
-                      : "bg-[#0B0F0A] text-[#B5B5B5]"
+                    ? "bg-[#081F02] text-[#B1F128]"
+                    : "bg-[#0B0F0A] text-[#B5B5B5]"
                   }`}
               >
                 <MdHistory size={16} />
@@ -1494,9 +1834,9 @@ function WalletPageDesktop() {
                   {tokensLoading ? (
                     <SendFormSkeleton />
                   ) : (
-                <>
-                  {/* Asset Header with Go Back button */}
-                  <div className="mb-2 flex items-start justify-between">
+                    <>
+                      {/* Asset Header with Go Back button */}
+                      <div className="mb-2 flex items-start justify-between">
                         {tokensLoading || isLoadingTWC ? (
                           <div className="space-y-2">
                             <Skeleton className="h-5 w-24 skeleton-shimmer" />
@@ -1504,8 +1844,8 @@ function WalletPageDesktop() {
                             <Skeleton className="h-4 w-40 skeleton-shimmer" />
                           </div>
                         ) : displayToken ? (
-                    <div>
-                      <span className="flex items-center gap-2">
+                          <div>
+                            <span className="flex items-center gap-2">
                               <TokenIcon
                                 src={displayToken.logoURI || getTokenFallbackIcon(displayToken.symbol)}
                                 symbol={displayToken.symbol}
@@ -1514,26 +1854,26 @@ function WalletPageDesktop() {
                                 height={20}
                               />
                               <p className="text-sm text-[#FFF]">{displayToken.symbol}</p>
-                      </span>
-                      <p className="text-xl text-[#FFF] font-medium">
+                            </span>
+                            <p className="text-xl text-[#FFF] font-medium">
                               {isBalanceVisible ? formatTokenAmount(displayToken.balanceFormatted, 6) : "****"}
-                      </p>
-                      <div className="text-xs flex gap-2 items-center">
+                            </p>
+                            <div className="text-xs flex gap-2 items-center">
                               <p className="text-[#8A929A]">
                                 {isBalanceVisible ? formatCurrency(displayToken.usdValue) : "****"}
                               </p>
                               {isBalanceVisible && displayToken.priceChange24h && parseFloat(displayToken.priceChange24h) !== 0 && (
                                 <span className={`${parseFloat(displayToken.priceChange24h) >= 0 ? 'text-[#34C759]' : 'text-[#FF4444]'} flex`}>
-                          <FaArrowUp
-                            size={16}
-                            className="bg-[#1B1B1B] p-1 rounded-full"
-                          />
+                                  <FaArrowUp
+                                    size={16}
+                                    className="bg-[#1B1B1B] p-1 rounded-full"
+                                  />
                                   {Math.abs(parseFloat(displayToken.priceChange24h)).toFixed(2)}%
-                        </span>
+                                </span>
                               )}
-                        <p className="text-[#B5B5B5]">Today</p>
-                      </div>
-                    </div>
+                              <p className="text-[#B5B5B5]">Today</p>
+                            </div>
+                          </div>
                         ) : (
                           <div className="space-y-2">
                             <Skeleton className="h-5 w-24 skeleton-shimmer" />
@@ -1541,76 +1881,80 @@ function WalletPageDesktop() {
                           </div>
                         )}
 
-                    {/* Go Back button - only shown in confirm step */}
-                    {sendStep === "confirm" && (
-                      <button
-                        onClick={() => setSendStep("form")}
-                        className="cursor-pointer flex items-center gap-2 rounded-md border border-[#B1F128] px-3 py-1.5 text-xs text-[#B1F128]"
-                      >
-                        <IoArrowBack size={14} />
-                        Go Back
-                      </button>
-                    )}
-                  </div>
-
-                  {/* Form Step */}
-                  {sendStep === "form" && (
-                      <div className="mb-2 space-y-2">
-                        <div className="bg-[#010501] flex items-center justify-around gap-1 px-2 py-4 rounded-2xl">
+                        {/* Go Back button - only shown in confirm step */}
+                        {sendStep === "confirm" && (
                           <button
-                            onClick={() => setActiveSendTab("single")}
-                            className={`flex h-full cursor-pointer px-6 items-center justify-center gap-2 pb-1 text-sm font-medium
+                            onClick={() => setSendStep("form")}
+                            className="cursor-pointer flex items-center gap-2 rounded-md border border-[#B1F128] px-3 py-1.5 text-xs text-[#B1F128]"
+                          >
+                            <IoArrowBack size={14} />
+                            Go Back
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Form Step */}
+                      {sendStep === "form" && (
+                        <div className="mb-2 space-y-2">
+                          <div className="bg-[#010501] flex items-center justify-around gap-1 px-2 py-4 rounded-2xl">
+                            <button
+                              onClick={() => setActiveSendTab("single")}
+                              className={`flex h-full cursor-pointer px-6 items-center justify-center gap-2 pb-1 text-sm font-medium
                            ${activeSendTab === "single"
-                               ? "border-b-[1.5px] border-[#B1F128] text-[#B1F128]"
-                               : "border-b-[1.5px] border-transparent text-[#B5B5B5]"
-                           }`}
-                          >
-                            Send To One
-                          </button>
+                                  ? "border-b-[1.5px] border-[#B1F128] text-[#B1F128]"
+                                  : "border-b-[1.5px] border-transparent text-[#B5B5B5]"
+                                }`}
+                            >
+                              Send To One
+                            </button>
 
-                          <button
-                            onClick={() => setActiveSendTab("multi")}
-                            className={`flex h-full cursor-pointer px-6 items-center justify-center gap-2 pb-1 text-sm font-medium
+                            <button
+                              onClick={() => {
+                                setActiveSendTab("multi");
+                                setSendError(null);
+                              }}
+                              className={`flex h-full cursor-pointer px-6 items-center justify-center gap-2 pb-1 text-sm font-medium
                            ${activeSendTab === "multi"
-                               ? "border-b-[1.5px] border-[#B1F128] text-[#B1F128]"
-                               : "border-b-[1.5px] border-transparent text-[#B5B5B5]"
-                           }`}
-                          >
-                            Multi-Send
-                          </button>
-                        </div>
+                                  ? "border-b-[1.5px] border-[#B1F128] text-[#B1F128]"
+                                  : "border-b-[1.5px] border-transparent text-[#B5B5B5]"
+                                }`}
+                            >
+                              Multi-Send
+                            </button>
+                          </div>
 
-                        <div className="flex items-center justify-between rounded-xl bg-[#0B0F0A] px-4 py-3">
-                          {/* crypto dropdown */}
+                          <div className="flex items-center justify-between rounded-xl bg-[#0B0F0A] px-4 py-3">
+                            {/* crypto dropdown */}
                             <details ref={sendDropdownRef} className="bg-[#121712] rounded-full group relative w-fit">
-                            {/* Trigger */}
-                            <summary className="flex cursor-pointer list-none items-center gap-3 rounded-full bg-[#121712] px-2 py-3 text-left outline-none">
-                              {/* Icon */}
+                              {/* Trigger */}
+                              <summary className="flex cursor-pointer list-none items-center gap-3 rounded-full bg-[#121712] px-2 py-3 text-left outline-none">
+                                {/* Icon */}
                                 <TokenIcon
                                   src={displayToken.logoURI || getTokenFallbackIcon(displayToken.symbol)}
                                   symbol={displayToken.symbol}
                                   alt={displayToken.name}
-                                width={36}
-                                height={36}
-                                className="shrink-0"
-                              />
+                                  width={36}
+                                  height={36}
+                                  className="shrink-0"
+                                />
 
-                              {/* Text */}
-                              <div className="leading-tight">
-                                <p className="text-sm font-semibold text-[#FFF]">
+                                {/* Text */}
+                                <div className="leading-tight">
+                                  <p className="text-sm font-semibold text-[#FFF]">
                                     {displayToken.symbol}
-                                </p>
-                                <p className="text-xs font-medium text-[#7C7C7C]">
-                                    {displayToken.name}
-                                </p>
-                              </div>
-                              <IoChevronDown
-                                size={16}
-                                className="ml-2 text-[#B5B5B5] transition-transform group-open:rotate-180"
-                              />
-                            </summary>
 
-                            {/* Dropdown menu */}
+                                  </p>
+                                  <p className="text-xs font-medium text-[#7C7C7C]">
+                                    {displayToken.name}
+                                  </p>
+                                </div>
+                                <IoChevronDown
+                                  size={16}
+                                  className="ml-2 text-[#B5B5B5] transition-transform group-open:rotate-180"
+                                />
+                              </summary>
+
+                              {/* Dropdown menu */}
                               <div className="absolute left-0 z-10 mt-2 w-full min-w-55 max-h-[300px] overflow-y-auto rounded-xl bg-[#0B0F0A] p-2 shadow-[0_10px_30px_rgba(0,0,0,0.6)] dropdown-scrollbar">
                                 {availableTokens && availableTokens.length > 0 ? (
                                   availableTokens.map((token) => (
@@ -1623,37 +1967,37 @@ function WalletPageDesktop() {
                                         src={token.logoURI || getTokenFallbackIcon(token.symbol)}
                                         symbol={token.symbol}
                                         alt={token.symbol}
-                                  width={24}
-                                  height={24}
-                                />
-                                <span className="text-sm text-[#E6ECE9]">
+                                        width={24}
+                                        height={24}
+                                      />
+                                      <span className="text-sm text-[#E6ECE9]">
                                         {token.name}
-                                </span>
-                              </button>
+                                      </span>
+                                    </button>
                                   ))
                                 ) : (
                                   <div className="px-3 py-2 text-xs text-[#8A929A]">
                                     No tokens available
                                   </div>
                                 )}
-                            </div>
-                          </details>
+                              </div>
+                            </details>
 
                             <div className="text-right">
                               <span className="flex items-center gap-1 justify-end mb-1">
-                              <BsWallet2 size={10} />
-                              <p className="text-xs text-[#B5B5B5]">
+                                <BsWallet2 size={10} />
+                                <p className="text-xs text-[#B5B5B5]">
                                   {isBalanceVisible ? `${formatTokenAmount(displayToken.balanceFormatted, 6)} ${displayToken.symbol}` : "****"}
-                              </p>
+                                </p>
                                 {isBalanceVisible && (
-                                <button
-                                  onClick={handleMaxClick}
-                                  className="text-[#B1F128] text-xs py-1 px-2 ml-1 rounded-full bg-[#1F261E] hover:bg-[#2A3528] transition-colors cursor-pointer"
-                                >
-                                Max
-                                </button>
+                                  <button
+                                    onClick={handleMaxClick}
+                                    className="text-[#B1F128] text-xs py-1 px-2 ml-1 rounded-full bg-[#1F261E] hover:bg-[#2A3528] transition-colors cursor-pointer"
+                                  >
+                                    Max
+                                  </button>
                                 )}
-                            </span>
+                              </span>
                               <input
                                 type="text"
                                 inputMode="decimal"
@@ -1668,307 +2012,344 @@ function WalletPageDesktop() {
                                 placeholder="0.00"
                                 className="text-right text-white font-medium text-xl bg-transparent border-none outline-none w-full max-w-32"
                               />
-                            <p className="text-right text-[#7C7C7C] font-medium text-xs">
+                              <p className="text-right text-[#7C7C7C] font-medium text-xs">
                                 ${sendAmountUSD}
+                              </p>
+                            </div>
+                          </div>
+
+                          {activeSendTab === "single" ? (
+                            <>
+                              <div className="rounded-xl bg-[#0B0F0A] px-4 py-5">
+                                <p className="font-semibold text-xs mb-2">To:</p>
+                                <span className="relative w-full">
+                                  <input
+                                    ref={inputRef}
+                                    value={recipientAddress}
+                                    onChange={(e) => {
+                                      setRecipientAddress(e.target.value);
+                                      setSendError(null);
+                                    }}
+                                    placeholder="Enter Wallet Address"
+                                    className="w-full rounded-xl bg-[#010501] px-4 py-5 text-sm text-[#E6ECE9] placeholder-[#6E7873] outline-none focus:ring-1 focus:ring-[#B1F128]"
+                                  />
+                                  {/* copy icon */}
+                                  <button
+                                    type="button"
+                                    onClick={handlePaste}
+                                    className="absolute right-4 top-1/2 -translate-y-1/2 cursor-pointer text-[#6E7873] hover:text-[#B1F128]"
+                                    title="Paste"
+                                  >
+                                    <HiClipboard size={18} />
+                                  </button>
+                                </span>
+                              </div>
+                            </>
+                          ) : (
+                            <>
+                              <div className="rounded-xl bg-[#0B0F0A] px-4 py-5">
+                                <div className="flex justify-between items-center mb-2">
+                                  <p className="font-normal text-xs text-[#B5B5B5]">
+                                    Add multiple wallet addresses or upload a list.
+                                  </p>
+                                  <span className="text-xs text-[#B1F128]">
+                                    {parsedRecipients.length} valid
+                                  </span>
+                                </div>
+                                <span className="relative w-full">
+                                  <textarea
+                                    value={multiSendInput}
+                                    onChange={(e) => setMultiSendInput(e.target.value)}
+                                    placeholder="Enter Wallet Addresses (comma or newline separated)"
+                                    className="w-full h-32 rounded-xl bg-[#010501] px-4 py-5 text-sm text-[#E6ECE9] placeholder-[#6E7873] outline-none focus:ring-1 focus:ring-[#B1F128] resize-none"
+                                  />
+                                  {/* copy icon */}
+                                  <button
+                                    type="button"
+                                    onClick={handlePaste}
+                                    className="absolute right-4 top-4 cursor-pointer text-[#6E7873] hover:text-[#B1F128]"
+                                    title="Paste"
+                                  >
+                                    <HiClipboard size={18} />
+                                  </button>
+                                </span>
+                              </div>
+
+                              <div className="relative">
+                                <input
+                                  type="file"
+                                  accept=".csv,.txt"
+                                  onChange={handleCsvUpload}
+                                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                                />
+                                <button className="cursor-pointer w-full rounded-full border border-[#B1F128] bg-transparent py-2 text-sm font-medium text-[#B1F128] flex items-center justify-center gap-2">
+                                  <svg
+                                    width="16"
+                                    height="16"
+                                    viewBox="0 0 16 16"
+                                    fill="none"
+                                  >
+                                    <path
+                                      d="M14 10v2.667A1.333 1.333 0 0112.667 14H3.333A1.333 1.333 0 012 12.667V10m9.333-5.333L8 1.333m0 0L4.667 4.667M8 1.333v9.334"
+                                      stroke="currentColor"
+                                      strokeWidth="1.5"
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                    />
+                                  </svg>
+                                  {isParsing ? 'Parsing...' : 'Attach CSV / Text File'}
+                                </button>
+                              </div>
+                            </>
+                          )}
+
+                          {sendError && (
+                            <div className="text-sm text-red-500 px-4 py-2 bg-red-500/10 rounded-xl">
+                              {sendError}
+                            </div>
+                          )}
+                          <button
+                            onClick={handleNextClick}
+                            className="cursor-pointer w-full rounded-full bg-[#B1F128] py-2 text-base font-semibold text-[#010501] disabled:opacity-50 disabled:cursor-not-allowed"
+                            disabled={(!recipientAddress && activeSendTab === 'single') || (!parsedRecipients.length && activeSendTab === 'multi') || !sendAmount}
+                          >
+                            Next
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Confirm Step */}
+                      {sendStep === "confirm" && (
+                        <>
+                          {/* Confirm Header */}
+                          <div className="bg-[#0B0F0A] px-4 py-4 rounded-2xl mb-2">
+                            <p className="text-center text-sm text-[#B5B5B5]">
+                              Confirm
                             </p>
                           </div>
-                        </div>
 
-                        {activeSendTab === "single" ? (
-                          <>
-                            <div className="rounded-xl bg-[#0B0F0A] px-4 py-5">
-                              <p className="font-semibold text-xs mb-2">To:</p>
-                              <span className="relative w-full">
-                                <input
-                                  ref={inputRef}
-                                  value={recipientAddress}
-                                  onChange={(e) => {
-                                    setRecipientAddress(e.target.value);
-                                    setSendError(null);
-                                  }}
-                                  placeholder="Enter Wallet Address"
-                                  className="w-full rounded-xl bg-[#010501] px-4 py-5 text-sm text-[#E6ECE9] placeholder-[#6E7873] outline-none focus:ring-1 focus:ring-[#B1F128]"
-                                />
-                                {/* copy icon */}
-                                <button
-                                  type="button"
-                                  onClick={handleCopy}
-                                  className="absolute right-4 top-1/2 -translate-y-1/2 cursor-pointer"
-                                >
-                                  {copied ? (
-                                    <FiCheck size={18} />
-                                  ) : (
-                                    <FiCopy size={18} />
-                                  )}
-                                </button>
-                              </span>
-                            </div>
-                          </>
-                        ) : (
-                          <>
-                            <div className="rounded-xl bg-[#0B0F0A] px-4 py-5">
-                              <p className="font-normal text-xs mb-2 text-[#B5B5B5]">
-                                Add multiple wallet addresses or upload a list.
-                              </p>
-                              <span className="relative w-full">
-                                <input
-                                  placeholder="Enter Wallet Addresses"
-                                  className="w-full rounded-xl bg-[#010501] px-4 py-5 text-sm text-[#E6ECE9] placeholder-[#6E7873] outline-none focus:ring-1 focus:ring-[#B1F128]"
-                                />
-                                {/* copy icon */}
-                                <button
-                                  type="button"
-                                  className="absolute right-4 top-1/2 -translate-y-1/2 cursor-pointer"
-                                >
-                                  <FiCopy size={18} />
-                                </button>
-                              </span>
-                            </div>
-
-                            <button className="cursor-pointer w-full rounded-full border border-[#B1F128] bg-transparent py-2 text-sm font-medium text-[#B1F128] flex items-center justify-center gap-2">
-                              <svg
-                                width="16"
-                                height="16"
-                                viewBox="0 0 16 16"
-                                fill="none"
-                              >
-                                <path
-                                  d="M14 10v2.667A1.333 1.333 0 0112.667 14H3.333A1.333 1.333 0 012 12.667V10m9.333-5.333L8 1.333m0 0L4.667 4.667M8 1.333v9.334"
-                                  stroke="currentColor"
-                                  strokeWidth="1.5"
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                />
-                              </svg>
-                              Attach CSV File
-                            </button>
-                          </>
-                        )}
-
-                        {sendError && (
-                          <div className="text-sm text-red-500 px-4 py-2 bg-red-500/10 rounded-xl">
-                            {sendError}
-                          </div>
-                        )}
-                        <button
-                          onClick={handleNextClick}
-                          className="cursor-pointer w-full rounded-full bg-[#B1F128] py-2 text-base font-semibold text-[#010501] disabled:opacity-50 disabled:cursor-not-allowed"
-                          disabled={!recipientAddress || !sendAmount}
-                        >
-                          Next
-                        </button>
-                      </div>
-                  )}
-
-                  {/* Confirm Step */}
-                  {sendStep === "confirm" && (
-                    <>
-                      {/* Confirm Header */}
-                      <div className="bg-[#0B0F0A] px-4 py-4 rounded-2xl mb-2">
-                        <p className="text-center text-sm text-[#B5B5B5]">
-                          Confirm
-                        </p>
-                      </div>
-
-                      {/* Transaction Details */}
-                      <div className="space-y-2 mb-2">
-                        {activeSendTab === "single" ? (
-                          <>
-                            <div className="rounded-xl bg-[#010501] px-4 py-4">
-                              <p className="text-xs text-[#B5B5B5] mb-1">
-                                From
-                              </p>
-                              <p className="text-sm text-[#B5B5B5] break-all">
-                                {connectedAddress || wagmiAddress || 'Not connected'}
-                              </p>
-
-                              <div className="mt-5 flex justify-between items-start">
-                                <div>
+                          {/* Transaction Details */}
+                          <div className="space-y-2 mb-2">
+                            {activeSendTab === "single" ? (
+                              <>
+                                <div className="rounded-xl bg-[#010501] px-4 py-4">
                                   <p className="text-xs text-[#B5B5B5] mb-1">
-                                    To:
+                                    From
                                   </p>
                                   <p className="text-sm text-[#B5B5B5] break-all">
-                                    {recipientAddress || 'Not set'}
+                                    {connectedAddress || wagmiAddress || 'Not connected'}
                                   </p>
-                                </div>
-                                <div className="text-right">
-                                  <p className="text-xs text-[#B5B5B5] mb-1">
-                                    Network
-                                  </p>
-                                  <p className="text-sm text-[#B5B5B5]">{displayToken?.symbol || 'Unknown'}</p>
-                                </div>
-                              </div>
-                              
-                              <div className="mt-4 pt-4 border-t border-[#1B1B1B]">
-                                <p className="text-xs text-[#B5B5B5] mb-1">
-                                  Amount
-                                </p>
-                                <p className="text-sm text-[#FFFFFF] font-medium">
-                                  {sendAmount} {displayToken?.symbol}
-                                </p>
-                                <p className="text-xs text-[#7C7C7C] mt-1">
-                                  ${sendAmountUSD}
-                                </p>
-                              </div>
-                            </div>
 
-                            <div className="rounded-xl bg-[#010501] px-4 py-2 flex justify-between items-center">
-                              <span className="flex items-center gap-2">
-                                <p className="text-sm text-[#B5B5B5]">
-                                  Network Fee:
-                                </p>
-                                <span className="text-[#B5B5B5]">
-                                  <svg
-                                    width="12"
-                                    height="12"
-                                    viewBox="0 0 12 12"
-                                    fill="none"
-                                  >
-                                    <circle
-                                      cx="6"
-                                      cy="6"
-                                      r="5.5"
-                                      stroke="currentColor"
-                                    />
-                                    <text
-                                      x="6"
-                                      y="8.5"
-                                      fontSize="8"
-                                      textAnchor="middle"
-                                      fill="currentColor"
-                                    >
-                                      i
-                                    </text>
-                                  </svg>
-                                </span>
-                              </span>
-                              <div className="text-right">
-                                {estimatedGasFee ? (
-                                  <>
-                                    <p className="text-sm text-[#B5B5B5]">{formatTokenAmount(estimatedGasFee.native, 6)} {estimatedGasFee.symbol}</p>
-                                    <p className="text-xs text-[#B5B5B5]">${estimatedGasFee.usd}</p>
-                                  </>
-                                ) : (
-                                  <p className="text-sm text-[#7C7C7C]">Calculating...</p>
+                                  <div className="mt-5 flex justify-between items-start">
+                                    <div>
+                                      <p className="text-xs text-[#B5B5B5] mb-1">
+                                        To:
+                                      </p>
+                                      <p className="text-sm text-[#B5B5B5] break-all">
+                                        {recipientAddress || 'Not set'}
+                                      </p>
+                                    </div>
+                                    <div className="text-right">
+                                      <p className="text-xs text-[#B5B5B5] mb-1">
+                                        Network
+                                      </p>
+                                      <p className="text-sm text-[#B5B5B5]">{displayToken?.symbol || 'Unknown'}</p>
+                                    </div>
+                                  </div>
+
+                                  <div className="mt-4 pt-4 border-t border-[#1B1B1B]">
+                                    <p className="text-xs text-[#B5B5B5] mb-1">
+                                      Amount
+                                    </p>
+                                    <p className="text-sm text-[#FFFFFF] font-medium">
+                                      {sendAmount} {displayToken?.symbol}
+                                    </p>
+                                    <p className="text-xs text-[#7C7C7C] mt-1">
+                                      ${sendAmountUSD}
+                                    </p>
+                                  </div>
+                                </div>
+
+                                <div className="rounded-xl bg-[#010501] px-4 py-2 flex justify-between items-center">
+                                  <span className="flex items-center gap-2">
+                                    <p className="text-sm text-[#B5B5B5]">
+                                      Network Fee:
+                                    </p>
+                                    <span className="text-[#B5B5B5]">
+                                      <svg
+                                        width="12"
+                                        height="12"
+                                        viewBox="0 0 12 12"
+                                        fill="none"
+                                      >
+                                        <circle
+                                          cx="6"
+                                          cy="6"
+                                          r="5.5"
+                                          stroke="currentColor"
+                                        />
+                                        <text
+                                          x="6"
+                                          y="8.5"
+                                          fontSize="8"
+                                          textAnchor="middle"
+                                          fill="currentColor"
+                                        >
+                                          i
+                                        </text>
+                                      </svg>
+                                    </span>
+                                  </span>
+                                  <div className="text-right">
+                                    {estimatedGasFee ? (
+                                      <>
+                                        <p className="text-sm text-[#B5B5B5]">{formatTokenAmount(estimatedGasFee.native, 6)} {estimatedGasFee.symbol}</p>
+                                        <p className="text-xs text-[#B5B5B5]">${estimatedGasFee.usd}</p>
+                                      </>
+                                    ) : (
+                                      <p className="text-sm text-[#7C7C7C]">Calculating...</p>
+                                    )}
+                                  </div>
+                                </div>
+
+                                {sendError && (
+                                  <div className="text-sm text-red-500 px-4 py-2 bg-red-500/10 rounded-xl">
+                                    {sendError}
+                                  </div>
                                 )}
-                              </div>
-                            </div>
 
-                            {sendError && (
-                              <div className="text-sm text-red-500 px-4 py-2 bg-red-500/10 rounded-xl">
-                                {sendError}
-                              </div>
-                            )}
+                                {txHash && (
+                                  <div className="text-sm text-green-500 px-4 py-2 bg-green-500/10 rounded-xl">
+                                    Transaction sent! Hash: {txHash.slice(0, 10)}...
+                                  </div>
+                                )}
 
-                            {txHash && (
-                              <div className="text-sm text-green-500 px-4 py-2 bg-green-500/10 rounded-xl">
-                                Transaction sent! Hash: {txHash.slice(0, 10)}...
-                              </div>
-                            )}
+                                <button
+                                  onClick={handleConfirmSend}
+                                  disabled={isSending || (!walletClient && !isLocalActiveWallet)}
+                                  className="cursor-pointer w-full rounded-full bg-[#B1F128] py-2 text-base font-semibold text-[#010501] disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                  {isSending ? 'Sending...' : txHash ? 'Transaction Sent!' : 'Confirm'}
+                                </button>
+                              </>
+                            ) : (
+                              <>
+                                <div className="rounded-xl bg-[#010501] px-4 py-4 space-y-4">
+                                  <div>
+                                    <p className="text-xs text-[#B5B5B5] mb-1">
+                                      Total Recipients
+                                    </p>
+                                    <p className="text-sm text-[#E6ECE9]">{parsedRecipients.length}</p>
+                                  </div>
 
-                            <button 
-                              onClick={handleConfirmSend}
-                              disabled={isSending || (!walletClient && !isLocalActiveWallet)}
-                              className="cursor-pointer w-full rounded-full bg-[#B1F128] py-2 text-base font-semibold text-[#010501] disabled:opacity-50 disabled:cursor-not-allowed"
-                            >
-                              {isSending ? 'Sending...' : txHash ? 'Transaction Sent!' : 'Confirm'}
-                            </button>
-                          </>
-                        ) : (
-                          <>
-                            <div className="rounded-xl bg-[#010501] px-4 py-4 space-y-4">
-                              <div>
-                                <p className="text-xs text-[#B5B5B5] mb-1">
-                                  Total Recipients
-                                </p>
-                                <p className="text-sm text-[#B5B5B5]">12</p>
-                              </div>
+                                  <div className="flex justify-between items-start">
+                                    <div>
+                                      <p className="text-xs text-[#B5B5B5] mb-1">
+                                        Amount Per Recipient
+                                      </p>
+                                      <p className="text-sm text-[#B5B5B5]">
+                                        {sendAmount} {displayToken?.symbol}
+                                      </p>
+                                    </div>
+                                    <div className="text-right">
+                                      <p className="text-xs text-[#B5B5B5] mb-1">
+                                        Total Amount
+                                      </p>
+                                      <p className="text-sm text-[#E6ECE9] font-semibold">
+                                        {(parseFloat(sendAmount || '0') * parsedRecipients.length).toFixed(6)} {displayToken?.symbol}
+                                      </p>
+                                    </div>
+                                  </div>
 
-                              <div className="flex justify-between items-start">
-                                <div>
-                                  <p className="text-xs text-[#B5B5B5] mb-1">
-                                    Amount Per Recipient
-                                  </p>
-                                  <p className="text-sm text-[#B5B5B5]">
-                                    10.0 ETH
-                                  </p>
+                                  {/* Recipient Preview */}
+                                  <div className="max-h-32 overflow-y-auto bg-[#121712] rounded-lg p-2 text-xs text-[#B5B5B5]">
+                                    {parsedRecipients.map((arr, i) => (
+                                      <div key={i} className="flex justify-between font-mono">
+                                        <span>{i + 1}. {arr.slice(0, 10)}...{arr.slice(-8)}</span>
+                                      </div>
+                                    ))}
+                                  </div>
                                 </div>
-                                <div className="text-right">
-                                  <p className="text-xs text-[#B5B5B5] mb-1">
-                                    Network
-                                  </p>
-                                  <p className="text-sm text-[#B5B5B5]">ETH</p>
+
+                                <div className="rounded-xl bg-[#010501] px-4 py-2 flex justify-between items-center">
+                                  <span className="flex items-center gap-2">
+                                    <p className="text-sm text-[#B5B5B5]">
+                                      Estimated Multi-Transaction Fee:
+                                    </p>
+                                  </span>
+                                  <div className="text-right">
+                                    {estimatedGasFee ? (
+                                      <>
+                                        <p className="text-sm text-[#B5B5B5]">~{(parseFloat(estimatedGasFee.native) * parsedRecipients.length).toFixed(6)} {estimatedGasFee.symbol}</p>
+                                        <p className="text-xs text-[#B5B5B5]">~${(parseFloat(estimatedGasFee.usd) * parsedRecipients.length).toFixed(2)}</p>
+                                      </>
+                                    ) : (
+                                      <p className="text-sm text-[#7C7C7C]">Calculating based on single tx...</p>
+                                    )}
+                                  </div>
                                 </div>
-                              </div>
-                            </div>
 
-                            <div className="rounded-xl bg-[#010501] px-4 py-2 flex justify-between items-center">
-                              <span className="flex items-center gap-2">
-                                <p className="text-sm text-[#B5B5B5]">
-                                  Estimated Network Fee (Batch Send):
-                                </p>
-                                <span className="text-[#B5B5B5]">
-                                  <svg
-                                    width="12"
-                                    height="12"
-                                    viewBox="0 0 12 12"
-                                    fill="none"
-                                  >
-                                    <circle
-                                      cx="6"
-                                      cy="6"
-                                      r="5.5"
-                                      stroke="currentColor"
-                                    />
-                                    <text
-                                      x="6"
-                                      y="8.5"
-                                      fontSize="8"
-                                      textAnchor="middle"
-                                      fill="currentColor"
-                                    >
-                                      i
-                                    </text>
-                                  </svg>
-                                </span>
-                              </span>
-                              <div className="text-right">
-                                <p className="text-sm text-[#B5B5B5]">
-                                  $0.04460
-                                </p>
-                                <p className="text-xs text-[#B5B5B5]">$0.044</p>
-                              </div>
-                            </div>
+                                {isMultiSending && (
+                                  <div className="text-sm text-[#B1F128] px-4 py-2 bg-[#B1F128]/10 rounded-xl">
+                                    <p>{multiSendStatus}</p>
+                                    <p>Progress: {multiSendProgress.current}/{multiSendProgress.total} (Success: {multiSendProgress.success}, Failed: {multiSendProgress.failed})</p>
+                                    <div className="w-full bg-[#121712] h-1.5 rounded-full mt-2 overflow-hidden">
+                                      <div
+                                        className="bg-[#B1F128] h-full transition-all duration-300"
+                                        style={{ width: `${(multiSendProgress.current / multiSendProgress.total) * 100}%` }}
+                                      />
+                                    </div>
+                                  </div>
+                                )}
 
-                            <button className="cursor-pointer w-full rounded-full bg-[#B1F128] py-2 text-base font-semibold text-[#010501]">
-                              Confirm Multi-Send
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    </>
-                  )}
+                                <button
+                                  onClick={handleMultiSend}
+                                  disabled={isMultiSending}
+                                  className="cursor-pointer w-full rounded-full bg-[#B1F128] py-2 text-base font-semibold text-[#010501] disabled:opacity-50"
+                                >
+                                  {isMultiSending ? 'Sending...' : 'Confirm Multi-Send'}
+                                </button>
+                              </>
+                            )}
+                          </div>
+
+                          {/* Secure Password Modal needs onConfirm updated */}
+                          <SecurePasswordModal
+                            open={showPasswordModal}
+                            onOpenChange={(open) => {
+                              setShowPasswordModal(open);
+                              if (!open) {
+                                setIsSending(false);
+                                setIsMultiSending(false);
+                              }
+                            }}
+                            onConfirm={handlePasswordConfirm}
+                            isLoading={isSending || isMultiSending}
+                            error={passwordError}
+                          />
+                        </>
+                      )}
 
 
                       {/* Chart Placeholder - Only show when not loading */}
                       {!tokensLoading && (
                         <>
-                  <div className="relative h-14 overflow-hidden bg-[#1A1F1C] animate-pulse flex items-center justify-center">
-                    <div className="absolute inset-0 bg-linear-to-r from-transparent via-[#4DFF9A] to-transparent opacity-40 blur-sm" />
-                    <span className="relative z-10 text-xs font-medium tracking-wide text-[#E6ECE9]">
-                      Loading chart...
-                    </span>
-                  </div>
+                          <div className="relative h-14 overflow-hidden bg-[#1A1F1C] animate-pulse flex items-center justify-center">
+                            <div className="absolute inset-0 bg-linear-to-r from-transparent via-[#4DFF9A] to-transparent opacity-40 blur-sm" />
+                            <span className="relative z-10 text-xs font-medium tracking-wide text-[#E6ECE9]">
+                              Loading chart...
+                            </span>
+                          </div>
 
-                  {/* Chart Range */}
-                  <div className="w-full mt-4 flex justify-between gap-4 text-xs text-[#6E7873]">
-                    <span className="text-[#4DFF9A]">1D</span>
-                    <span>1W</span>
-                    <span>1M</span>
-                    <span>1Y</span>
-                    <span>5Y</span>
-                    <span>All</span>
-                  </div>
+                          {/* Chart Range */}
+                          <div className="w-full mt-4 flex justify-between gap-4 text-xs text-[#6E7873]">
+                            <span className="text-[#4DFF9A]">1D</span>
+                            <span>1W</span>
+                            <span>1M</span>
+                            <span>1Y</span>
+                            <span>5Y</span>
+                            <span>All</span>
+                          </div>
                         </>
                       )}
                     </>
@@ -1976,248 +2357,254 @@ function WalletPageDesktop() {
                 </>
               )}
 
-              {/* Receive tab content */}
-              {activeTab === "receive" && (
-                <>
-                  {tokensLoading ? (
-                    <ReceiveSkeleton />
-                  ) : (
-                <div className="space-y-4">
-                  <div className="bg-[#0B0F0A] p-4 rounded-md">
-                    <p className="text-xs text-[#7C7C7C] mb-2">Select Asset</p>
 
-                        {/* Option A: Token Selector Modal (disabled - set USE_TOKEN_MODAL_FOR_RECEIVE = true to enable) */}
-                        {USE_TOKEN_MODAL_FOR_RECEIVE ? (
-                          <>
-                            {/* Token Selector Button */}
-                            <button
-                              onClick={() => {
-                                // setReceiveModalOpen(true);
-                              }}
-                              className="w-full flex items-center gap-3 rounded-full bg-[#121712] p-2 text-left hover:bg-[#1f261e] transition-colors"
-                            >
-                              {displayReceiveToken ? (
-                                <>
-                                  <TokenIcon
-                                    src={displayReceiveToken.logoURI || getTokenFallbackIcon(displayReceiveToken.symbol)}
-                                    symbol={displayReceiveToken.symbol}
-                                    alt={displayReceiveToken.symbol}
-                                    width={36}
-                                    height={36}
-                                  />
-                                  <div className="ml-3 leading-tight flex-1">
-                                    <p className="text-sm font-semibold text-[#FFF]">
-                                      {displayReceiveToken.symbol}
-                                    </p>
-                                    <p className="text-xs font-medium text-[#7C7C7C]">
-                                      {displayReceiveToken.name}
-                                    </p>
-                                  </div>
-                                </>
-                              ) : (
-                                <span className="text-sm text-[#7C7C7C]">Select Token</span>
-                              )}
-                              <IoChevronDown size={16} className="ml-auto text-[#B5B5B5]" />
-                            </button>
-                            {/* Token Selector Modal - Uncomment when approved */}
-                            {/* <TokenSelectorModal
+              {/* Receive tab content */}
+              {
+                activeTab === "receive" && (
+                  <>
+                    {tokensLoading ? (
+                      <ReceiveSkeleton />
+                    ) : (
+                      <div className="space-y-4">
+                        <div className="bg-[#0B0F0A] p-4 rounded-md">
+                          <p className="text-xs text-[#7C7C7C] mb-2">Select Asset</p>
+
+                          {/* Option A: Token Selector Modal (disabled - set USE_TOKEN_MODAL_FOR_RECEIVE = true to enable) */}
+                          {USE_TOKEN_MODAL_FOR_RECEIVE ? (
+                            <>
+                              {/* Token Selector Button */}
+                              <button
+                                onClick={() => {
+                                  // setReceiveModalOpen(true);
+                                }}
+                                className="w-full flex items-center gap-3 rounded-full bg-[#121712] p-2 text-left hover:bg-[#1f261e] transition-colors"
+                              >
+                                {displayReceiveToken ? (
+                                  <>
+                                    <TokenIcon
+                                      src={displayReceiveToken.logoURI || getTokenFallbackIcon(displayReceiveToken.symbol)}
+                                      symbol={displayReceiveToken.symbol}
+                                      alt={displayReceiveToken.symbol}
+                                      width={36}
+                                      height={36}
+                                    />
+                                    <div className="ml-3 leading-tight flex-1">
+                                      <p className="text-sm font-semibold text-[#FFF]">
+                                        {displayReceiveToken.symbol}
+                                      </p>
+                                      <p className="text-xs font-medium text-[#7C7C7C]">
+                                        {displayReceiveToken.name}
+                                      </p>
+                                    </div>
+                                  </>
+                                ) : (
+                                  <span className="text-sm text-[#7C7C7C]">Select Token</span>
+                                )}
+                                <IoChevronDown size={16} className="ml-auto text-[#B5B5B5]" />
+                              </button>
+                              {/* Token Selector Modal - Uncomment when approved */}
+                              {/* <TokenSelectorModal
                               open={receiveModalOpen}
                               onOpenChange={setReceiveModalOpen}
                               onTokenSelect={handleReceiveTokenSelectFromModal}
                               selectedToken={convertWalletTokenToToken(displayReceiveToken)}
                             /> */}
-                          </>
-                        ) : (
-                          /* Option B: Simple Dropdown (ACTIVE) */
-                          <details ref={receiveDropdownRef} className="bg-[#121712] rounded-full group relative w-full">
-                      {/* Trigger */}
-                      <summary className="w-full flex cursor-pointer list-none items-center rounded-full bg-[#121712] p-2 text-left outline-none">
-                              {displayReceiveToken ? (
-                                <>
-                                  <TokenIcon
-                                    src={displayReceiveToken.logoURI || getTokenFallbackIcon(displayReceiveToken.symbol)}
-                                    symbol={displayReceiveToken.symbol}
-                                    alt={displayReceiveToken.symbol}
-                          width={36}
-                          height={36}
-                        />
-                        <div className="ml-3 leading-tight">
-                          <p className="text-sm font-semibold text-[#FFF]">
-                                      {displayReceiveToken.symbol}
-                          </p>
-                          <p className="text-xs font-medium text-[#7C7C7C]">
-                                      {displayReceiveToken.name}
-                          </p>
-                        </div>
-                                </>
-                              ) : (
-                                <>
-                                  <div className="w-9 h-9 rounded-full bg-[#1F261E] flex items-center justify-center shrink-0">
-                                    <span className="text-white text-xs">?</span>
-                                  </div>
-                                  <div className="ml-3 leading-tight">
-                                    <p className="text-sm font-semibold text-[#FFF]">
-                                      Select Token
-                                    </p>
-                                  </div>
-                                </>
-                              )}
-                        <IoChevronDown
-                          size={16}
-                          className="ml-auto text-[#B5B5B5] transition-transform group-open:rotate-180"
-                        />
-                      </summary>
-
-                      {/* Dropdown menu */}
-                            <div className="absolute left-0 z-10 mt-2 w-full min-w-55 max-h-[300px] overflow-y-auto rounded-xl bg-[#0B0F0A] p-2 shadow-[0_10px_30px_rgba(0,0,0,0.6)] dropdown-scrollbar">
-                              {/* Search input */}
-                              <div className="sticky top-0 mb-2 z-10 bg-[#0B0F0A]">
-                                <input
-                                  type="text"
-                                  placeholder="Search tokens..."
-                                  value={receiveTokenSearchQuery}
-                                  onChange={(e) => setReceiveTokenSearchQuery(e.target.value)}
-                                  onClick={(e) => e.stopPropagation()}
-                                  className="w-full px-3 py-2 rounded-lg bg-[#121712] border border-[#1f261e] text-sm text-white placeholder-[#7C7C7C] focus:outline-none focus:border-[#B1F128] transition-colors"
-                                />
-                              </div>
-                              {/* Token list */}
-                              {isLoadingSupportedTokens ? (
-                                <div className="px-3 py-2 text-xs text-[#8A929A]">
-                                  Loading tokens...
-                                </div>
-                              ) : filteredReceiveTokens && filteredReceiveTokens.length > 0 ? (
-                                filteredReceiveTokens.map((token) => (
-                                  <button
-                                    key={`${token.chainId}-${token.address}`}
-                                    onClick={() => {
-                                      handleReceiveTokenSelect(token);
-                                      setReceiveTokenSearchQuery(''); // Clear search on selection
-                                    }}
-                                    className="flex w-full items-center gap-3 rounded-lg px-3 py-2 hover:bg-[#141A16]"
-                                  >
+                            </>
+                          ) : (
+                            /* Option B: Simple Dropdown (ACTIVE) */
+                            <details ref={receiveDropdownRef} className="bg-[#121712] rounded-full group relative w-full">
+                              {/* Trigger */}
+                              <summary className="w-full flex cursor-pointer list-none items-center rounded-full bg-[#121712] p-2 text-left outline-none">
+                                {displayReceiveToken ? (
+                                  <>
                                     <TokenIcon
-                                      src={token.logoURI || getTokenFallbackIcon(token.symbol)}
-                                      symbol={token.symbol}
-                                      alt={token.symbol}
-                                      width={24}
-                                      height={24}
+                                      src={displayReceiveToken.logoURI || getTokenFallbackIcon(displayReceiveToken.symbol)}
+                                      symbol={displayReceiveToken.symbol}
+                                      alt={displayReceiveToken.symbol}
+                                      width={36}
+                                      height={36}
                                     />
-                                    <div className="flex-1 text-left">
-                                      <p className="text-sm font-semibold text-[#E6ECE9]">
-                                        {token.symbol}
+                                    <div className="ml-3 leading-tight">
+                                      <p className="text-sm font-semibold text-[#FFF]">
+                                        {displayReceiveToken.symbol}
                                       </p>
-                                      <p className="text-xs text-[#7C7C7C]">
-                                        {token.name}
+                                      <p className="text-xs font-medium text-[#7C7C7C]">
+                                        {displayReceiveToken.name}
                                       </p>
                                     </div>
-                        </button>
-                                ))
-                              ) : (
-                                <div className="px-3 py-2 text-xs text-[#8A929A]">
-                                  {receiveTokenSearchQuery.trim() ? 'No tokens found' : walletChainType ? 'No tokens available for this wallet type' : 'Connect wallet to see tokens'}
+                                  </>
+                                ) : (
+                                  <>
+                                    <div className="w-9 h-9 rounded-full bg-[#1F261E] flex items-center justify-center shrink-0">
+                                      <span className="text-white text-xs">?</span>
+                                    </div>
+                                    <div className="ml-3 leading-tight">
+                                      <p className="text-sm font-semibold text-[#FFF]">
+                                        Select Token
+                                      </p>
+                                    </div>
+                                  </>
+                                )}
+                                <IoChevronDown
+                                  size={16}
+                                  className="ml-auto text-[#B5B5B5] transition-transform group-open:rotate-180"
+                                />
+                              </summary>
+
+                              {/* Dropdown menu */}
+                              <div className="absolute left-0 z-10 mt-2 w-full min-w-55 max-h-[300px] overflow-y-auto rounded-xl bg-[#0B0F0A] p-2 shadow-[0_10px_30px_rgba(0,0,0,0.6)] dropdown-scrollbar">
+                                {/* Search input */}
+                                <div className="sticky top-0 mb-2 z-10 bg-[#0B0F0A]">
+                                  <input
+                                    type="text"
+                                    placeholder="Search tokens..."
+                                    value={receiveTokenSearchQuery}
+                                    onChange={(e) => setReceiveTokenSearchQuery(e.target.value)}
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="w-full px-3 py-2 rounded-lg bg-[#121712] border border-[#1f261e] text-sm text-white placeholder-[#7C7C7C] focus:outline-none focus:border-[#B1F128] transition-colors"
+                                  />
                                 </div>
-                              )}
+                                {/* Token list */}
+                                {isLoadingSupportedTokens ? (
+                                  <div className="px-3 py-2 text-xs text-[#8A929A]">
+                                    Loading tokens...
+                                  </div>
+                                ) : filteredReceiveTokens && filteredReceiveTokens.length > 0 ? (
+                                  filteredReceiveTokens.map((token) => (
+                                    <button
+                                      key={`${token.chainId}-${token.address}`}
+                                      onClick={() => {
+                                        handleReceiveTokenSelect(token);
+                                        setReceiveTokenSearchQuery(''); // Clear search on selection
+                                      }}
+                                      className="flex w-full items-center gap-3 rounded-lg px-3 py-2 hover:bg-[#141A16]"
+                                    >
+                                      <TokenIcon
+                                        src={token.logoURI || getTokenFallbackIcon(token.symbol)}
+                                        symbol={token.symbol}
+                                        alt={token.symbol}
+                                        width={24}
+                                        height={24}
+                                      />
+                                      <div className="flex-1 text-left">
+                                        <p className="text-sm font-semibold text-[#E6ECE9]">
+                                          {token.symbol}
+                                        </p>
+                                        <p className="text-xs text-[#7C7C7C]">
+                                          {token.name}
+                                        </p>
+                                      </div>
+                                    </button>
+                                  ))
+                                ) : (
+                                  <div className="px-3 py-2 text-xs text-[#8A929A]">
+                                    {receiveTokenSearchQuery.trim() ? 'No tokens found' : walletChainType ? 'No tokens available for this wallet type' : 'Connect wallet to see tokens'}
+                                  </div>
+                                )}
+                              </div>
+                            </details>
+                          )}
+                        </div>
+
+                        {/* Warning */}
+                        <div className="rounded-xl bg-[#2B1F0D] px-4 py-3 text-xs text-center text-[#FFF]">
+                          Only send{" "}
+                          <span className="font-semibold">
+                            {displayReceiveToken ? `${displayReceiveToken.name} (${displayReceiveToken.symbol})` : 'tokens'}
+                          </span> to
+                          this address. Other assets will be lost forever.
+                        </div>
+
+                        {/* QR + Address */}
+                        <div className="flex gap-4">
+                          <div>
+                            <Image
+                              src="/qr-code2.svg"
+                              alt="QR Code"
+                              width={20}
+                              height={20}
+                              className="w-48 h-48 rounded-md"
+                            />
+                          </div>
+
+                          <div className="flex flex-col space-y-4">
+                            <p className="pt-4 text-xs break-all text-[#B5B5B5]">
+                              {connectedAddress || 'Not connected'}
+                            </p>
+                            <button
+                              onClick={() => {
+                                if (connectedAddress) {
+                                  navigator.clipboard.writeText(connectedAddress);
+                                  setCopied(true);
+                                  setTimeout(() => setCopied(false), 2000);
+                                }
+                              }}
+                              className="flex items-center gap-2 rounded-full border border-[#B1F128] w-40 px-3 py-1.5 text-xs text-[#B1F128] hover:bg-[#B1F128]/10 transition-colors"
+                            >
+                              {copied ? <FiCheck size={14} /> : <FiCopy size={14} />}
+                              {copied ? 'Copied!' : 'Copy Address'}
+                            </button>
+
+                            <button
+                              onClick={() => setIsShareModalOpen(true)}
+                              className="flex items-center gap-2 rounded-full border border-[#B1F128] w-40 px-3 py-1.5 text-xs text-[#B1F128] hover:bg-[#B1F128]/10 transition-colors"
+                            >
+                              <GoShareAndroid size={14} />
+                              Share Address
+                            </button>
+                          </div>
+                        </div>
                       </div>
-                    </details>
-                        )}
-                  </div>
-
-                  {/* Warning */}
-                  <div className="rounded-xl bg-[#2B1F0D] px-4 py-3 text-xs text-center text-[#FFF]">
-                    Only send{" "}
-                        <span className="font-semibold">
-                          {displayReceiveToken ? `${displayReceiveToken.name} (${displayReceiveToken.symbol})` : 'tokens'}
-                        </span> to
-                    this address. Other assets will be lost forever.
-                  </div>
-
-                  {/* QR + Address */}
-                  <div className="flex gap-4">
-                    <div>
-                      <Image
-                        src="/qr-code2.svg"
-                        alt="QR Code"
-                        width={20}
-                        height={20}
-                        className="w-48 h-48 rounded-md"
-                      />
-                    </div>
-
-                    <div className="flex flex-col space-y-4">
-                      <p className="pt-4 text-xs break-all text-[#B5B5B5]">
-                            {connectedAddress || 'Not connected'}
-                      </p>
-                          <button 
-                            onClick={() => {
-                              if (connectedAddress) {
-                                navigator.clipboard.writeText(connectedAddress);
-                                setCopied(true);
-                                setTimeout(() => setCopied(false), 2000);
-                              }
-                            }}
-                            className="flex items-center gap-2 rounded-full border border-[#B1F128] w-40 px-3 py-1.5 text-xs text-[#B1F128] hover:bg-[#B1F128]/10 transition-colors"
-                          >
-                            {copied ? <FiCheck size={14} /> : <FiCopy size={14} />}
-                            {copied ? 'Copied!' : 'Copy Address'}
-                      </button>
-
-                          <button 
-                            onClick={() => setIsShareModalOpen(true)}
-                            className="flex items-center gap-2 rounded-full border border-[#B1F128] w-40 px-3 py-1.5 text-xs text-[#B1F128] hover:bg-[#B1F128]/10 transition-colors"
-                          >
-                        <GoShareAndroid size={14} />
-                        Share Address
-                      </button>
-                    </div>
-                  </div>
-                </div>
-                  )}
-                </>
-              )}
+                    )}
+                  </>
+                )
+              }
 
               {/* Activities tab content - Unified (Token + NFT) */}
-              {activeTab === "activities" && (
+              {
+                activeTab === "activities" && (
                   <div className="h-125.5 w-full overflow-y-auto rounded-2xl px-4">
-                  {activitiesLoading ? (
-                    <TransactionListSkeleton />
-                  ) : activitiesError ? (
-                    <div className="flex flex-col items-center justify-center py-12">
-                      <p className="text-red-400 text-sm mb-4">
-                        Error loading activities: {activitiesError}
-                      </p>
-                        </div>
-                  ) : unifiedActivities.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center py-12">
-                      <p className="text-[#8A929A] text-sm">No activities found</p>
-                        </div>
-                  ) : (
-                    <div className="flex flex-col gap-6 mt-2">
-                      {unifiedActivities.map((activity: any) => {
-                        if (activity.type === 'token' && activity.transaction) {
-                          return (
-                            <TransactionRow 
-                              key={activity.id} 
-                              transaction={activity.transaction} 
-                              isBalanceVisible={isBalanceVisible} 
-                            />
-                          );
-                        } else if (activity.type === 'nft' && activity.nftActivity) {
-                          return (
-                            <NFTActivityRow 
-                              key={activity.id} 
-                              activity={activity.nftActivity} 
-                            />
-                          );
-                        }
-                        return null;
-                      })}
+                    {activitiesLoading ? (
+                      <TransactionListSkeleton />
+                    ) : activitiesError ? (
+                      <div className="flex flex-col items-center justify-center py-12">
+                        <p className="text-red-400 text-sm mb-4">
+                          Error loading activities: {activitiesError}
+                        </p>
+                      </div>
+                    ) : unifiedActivities.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center py-12">
+                        <p className="text-[#8A929A] text-sm">No activities found</p>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col gap-6 mt-2">
+                        {unifiedActivities.map((activity: any) => {
+                          if (activity.type === 'token' && activity.transaction) {
+                            return (
+                              <TransactionRow
+                                key={activity.id}
+                                transaction={activity.transaction}
+                                isBalanceVisible={isBalanceVisible}
+                              />
+                            );
+                          } else if (activity.type === 'nft' && activity.nftActivity) {
+                            return (
+                              <NFTActivityRow
+                                key={activity.id}
+                                activity={activity.nftActivity}
+                              />
+                            );
+                          }
+                          return null;
+                        })}
+                      </div>
+                    )}
                   </div>
-                  )}
-                </div>
-              )}
+                )
+              }
             </>
-          )}
+          )
+          }
         </div>
       </div>
 
@@ -2227,7 +2614,7 @@ function WalletPageDesktop() {
         onOpenChange={setIsShareModalOpen}
         walletAddress={connectedAddress || ''}
       />
-    </section>
+    </section >
   );
 }
 
@@ -2250,7 +2637,7 @@ function WalletPageMobile() {
 
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
-  
+
   // Search and filter state
   const [assetSearchQuery, setAssetSearchQuery] = useState<string>('');
   const [sortBy, setSortBy] = useState<'value' | 'recent'>('value');
@@ -2270,12 +2657,20 @@ function WalletPageMobile() {
   const [estimatedGasFee, setEstimatedGasFee] = useState<{ native: string; usd: string; symbol: string } | null>(null);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [passwordError, setPasswordError] = useState<string | null>(null);
-  
+
   // Receive token selection state
   const [selectedReceiveToken, setSelectedReceiveToken] = useState<WalletToken | null>(null);
   const [receiveTokenSearchQuery, setReceiveTokenSearchQuery] = useState<string>('');
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
-  
+
+  // Multi-Send State
+  const [multiSendInput, setMultiSendInput] = useState<string>('');
+  const [parsedRecipients, setParsedRecipients] = useState<string[]>([]);
+  const [isParsing, setIsParsing] = useState(false);
+  const [isMultiSending, setIsMultiSending] = useState(false);
+  const [multiSendProgress, setMultiSendProgress] = useState<{ current: number; total: number; success: number; failed: number }>({ current: 0, total: 0, success: 0, failed: 0 });
+  const [multiSendStatus, setMultiSendStatus] = useState<string>('');
+
   // Wagmi hooks for wallet interaction (external wallets)
   const { data: walletClient } = useWalletClient();
   const publicClient = usePublicClient();
@@ -2291,10 +2686,10 @@ function WalletPageMobile() {
     [managedWallets, activeWalletId]
   );
   const isLocalActiveWallet = !!activeManagedWallet?.isLocal;
-  
+
   // Get wallet info for chain detection
   const wallet = useWallet();
-  
+
   // Dropdown refs for closing on selection
   const sendDropdownRef = useRef<HTMLDetailsElement>(null);
   const receiveDropdownRef = useRef<HTMLDetailsElement>(null);
@@ -2303,12 +2698,12 @@ function WalletPageMobile() {
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as HTMLElement;
-      
+
       // Close send dropdown if click is outside
       if (sendDropdownRef.current && !sendDropdownRef.current.contains(target)) {
         sendDropdownRef.current.removeAttribute('open');
       }
-      
+
       // Close receive dropdown if click is outside
       if (receiveDropdownRef.current && !receiveDropdownRef.current.contains(target)) {
         receiveDropdownRef.current.removeAttribute('open');
@@ -2334,14 +2729,16 @@ function WalletPageMobile() {
   const {
     data: balanceData,
     isLoading: balanceLoading,
-    error: balanceError
+    error: balanceError,
+    refetch: refetchPortfolio
   } = usePortfolioBalance(connectedAddress);
 
   // Fetch wallet token balances
   const {
     balances: walletTokens,
     isLoading: tokensLoading,
-    error: tokensError
+    error: tokensError,
+    refetch: refetchBalances
   } = useWalletBalances(connectedAddress);
 
   // Fetch wallet transactions
@@ -2379,22 +2776,22 @@ function WalletPageMobile() {
   // Map wallet tokens to portfolio assets format with filtering and sorting
   const assets = useMemo(() => {
     if (!walletTokens || walletTokens.length === 0) return [];
-    
+
     // Start with base assets
     let filteredAssets = mapWalletTokensToAssets(walletTokens, {
       includeZeroBalances: false,
       sortBy: 'value',
     });
-    
+
     // Apply search filter
     if (assetSearchQuery.trim()) {
       const query = assetSearchQuery.trim().toLowerCase();
-      filteredAssets = filteredAssets.filter(asset => 
+      filteredAssets = filteredAssets.filter(asset =>
         asset.symbol.toLowerCase().includes(query) ||
         asset.name.toLowerCase().includes(query)
       );
     }
-    
+
     // Apply chain filter
     if (selectedChains.length > 0) {
       const chainMap: Record<string, number[]> = {
@@ -2403,22 +2800,22 @@ function WalletPageMobile() {
         'Ethereum': [1],
         'Solana': [7565164],
       };
-      
+
       const allowedChainIds = new Set<number>();
       selectedChains.forEach(chainName => {
         const chainIds = chainMap[chainName] || [];
         chainIds.forEach(id => allowedChainIds.add(id));
       });
-      
+
       filteredAssets = filteredAssets.filter(asset => {
         const token = walletTokens?.find(t => t.symbol === asset.symbol);
         return token && allowedChainIds.has(token.chainId);
       });
     }
-    
+
     // Apply category filter (placeholder - would need token metadata)
     // For now, we'll skip category filtering as we don't have category data
-    
+
     // Apply sorting
     if (sortBy === 'value') {
       filteredAssets = filteredAssets.sort((a, b) => {
@@ -2431,7 +2828,7 @@ function WalletPageMobile() {
       // For now, keep original order (which is already sorted by value)
       // In a real implementation, you'd sort by most recent transaction timestamp
     }
-    
+
     return filteredAssets;
   }, [walletTokens, assetSearchQuery, sortBy, selectedChains]);
 
@@ -2448,7 +2845,7 @@ function WalletPageMobile() {
         const aValue = parseFloat(a.usdValue || '0');
         const bValue = parseFloat(b.usdValue || '0');
         return bValue - aValue; // Highest first, same as assets
-    });
+      });
   }, [walletTokens]);
 
   // Get first token from wallet (sorted by USD value, highest first)
@@ -2518,8 +2915,8 @@ function WalletPageMobile() {
   // Handler for clicking asset to select token
   const handleAssetClick = (asset: typeof assets[0]) => {
     const token = walletTokens?.find(
-      t => t.symbol === asset.symbol && 
-           parseFloat(t.usdValue || '0') > 0
+      t => t.symbol === asset.symbol &&
+        parseFloat(t.usdValue || '0') > 0
     );
     if (token) {
       setSelectedSendToken(token);
@@ -2570,7 +2967,7 @@ function WalletPageMobile() {
   // Get chain IDs based on wallet type
   const supportedChainIds = useMemo(() => {
     if (!walletChainType) return [];
-    
+
     if (walletChainType === 'solana') {
       // Return Solana chain ID
       return [SOLANA_CHAIN_ID];
@@ -2580,7 +2977,7 @@ function WalletPageMobile() {
         .filter(chain => chain.type === 'EVM')
         .map(chain => chain.id);
     }
-    
+
     return [];
   }, [walletChainType]);
 
@@ -2600,10 +2997,10 @@ function WalletPageMobile() {
   // Helper function to validate token icon URL
   const isValidTokenIcon = useCallback((logoUrl?: string | null): boolean => {
     if (!logoUrl || typeof logoUrl !== 'string') return false;
-    
+
     const trimmed = logoUrl.trim();
     if (trimmed === '' || trimmed === 'null' || trimmed === 'undefined') return false;
-    
+
     // Valid if it's a valid HTTP/HTTPS URL
     if (/^https?:\/\//i.test(trimmed)) {
       try {
@@ -2613,17 +3010,17 @@ function WalletPageMobile() {
         return false;
       }
     }
-    
+
     // Valid if it's a relative path starting with /
     if (trimmed.startsWith('/')) {
       return true;
     }
-    
+
     // Valid if it's a data URL
     if (trimmed.startsWith('data:')) {
       return true;
     }
-    
+
     return false;
   }, []);
 
@@ -2661,7 +3058,7 @@ function WalletPageMobile() {
 
     if (receiveTokenSearchQuery.trim()) {
       const query = receiveTokenSearchQuery.trim().toLowerCase();
-      filtered = filtered.filter(token => 
+      filtered = filtered.filter(token =>
         token.symbol.toLowerCase().includes(query) ||
         token.name.toLowerCase().includes(query) ||
         token.address.toLowerCase().includes(query)
@@ -2692,21 +3089,125 @@ function WalletPageMobile() {
   const dailyChangeText = balanceData?.dailyChangeFormatted;
   const dailyChangeColor = balanceData?.dailyChangeColor || '#3FEA9B';
 
-  const handleCopy = async () => {
-    if (!inputRef.current) return;
-    await navigator.clipboard.writeText(inputRef.current.value);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
+  const handlePaste = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (activeSendTab === 'single') {
+        setRecipientAddress(text);
+      } else {
+        setMultiSendInput(text);
+      }
+    } catch (err) {
+      console.error('Failed to paste:', err);
+    }
   };
+
+
+
+  // Estimate gas fee for multi-send (approximate)
+  useEffect(() => {
+    if (activeSendTab === 'multi' && parsedRecipients.length > 0 && sendAmount && displayToken) {
+      // Just estimate for one and multiply
+    }
+  }, [activeSendTab, parsedRecipients, sendAmount, displayToken]);
+
+  // Parse Multi-Send Input
+  useEffect(() => {
+    if (!multiSendInput.trim()) {
+      setParsedRecipients([]);
+      return;
+    }
+
+    const separators = /[,\n\r\s]+/;
+    const inputs = multiSendInput.split(separators).map(s => s.trim()).filter(Boolean);
+    const validAddresses = inputs.filter(addr => isAddress(addr));
+
+    setParsedRecipients(validAddresses);
+  }, [multiSendInput]);
+
+  const handleCsvUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setIsParsing(true);
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const text = e.target?.result as string;
+      if (text) {
+        setMultiSendInput(text);
+      }
+      setIsParsing(false);
+    };
+    reader.readAsText(file);
+  };
+
+  const handleMultiSend = useCallback(async () => {
+    if (parsedRecipients.length === 0 || !sendAmount || !displayToken) return;
+    if (!walletClient || !wagmiAddress) return;
+
+    setIsMultiSending(true);
+    setMultiSendStatus('Preparing transactions...');
+    setMultiSendProgress({ current: 0, total: parsedRecipients.length, success: 0, failed: 0 });
+
+    const decimals = displayToken.decimals || 18;
+    const amount = parseUnits(sendAmount, decimals);
+    const isNative = isNativeToken(displayToken.address);
+
+    let successCount = 0;
+    let failedCount = 0;
+
+    for (let i = 0; i < parsedRecipients.length; i++) {
+      const recipient = parsedRecipients[i];
+      setMultiSendStatus(`Sending to ${recipient.slice(0, 6)}...${recipient.slice(-4)} (${i + 1}/${parsedRecipients.length})`);
+      setMultiSendProgress(prev => ({ ...prev, current: i + 1 }));
+
+      try {
+        let hash;
+        if (isNative) {
+          hash = await transferNativeToken(walletClient, recipient, amount);
+        } else {
+          hash = await transferERC20Token(walletClient, displayToken.address, recipient, amount);
+        }
+
+        if (publicClient) {
+          await publicClient.waitForTransactionReceipt({ hash });
+        }
+        successCount++;
+        setMultiSendProgress(prev => ({ ...prev, success: prev.success + 1 }));
+      } catch (error) {
+        console.error(`Failed to send to ${recipient}:`, error);
+        failedCount++;
+        setMultiSendProgress(prev => ({ ...prev, failed: prev.failed + 1 }));
+      }
+    }
+
+    setMultiSendStatus(failedCount === 0 ? 'All transactions completed successfully!' : `Completed with ${failedCount} failures.`);
+
+    setTimeout(() => {
+      setIsMultiSending(false);
+      setSendStep('form');
+      setMultiSendInput('');
+      setParsedRecipients([]);
+    }, 2000);
+
+  }, [displayToken, parsedRecipients, sendAmount, walletClient, publicClient, wagmiAddress]);
 
   // SECURITY FIX: Handle password confirmation for local wallet transactions
   const handlePasswordConfirm = useCallback(async (password: string) => {
-    if (!displayToken || !recipientAddress || !sendAmount || !activeAddress) {
+    if (!displayToken || !sendAmount || !activeAddress) {
       setPasswordError('Missing required information');
       return;
     }
 
+    if (activeSendTab === 'single' && !recipientAddress) {
+      setPasswordError('Missing recipient address'); return;
+    }
+    if (activeSendTab === 'multi' && parsedRecipients.length === 0) {
+      setPasswordError('No recipients found'); return;
+    }
+
     setIsSending(true);
+    if (activeSendTab === 'multi') setIsMultiSending(true);
     setPasswordError(null);
     setShowPasswordModal(false);
 
@@ -2720,6 +3221,7 @@ function WalletPageMobile() {
       if (!encrypted) {
         setSendError('This local wallet is not fully set up on this device.');
         setIsSending(false);
+        setIsMultiSending(false);
         return;
       }
 
@@ -2732,6 +3234,7 @@ function WalletPageMobile() {
         console.error('[Send] Failed to decrypt local wallet key:', e);
         setPasswordError('Incorrect password. Please try again.');
         setIsSending(false);
+        setIsMultiSending(false);
         setShowPasswordModal(true); // Reopen modal for retry
         return;
       }
@@ -2744,35 +3247,75 @@ function WalletPageMobile() {
         }
         const clientToUse = createLocalWalletClient(chainId, account);
 
-        // Execute transaction
-        let hash: `0x${string}`;
-        if (isNative) {
-          hash = await transferNativeToken(clientToUse, recipientAddress.trim(), amount);
+        if (activeSendTab === 'single') {
+          // Execute transaction
+          let hash: `0x${string}`;
+          if (isNative) {
+            hash = await transferNativeToken(clientToUse, recipientAddress.trim(), amount);
+          } else {
+            hash = await transferERC20Token(clientToUse, displayToken.address, recipientAddress.trim(), amount);
+          }
+
+          setTxHash(hash);
+          if (publicClient) {
+            await publicClient.waitForTransactionReceipt({ hash });
+          }
+
+          setTimeout(() => {
+            setSendStep('form');
+            setSendAmount('');
+            setRecipientAddress('');
+            setTxHash(null);
+            setIsSending(false);
+          }, 2000);
         } else {
-          hash = await transferERC20Token(clientToUse, displayToken.address, recipientAddress.trim(), amount);
+          // Multi-Send Execution
+          setMultiSendStatus('Preparing transactions...');
+          setMultiSendProgress({ current: 0, total: parsedRecipients.length, success: 0, failed: 0 });
+
+          let failedCount = 0;
+          for (let i = 0; i < parsedRecipients.length; i++) {
+            const recipient = parsedRecipients[i];
+            setMultiSendStatus(`Sending to ${recipient.slice(0, 6)}... (${i + 1}/${parsedRecipients.length})`);
+            setMultiSendProgress(prev => ({ ...prev, current: i + 1 }));
+
+            try {
+              let hash;
+              if (isNative) {
+                hash = await transferNativeToken(clientToUse, recipient, amount);
+              } else {
+                hash = await transferERC20Token(clientToUse, displayToken.address, recipient, amount);
+              }
+              if (publicClient) await publicClient.waitForTransactionReceipt({ hash });
+              setMultiSendProgress(prev => ({ ...prev, success: prev.success + 1 }));
+            } catch (e) {
+              console.error(e);
+              failedCount++;
+              setMultiSendProgress(prev => ({ ...prev, failed: prev.failed + 1 }));
+            }
+          }
+          setMultiSendStatus(`Completed with ${failedCount} failures.`);
+          setTimeout(() => {
+            setSendStep('form');
+            setSendAmount('');
+            setMultiSendInput('');
+            setParsedRecipients([]);
+            setIsSending(false);
+            setIsMultiSending(false);
+          }, 3000);
         }
 
-        setTxHash(hash);
-        if (publicClient) {
-          await publicClient.waitForTransactionReceipt({ hash });
-        }
-
-        setTimeout(() => {
-          setSendStep('form');
-          setSendAmount('');
-          setRecipientAddress('');
-          setTxHash(null);
-          setIsSending(false);
-        }, 2000);
       } catch (e: any) {
         console.error('[Send] Failed to create local signer:', e);
         setSendError('Failed to create local signer for this wallet.');
         setIsSending(false);
+        setIsMultiSending(false);
       }
     } catch (error: any) {
       console.error('Error sending transaction:', error);
       setSendError(error?.message || 'Failed to send transaction');
       setIsSending(false);
+      setIsMultiSending(false);
     }
   }, [
     displayToken,
@@ -2865,10 +3408,32 @@ function WalletPageMobile() {
                   {dailyChangeText ? (
                     <p className="text-sm flex items-center gap-1" style={{ color: dailyChangeColor }}>
                       {isBalanceVisible ? dailyChangeText : "****"} <span className="text-[#8A929A]">today</span>
-              </p>
+                      <button
+                        onClick={() => { refetchBalances(); refetchPortfolio(); }}
+                        className="ml-2 text-[#B1F128] text-xs"
+                        title="Refresh Balance"
+                      >
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M23 4v6h-6"></path>
+                          <path d="M1 20v-6h6"></path>
+                          <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                        </svg>
+                      </button>
+                    </p>
                   ) : (
                     <p className="text-[#8A929A] text-sm">
                       No change data available
+                      <button
+                        onClick={() => { refetchBalances(); refetchPortfolio(); }}
+                        className="ml-2 text-[#B1F128] text-xs"
+                        title="Refresh Balance"
+                      >
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M23 4v6h-6"></path>
+                          <path d="M1 20v-6h6"></path>
+                          <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                        </svg>
+                      </button>
                     </p>
                   )}
                 </>
@@ -2886,9 +3451,9 @@ function WalletPageMobile() {
                 <button
                   onClick={() => setActiveTab("send")}
                   className={`flex flex-col items-center justify-center py-4 rounded-2xl border transition-all duration-200 ${activeTab === "send"
-                      ? "bg-[#081F02] border-[#B1F128] text-[#B1F128]"
-                      : "bg-[#151A15] border-transparent text-[#8A929A] hover:bg-[#1A201A]"
-                  }`}
+                    ? "bg-[#081F02] border-[#B1F128] text-[#B1F128]"
+                    : "bg-[#151A15] border-transparent text-[#8A929A] hover:bg-[#1A201A]"
+                    }`}
                 >
                   <RiSendPlaneLine size={20} className="mb-2" />
                   <span className="text-xs font-medium">Send</span>
@@ -2896,9 +3461,9 @@ function WalletPageMobile() {
                 <button
                   onClick={() => setActiveTab("receive")}
                   className={`flex flex-col items-center justify-center py-4 rounded-2xl border transition-all duration-200 ${activeTab === "receive"
-                      ? "bg-[#081F02] border-[#B1F128] text-[#B1F128]"
-                      : "bg-[#151A15] border-transparent text-[#8A929A] hover:bg-[#1A201A]"
-                  }`}
+                    ? "bg-[#081F02] border-[#B1F128] text-[#B1F128]"
+                    : "bg-[#151A15] border-transparent text-[#8A929A] hover:bg-[#1A201A]"
+                    }`}
                 >
                   <HiDownload size={20} className="mb-2" />
                   <span className="text-xs font-medium">Receive</span>
@@ -2906,9 +3471,9 @@ function WalletPageMobile() {
                 <button
                   onClick={() => setActiveTab("activities")}
                   className={`flex flex-col items-center justify-center py-4 rounded-2xl border transition-all duration-200 ${activeTab === "activities"
-                      ? "bg-[#081F02] border-[#B1F128] text-[#B1F128]"
-                      : "bg-[#151A15] border-transparent text-[#8A929A] hover:bg-[#1A201A]"
-                  }`}
+                    ? "bg-[#081F02] border-[#B1F128] text-[#B1F128]"
+                    : "bg-[#151A15] border-transparent text-[#8A929A] hover:bg-[#1A201A]"
+                    }`}
                 >
                   <MdHistory size={20} className="mb-2" />
                   <span className="text-xs font-medium">Activities</span>
@@ -2924,18 +3489,18 @@ function WalletPageMobile() {
                     <button
                       onClick={() => setActiveAssetFilter("assets")}
                       className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-colors ${activeAssetFilter === "assets"
-                          ? "bg-[#B1F128] text-black"
-                          : "text-[#8A929A]"
-                      }`}
+                        ? "bg-[#B1F128] text-black"
+                        : "text-[#8A929A]"
+                        }`}
                     >
                       Assets
                     </button>
                     <button
                       onClick={() => setActiveAssetFilter("nft")}
                       className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-colors ${activeAssetFilter === "nft"
-                          ? "bg-[#B1F128] text-black"
-                          : "text-[#8A929A]"
-                      }`}
+                        ? "bg-[#B1F128] text-black"
+                        : "text-[#8A929A]"
+                        }`}
                     >
                       NFTs
                     </button>
@@ -2956,31 +3521,31 @@ function WalletPageMobile() {
                         onClick={() => setIsSearchOpen(true)}
                         className="w-8 h-8 rounded-full bg-[#151A15] flex items-center justify-center"
                       >
-                      <Image
-                        src="/assets/icons/search-01.svg"
-                        alt="search"
-                        width={16}
-                        height={16}
-                      />
-                      </button>
-                    )}
-                      {/* TOGGLE FILTER BUTTON */}
-                      <button
-                        onClick={() => setIsFilterOpen(!isFilterOpen)}
-                      className="bg-[#1B1B1B] h-8 w-8 flex items-center justify-center rounded-full cursor-pointer transition-colors hover:bg-[#252525] shrink-0"
-                      >
-                        {isFilterOpen ? (
-                        <IoClose size={16} className="text-[#B5B5B5]" />
-                        ) : (
-                          <Image
-                            src="/filter.svg"
-                            alt=""
+                        <Image
+                          src="/assets/icons/search-01.svg"
+                          alt="search"
                           width={16}
                           height={16}
-                            className="p-0.5"
-                          />
-                        )}
+                        />
                       </button>
+                    )}
+                    {/* TOGGLE FILTER BUTTON */}
+                    <button
+                      onClick={() => setIsFilterOpen(!isFilterOpen)}
+                      className="bg-[#1B1B1B] h-8 w-8 flex items-center justify-center rounded-full cursor-pointer transition-colors hover:bg-[#252525] shrink-0"
+                    >
+                      {isFilterOpen ? (
+                        <IoClose size={16} className="text-[#B5B5B5]" />
+                      ) : (
+                        <Image
+                          src="/filter.svg"
+                          alt=""
+                          width={16}
+                          height={16}
+                          className="p-0.5"
+                        />
+                      )}
+                    </button>
                   </div>
                 </div>
 
@@ -3007,74 +3572,73 @@ function WalletPageMobile() {
                         </p>
                       </div>
                     ) : (
-                  <div className="space-y-3">
+                      <div className="space-y-3">
                         {assets.map((asset, i) => {
                           const token = walletTokens?.find(
-                            t => t.symbol === asset.symbol && 
-                                 parseFloat(t.usdValue || '0') > 0
+                            t => t.symbol === asset.symbol &&
+                              parseFloat(t.usdValue || '0') > 0
                           );
-                          const isSelected = selectedSendToken && token && 
+                          const isSelected = selectedSendToken && token &&
                             selectedSendToken.symbol === token.symbol &&
                             selectedSendToken.address === token.address &&
                             selectedSendToken.chainId === token.chainId;
-                          
+
                           return (
-                      <div
-                        key={i}
-                            onClick={() => handleAssetClick(asset)}
-                            className={`grid grid-cols-[32px_120px_60px_1fr] gap-3 items-center p-3 rounded-2xl border cursor-pointer transition-all ${
-                              isSelected 
-                                ? "bg-[#1F261E] border-[#B1F128]/30" 
+                            <div
+                              key={i}
+                              onClick={() => handleAssetClick(asset)}
+                              className={`grid grid-cols-[32px_120px_60px_1fr] gap-3 items-center p-3 rounded-2xl border cursor-pointer transition-all ${isSelected
+                                ? "bg-[#1F261E] border-[#B1F128]/30"
                                 : "bg-[#0F120F] border-[#1A1F1A]"
-                            }`}
-                          >
-                            {/* Column 1: Logo */}
-                            <div className="shrink-0 flex items-center justify-start">
-                          <Image
-                            src={asset.icon}
-                            alt={asset.symbol}
-                            width={32}
-                            height={32}
-                                className="rounded-full"
-                          />
+                                }`}
+                            >
+                              {/* Column 1: Logo */}
+                              <div className="shrink-0 flex items-center justify-start">
+                                <Image
+                                  src={asset.icon}
+                                  alt={asset.symbol}
+                                  width={32}
+                                  height={32}
+                                  className="rounded-full"
+                                />
+                              </div>
+
+                              {/* Column 2: Symbol and Name (Fixed width to keep chart aligned) */}
+                              <div className="min-w-0">
+                                <p className="text-sm font-bold text-white truncate">
+                                  {asset.symbol}
+                                </p>
+                                <p className="text-[10px] text-[#8A929A] truncate">
+                                  {asset.name}
+                                </p>
+                              </div>
+
+                              {/* Column 3: Chart (Fixed position, justify-start) */}
+                              <div className="flex justify-start shrink-0">
+                                <Image
+                                  src={asset.trend === "bullish" ? bullish : bearish}
+                                  alt="trend"
+                                  width={60}
+                                  height={20}
+                                />
+                              </div>
+
+                              {/* Column 4: Amount and USD Value (Right-aligned) */}
+                              <div className="text-right min-w-0">
+                                <p className="text-sm font-bold text-white break-all">
+                                  {asset.amount}
+                                </p>
+                                <p className="text-[10px] text-[#8A929A]">
+                                  {asset.value}
+                                </p>
+                              </div>
+                              {/* Selected indicator */}
+                              {isSelected && (
+                                <div className="absolute top-2 right-2">
+                                  <div className="w-2 h-2 rounded-full bg-[#B1F128]" />
+                                </div>
+                              )}
                             </div>
-
-                            {/* Column 2: Symbol and Name (Fixed width to keep chart aligned) */}
-                            <div className="min-w-0">
-                              <p className="text-sm font-bold text-white truncate">
-                              {asset.symbol}
-                            </p>
-                              <p className="text-[10px] text-[#8A929A] truncate">
-                              {asset.name}
-                            </p>
-                          </div>
-
-                            {/* Column 3: Chart (Fixed position, justify-start) */}
-                            <div className="flex justify-start shrink-0">
-                          <Image
-                            src={asset.trend === "bullish" ? bullish : bearish}
-                            alt="trend"
-                            width={60}
-                            height={20}
-                          />
-                        </div>
-
-                            {/* Column 4: Amount and USD Value (Right-aligned) */}
-                            <div className="text-right min-w-0">
-                              <p className="text-sm font-bold text-white break-all">
-                            {asset.amount}
-                          </p>
-                          <p className="text-[10px] text-[#8A929A]">
-                            {asset.value}
-                          </p>
-                        </div>
-                            {/* Selected indicator */}
-                            {isSelected && (
-                              <div className="absolute top-2 right-2">
-                                <div className="w-2 h-2 rounded-full bg-[#B1F128]" />
-                      </div>
-                            )}
-                  </div>
                           );
                         })}
                       </div>
@@ -3088,11 +3652,11 @@ function WalletPageMobile() {
                       <div className="flex flex-col items-center justify-center py-8 text-center">
                         <p className="text-sm text-[#FF4444] mb-2">
                           Error loading NFTs
-                            </p>
+                        </p>
                         <p className="text-xs text-[#8A929A]">
                           {nftsError}
-                            </p>
-                          </div>
+                        </p>
+                      </div>
                     ) : nfts.length === 0 ? (
                       <div className="flex flex-col items-center justify-center py-8 text-center">
                         <p className="text-sm text-[#8A929A] mb-2">
@@ -3101,7 +3665,7 @@ function WalletPageMobile() {
                         <p className="text-xs text-[#6E7873]">
                           Start collecting NFTs to see them here
                         </p>
-                        </div>
+                      </div>
                     ) : (
                       <NFTGrid
                         nfts={nfts}
@@ -3112,149 +3676,146 @@ function WalletPageMobile() {
                     )}
                   </>
                 )}
-                  </div>
-                )}
-
-                {/* FILTER DROPDOWN OVERLAY */}
-                {isFilterOpen && (
-                  <div className="absolute top-68 right-5 z-50 w-70 rounded-3xl bg-[#0B0F0A] p-5 shadow-[0_20px_40px_rgba(0,0,0,0.8)] border border-[#1B1B1B]">
-                    {/* Section 1: Sort By */}
-                    <div className="mb-5">
-                      <h3 className="text-sm font-medium text-white mb-3">
-                        Sort By
-                      </h3>
-                      <div className="space-y-2">
-                        {[
-                          { label: "Highest Value → Lowest", value: 'value' as const },
-                          { label: "Recent Activity", value: 'recent' as const }
-                        ].map((option) => (
-                            <label
-                            key={option.value}
-                              className="flex items-center gap-3 cursor-pointer group"
-                            >
-                              <input
-                                type="radio"
-                              name="sort-mobile"
-                              checked={sortBy === option.value}
-                              onChange={() => setSortBy(option.value)}
-                                className="peer sr-only"
-                              />
-                            <div className={`w-4 h-4 rounded border transition-colors ${
-                              sortBy === option.value
-                                ? 'border-[#B1F128] bg-[#B1F128]'
-                                : 'border-[#3E453E]'
-                            }`} />
-                              <span className="text-xs text-[#B5B5B5] group-hover:text-white transition-colors">
-                              {option.label}
-                              </span>
-                            </label>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Token Category */}
-                    <div className="mb-5">
-                      <h3 className="text-sm font-medium text-white mb-3">
-                        Token Category
-                      </h3>
-                      <div className="grid grid-cols-2 gap-x-2 gap-y-2">
-                        {[
-                          "DeFi Tokens",
-                          "Gaming",
-                          "Meme Coins",
-                          "New Listings",
-                        ].map((label) => {
-                          const isChecked = selectedCategories.includes(label);
-                          return (
-                          <label
-                              key={label}
-                            className="flex items-center gap-3 cursor-pointer group"
-                          >
-                              <input
-                                type="checkbox"
-                                checked={isChecked}
-                                onChange={(e) => {
-                                  if (e.target.checked) {
-                                    setSelectedCategories([...selectedCategories, label]);
-                                  } else {
-                                    setSelectedCategories(selectedCategories.filter(c => c !== label));
-                                  }
-                                }}
-                                className="peer sr-only"
-                              />
-                              <div className={`w-4 h-4 rounded border shrink-0 transition-colors ${
-                                isChecked
-                                  ? 'border-[#B1F128] bg-[#B1F128]'
-                                  : 'border-[#3E453E]'
-                              }`} />
-                            <span className="text-xs text-[#B5B5B5] group-hover:text-white transition-colors whitespace-nowrap">
-                              {label}
-                            </span>
-                          </label>
-                          );
-                        })}
-                      </div>
-                    </div>
-
-                    {/* Section 3: Chain */}
-                    <div className="mb-6">
-                      <h3 className="text-sm font-medium text-white mb-3">
-                        Chain
-                      </h3>
-                      <div className="grid grid-cols-2 gap-x-2 gap-y-2">
-                        {["BSC", "Polygon", "Ethereum", "Solana"].map((label) => {
-                          const isChecked = selectedChains.includes(label);
-                          return (
-                            <label
-                              key={label}
-                              className="flex items-center gap-3 cursor-pointer group"
-                            >
-                              <input
-                                type="checkbox"
-                                checked={isChecked}
-                                onChange={(e) => {
-                                  if (e.target.checked) {
-                                    setSelectedChains([...selectedChains, label]);
-                                  } else {
-                                    setSelectedChains(selectedChains.filter(c => c !== label));
-                                  }
-                                }}
-                                className="peer sr-only"
-                              />
-                              <div className={`w-4 h-4 rounded border shrink-0 transition-colors ${
-                                isChecked
-                                  ? 'border-[#B1F128] bg-[#B1F128]'
-                                  : 'border-[#3E453E]'
-                              }`} />
-                              <span className="text-xs text-[#B5B5B5] group-hover:text-white transition-colors">
-                                {label}
-                              </span>
-                            </label>
-                          );
-                        })}
-                      </div>
-                    </div>
-
-                    {/* Reset Button */}
-                    <button
-                      onClick={() => {
-                        setAssetSearchQuery('');
-                        setSortBy('value');
-                        setSelectedCategories([]);
-                        setSelectedChains([]);
-                      }}
-                      className="w-full bg-[#B1F128] text-[#010501] font-semibold text-sm py-3 rounded-full hover:opacity-90 transition-opacity"
-                    >
-                      Reset filters
-                    </button>
-                  </div>
-                )}
-          </>
+              </div>
             )}
 
-            {/* SEND FLOW */}
-            {activeTab === "send" && (
-              <div className="animate-in fade-in slide-in-from-right-4 duration-300">
+            {/* FILTER DROPDOWN OVERLAY */}
+            {isFilterOpen && (
+              <div className="absolute top-68 right-5 z-50 w-70 rounded-3xl bg-[#0B0F0A] p-5 shadow-[0_20px_40px_rgba(0,0,0,0.8)] border border-[#1B1B1B]">
+                {/* Section 1: Sort By */}
+                <div className="mb-5">
+                  <h3 className="text-sm font-medium text-white mb-3">
+                    Sort By
+                  </h3>
+                  <div className="space-y-2">
+                    {[
+                      { label: "Highest Value → Lowest", value: 'value' as const },
+                      { label: "Recent Activity", value: 'recent' as const }
+                    ].map((option) => (
+                      <label
+                        key={option.value}
+                        className="flex items-center gap-3 cursor-pointer group"
+                      >
+                        <input
+                          type="radio"
+                          name="sort-mobile"
+                          checked={sortBy === option.value}
+                          onChange={() => setSortBy(option.value)}
+                          className="peer sr-only"
+                        />
+                        <div className={`w-4 h-4 rounded border transition-colors ${sortBy === option.value
+                          ? 'border-[#B1F128] bg-[#B1F128]'
+                          : 'border-[#3E453E]'
+                          }`} />
+                        <span className="text-xs text-[#B5B5B5] group-hover:text-white transition-colors">
+                          {option.label}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Token Category */}
+                <div className="mb-5">
+                  <h3 className="text-sm font-medium text-white mb-3">
+                    Token Category
+                  </h3>
+                  <div className="grid grid-cols-2 gap-x-2 gap-y-2">
+                    {[
+                      "DeFi Tokens",
+                      "Gaming",
+                      "Meme Coins",
+                      "New Listings",
+                    ].map((label) => {
+                      const isChecked = selectedCategories.includes(label);
+                      return (
+                        <label
+                          key={label}
+                          className="flex items-center gap-3 cursor-pointer group"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedCategories([...selectedCategories, label]);
+                              } else {
+                                setSelectedCategories(selectedCategories.filter(c => c !== label));
+                              }
+                            }}
+                            className="peer sr-only"
+                          />
+                          <div className={`w-4 h-4 rounded border shrink-0 transition-colors ${isChecked
+                            ? 'border-[#B1F128] bg-[#B1F128]'
+                            : 'border-[#3E453E]'
+                            }`} />
+                          <span className="text-xs text-[#B5B5B5] group-hover:text-white transition-colors whitespace-nowrap">
+                            {label}
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Section 3: Chain */}
+                <div className="mb-6">
+                  <h3 className="text-sm font-medium text-white mb-3">
+                    Chain
+                  </h3>
+                  <div className="grid grid-cols-2 gap-x-2 gap-y-2">
+                    {["BSC", "Polygon", "Ethereum", "Solana"].map((label) => {
+                      const isChecked = selectedChains.includes(label);
+                      return (
+                        <label
+                          key={label}
+                          className="flex items-center gap-3 cursor-pointer group"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedChains([...selectedChains, label]);
+                              } else {
+                                setSelectedChains(selectedChains.filter(c => c !== label));
+                              }
+                            }}
+                            className="peer sr-only"
+                          />
+                          <div className={`w-4 h-4 rounded border shrink-0 transition-colors ${isChecked
+                            ? 'border-[#B1F128] bg-[#B1F128]'
+                            : 'border-[#3E453E]'
+                            }`} />
+                          <span className="text-xs text-[#B5B5B5] group-hover:text-white transition-colors">
+                            {label}
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Reset Button */}
+                <button
+                  onClick={() => {
+                    setAssetSearchQuery('');
+                    setSortBy('value');
+                    setSelectedCategories([]);
+                    setSelectedChains([]);
+                  }}
+                  className="w-full bg-[#B1F128] text-[#010501] font-semibold text-sm py-3 rounded-full hover:opacity-90 transition-opacity"
+                >
+                  Reset filters
+                </button>
+              </div>
+            )}
+          </>
+        )}
+
+        {/* SEND FLOW */}
+        {activeTab === "send" && (
+          <div className="animate-in fade-in slide-in-from-right-4 duration-300">
             {tokensLoading ? (
               <SendFormSkeleton />
             ) : (
@@ -3263,18 +3824,18 @@ function WalletPageMobile() {
                   <button
                     onClick={() => setActiveSendTab("single")}
                     className={`flex-1 pb-3 text-sm font-medium border-b-2 transition-colors ${activeSendTab === "single"
-                        ? "border-[#B1F128] text-[#B1F128]"
-                        : "border-transparent text-[#8A929A]"
-                    }`}
+                      ? "border-[#B1F128] text-[#B1F128]"
+                      : "border-transparent text-[#8A929A]"
+                      }`}
                   >
                     Send To One
                   </button>
                   <button
                     onClick={() => setActiveSendTab("multi")}
                     className={`flex-1 pb-3 text-sm font-medium border-b-2 transition-colors ${activeSendTab === "multi"
-                        ? "border-[#B1F128] text-[#B1F128]"
-                        : "border-transparent text-[#8A929A]"
-                    }`}
+                      ? "border-[#B1F128] text-[#B1F128]"
+                      : "border-transparent text-[#8A929A]"
+                      }`}
                   >
                     Multi-Send
                   </button>
@@ -3322,13 +3883,13 @@ function WalletPageMobile() {
                                     src={token.logoURI || getTokenFallbackIcon(token.symbol)}
                                     symbol={token.symbol}
                                     alt={token.symbol}
-                                width={24}
-                                height={24}
-                              />
-                              <span className="text-sm text-[#E6ECE9]">
+                                    width={24}
+                                    height={24}
+                                  />
+                                  <span className="text-sm text-[#E6ECE9]">
                                     {token.name}
-                              </span>
-                            </button>
+                                  </span>
+                                </button>
                               ))
                             ) : (
                               <div className="px-3 py-2 text-xs text-[#8A929A]">
@@ -3344,12 +3905,12 @@ function WalletPageMobile() {
                           <BsWallet2 />
                           <span>{isBalanceVisible ? `${formatTokenAmount(displayToken.balanceFormatted, 6)}${displayToken.symbol}` : "****"}</span>
                           {isBalanceVisible && (
-                          <button
-                            onClick={handleMaxClick}
-                            className="text-[#B1F128] text-[10px] py-0.5 px-1.5 ml-1 rounded-full bg-[#1F261E]"
-                          >
-                            Max
-                          </button>
+                            <button
+                              onClick={handleMaxClick}
+                              className="text-[#B1F128] text-[10px] py-0.5 px-1.5 ml-1 rounded-full bg-[#1F261E]"
+                            >
+                              Max
+                            </button>
                           )}
                         </div>
                         <input
@@ -3379,36 +3940,85 @@ function WalletPageMobile() {
                             <input
                               ref={inputRef}
                               type="text"
+                              value={recipientAddress}
+                              onChange={(e) => setRecipientAddress(e.target.value)}
                               placeholder="Enter Wallet Address"
                               className="w-full bg-[#050505] rounded-xl py-4 px-4 pr-10 text-sm text-white placeholder-[#585858] outline-none border border-[#1A1F1A] focus:border-[#B1F128]"
                             />
                             <button
-                              onClick={handleCopy}
-                              className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8A929A]"
+                              onClick={handlePaste}
+                              className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8A929A] hover:text-[#B1F128]"
                             >
-                              {copied ? <FiCheck /> : <FiCopy />}
+                              <HiClipboard size={18} />
                             </button>
                           </div>
                         </>
                       ) : (
                         <>
                           <label className="text-xs font-semibold text-white mb-3 block">
-                            To:
+                            To (Multiple):
                           </label>
-                          <div className="relative mb-4">
-                            <p className="text-xs text-[#8A929A] mb-3">
-                              Add multiple wallet addresses or upload a list.
-                            </p>
+                          <div className="relative">
+                            <textarea
+                              value={multiSendInput}
+                              onChange={(e) => setMultiSendInput(e.target.value)}
+                              placeholder="Enter Wallet Addresses (comma or newline separated)"
+                              className="w-full h-32 rounded-xl bg-[#050505] px-4 py-5 text-sm text-[#E6ECE9] placeholder-[#585858] outline-none border border-[#1A1F1A] focus:border-[#B1F128] resize-none"
+                            />
+                            <button
+                              onClick={handlePaste}
+                              className="absolute right-3 top-4 text-[#8A929A] hover:text-[#B1F128]"
+                            >
+                              <HiClipboard size={18} />
+                            </button>
                           </div>
-                          <button className="w-full border border-[#1A1F1A] rounded-xl py-3 flex items-center justify-center gap-2 text-[#8A929A] text-xs hover:border-[#B1F128] transition-colors">
-                            <FiCopy />
-                            <span>Attach CSV File</span>
+                          {isParsing ? (
+                            <p className="text-xs text-[#B1F128] mt-2">Parsing...</p>
+                          ) : parsedRecipients.length > 0 ? (
+                            <p className="text-xs text-[#E6ECE9] mt-2">Found {parsedRecipients.length} valid recipients</p>
+                          ) : multiSendInput.trim() ? (
+                            <p className="text-xs text-[#FF4444] mt-2">No valid addresses found</p>
+                          ) : null}
+
+                          <input
+                            type="file"
+                            id="csvUploadMobile"
+                            accept=".csv,.txt"
+                            onChange={handleCsvUpload}
+                            className="hidden"
+                          />
+                          <button
+                            onClick={() => document.getElementById('csvUploadMobile')?.click()}
+                            className="w-full mt-4 border border-[#1A1F1A] rounded-xl py-3 flex items-center justify-center gap-2 text-[#8A929A] text-xs hover:border-[#B1F128] transition-opacity hover:opacity-80"
+                          >
+                            <HiUpload size={16} />
+                            <span>Attach CSV/TXT File</span>
                           </button>
                         </>
                       )}
                     </div>
                     <button
-                      onClick={() => setSendStep("confirm")}
+                      onClick={() => {
+                        setSendError(null);
+                        if (!sendAmount || parseFloat(sendAmount) <= 0) {
+                          setSendError('Please enter a valid amount');
+                          return;
+                        }
+
+                        if (activeSendTab === 'single') {
+                          if (!recipientAddress || !isAddress(recipientAddress)) {
+                            setSendError('Please enter a valid recipient address');
+                            return;
+                          }
+                        } else {
+                          if (parsedRecipients.length === 0) {
+                            setSendError('Please enter at least one valid recipient address');
+                            return;
+                          }
+                        }
+
+                        setSendStep("confirm");
+                      }}
                       className="w-full bg-[#B1F128] text-black font-bold py-4 rounded-full text-sm hover:opacity-90 transition-opacity"
                     >
                       Next
@@ -3464,14 +4074,28 @@ function WalletPageMobile() {
                           </div>
                           <div className="text-right">
                             <p className="text-xs text-[#E0E0E0] font-medium">
-                              $0.04460
+                              {estimatedGasFee ? `${estimatedGasFee.native} ${estimatedGasFee.symbol}` : 'Calculating...'}
                             </p>
-                            <p className="text-xs text-[#8A929A]">$0.044</p>
+                            <p className="text-xs text-[#8A929A]">
+                              {estimatedGasFee ? `$${estimatedGasFee.usd}` : '...'}
+                            </p>
                           </div>
                         </div>
 
-                        <button className="w-full bg-[#B1F128] text-black font-bold py-4 rounded-full text-sm mt-8 hover:opacity-90 transition-opacity shadow-[0_0_15px_rgba(177,241,40,0.3)]">
-                          Confirm
+                        <button
+                          onClick={() => {
+                            if (isLocalActiveWallet) {
+                              setShowPasswordModal(true);
+                            } else {
+                              // Logic for external single send (could be added if missing)
+                              console.warn('External single send not implemented in this view');
+                              // Fallback or assume implementation elsewhere
+                            }
+                          }}
+                          disabled={isSending}
+                          className="w-full bg-[#B1F128] text-black font-bold py-4 rounded-full text-sm mt-8 hover:opacity-90 transition-opacity shadow-[0_0_15px_rgba(177,241,40,0.3)] disabled:opacity-50"
+                        >
+                          {isSending ? 'Sending...' : 'Confirm'}
                         </button>
                       </div>
                     ) : (
@@ -3482,7 +4106,7 @@ function WalletPageMobile() {
                             Total Recipients:
                           </p>
                           <p className="text-sm text-[#E0E0E0] font-medium">
-                            12
+                            {parsedRecipients.length}
                           </p>
                         </div>
 
@@ -3492,226 +4116,246 @@ function WalletPageMobile() {
                               Amount Per Participant
                             </p>
                             <p className="text-sm text-[#E0E0E0] font-medium">
-                              100 ETH
+                              {sendAmount} {displayToken?.symbol}
                             </p>
                           </div>
                           <div className="text-right">
-                            <p className="text-xs text-[#8A929A] mb-1">
-                              Network
-                            </p>
-                            <p className="text-sm text-[#E0E0E0] font-medium">
-                              ETH
-                            </p>
+                            <p className="text-xs text-[#8A929A] mb-1">Total Amount</p>
+                            <p className="text-sm text-white font-bold">{(parseFloat(sendAmount || '0') * parsedRecipients.length).toFixed(6)} {displayToken?.symbol}</p>
                           </div>
                         </div>
 
-                        <div className="flex justify-between items-start">
-                          <div className="flex items-center gap-1 text-[#8A929A] text-xs max-w-[60%]">
-                            <span>Estimated Network Fee (Batch Send):</span>
-                            <div className="border border-[#8A929A] rounded-full w-3 h-3 flex items-center justify-center text-[8px] shrink-0 opacity-70">
-                              i
+                        {/* Recipient Preview */}
+                        <div className="max-h-32 overflow-y-auto bg-[#121712] rounded-lg p-2 text-xs text-[#B5B5B5]">
+                          {parsedRecipients.map((rec, i) => (
+                            <div key={i} className="flex justify-between font-mono">
+                              <span>{i + 1}. {rec.slice(0, 10)}...{rec.slice(-6)}</span>
+                            </div>
+                          ))}
+                        </div>
+
+                        {isMultiSending && (
+                          <div className="text-sm text-[#B1F128] px-4 py-2 bg-[#B1F128]/10 rounded-xl">
+                            <p>{multiSendStatus}</p>
+                            <p>Progress: {multiSendProgress.current}/{multiSendProgress.total} (Success: {multiSendProgress.success}, Failed: {multiSendProgress.failed})</p>
+                            <div className="w-full bg-[#121712] h-1.5 rounded-full mt-2 overflow-hidden">
+                              <div
+                                className="bg-[#B1F128] h-full transition-all duration-300"
+                                style={{ width: `${(multiSendProgress.current / multiSendProgress.total) * 100}%` }}
+                              />
                             </div>
                           </div>
-                          <div className="text-right">
-                            <p className="text-xs text-[#E0E0E0] font-medium">
-                              $0.04460
-                            </p>
-                            <p className="text-xs text-[#8A929A]">$0.044</p>
-                          </div>
-                        </div>
+                        )}
 
-                        <button className="w-full bg-[#B1F128] text-black font-bold py-4 rounded-full text-sm mt-8 hover:opacity-90 transition-opacity shadow-[0_0_15px_rgba(177,241,40,0.3)]">
-                          Confirm Multi-Send
+                        <button
+                          onClick={() => {
+                            if (isLocalActiveWallet) {
+                              setShowPasswordModal(true);
+                            } else {
+                              handleMultiSend();
+                            }
+                          }}
+                          disabled={isMultiSending || (!walletClient && !isLocalActiveWallet)}
+                          className="w-full bg-[#B1F128] text-black font-bold py-4 rounded-full text-sm mt-8 hover:opacity-90 transition-opacity shadow-[0_0_15px_rgba(177,241,40,0.3)] disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {isMultiSending ? 'Sending...' : 'Confirm Multi-Send'}
                         </button>
                       </div>
                     )}
+
+
                   </div>
                 )}
               </>
-                )}
-              </div>
-            )}
-
-            {/* RECEIVE FLOW */}
-            {activeTab === "receive" && (
-          <>
-            {tokensLoading ? (
-              <ReceiveSkeleton />
-            ) : (
-              <div className="space-y-4">
-                <div className="bg-[#0F120F] p-4 rounded-xl">
-                  <p className="text-xs text-[#7C7C7C] mb-2">Select Asset</p>
-
-                  {/* Asset dropdown */}
-                  <details ref={receiveDropdownRef} className="bg-[#121712] rounded-full group relative w-full">
-                    {/* Trigger */}
-                    <summary className="w-full flex cursor-pointer list-none items-center rounded-full bg-[#121712] p-2 text-left outline-none">
-                      {/* Icon */}
-                      <TokenIcon
-                        src={displayReceiveToken.logoURI || getTokenFallbackIcon(displayReceiveToken.symbol)}
-                        symbol={displayReceiveToken.symbol}
-                        alt={displayReceiveToken.name}
-                        width={36}
-                        height={36}
-                        className="shrink-0"
-                      />
-
-                      {/* Text */}
-                      <div className="ml-3 leading-tight">
-                        <p className="text-sm font-semibold text-[#FFF]">{displayReceiveToken.symbol}</p>
-                        <p className="text-xs font-medium text-[#7C7C7C]">
-                          {displayReceiveToken.name}
-                        </p>
-                      </div>
-                      <IoChevronDown
-                        size={16}
-                        className="ml-auto text-[#B5B5B5] transition-transform group-open:rotate-180"
-                      />
-                    </summary>
-
-                    {/* Dropdown menu */}
-                    <div className="absolute left-0 z-10 mt-2 w-full min-w-55 max-h-[300px] overflow-y-auto rounded-xl bg-[#0B0F0A] p-2 shadow-[0_10px_30px_rgba(0,0,0,0.6)] dropdown-scrollbar">
-                      {/* Search input */}
-                      <div className="sticky top-0 mb-2 z-10 bg-[#0B0F0A]">
-                        <input
-                          type="text"
-                          placeholder="Search tokens..."
-                          value={receiveTokenSearchQuery}
-                          onChange={(e) => setReceiveTokenSearchQuery(e.target.value)}
-                          onClick={(e) => e.stopPropagation()}
-                          className="w-full px-3 py-2 rounded-lg bg-[#121712] border border-[#1f261e] text-sm text-white placeholder-[#7C7C7C] focus:outline-none focus:border-[#B1F128] transition-colors"
-                        />
-                      </div>
-                      {/* Token list */}
-                      {isLoadingSupportedTokens ? (
-                        <div className="px-3 py-2 text-xs text-[#8A929A]">
-                          Loading tokens...
-                        </div>
-                      ) : filteredReceiveTokens && filteredReceiveTokens.length > 0 ? (
-                        filteredReceiveTokens.map((token) => (
-                          <button
-                            key={`${token.chainId}-${token.address}`}
-                            onClick={() => {
-                              handleReceiveTokenSelect(token);
-                              setReceiveTokenSearchQuery(''); // Clear search on selection
-                            }}
-                            className="flex w-full items-center gap-3 rounded-lg px-3 py-2 hover:bg-[#141A16]"
-                          >
-                            <TokenIcon
-                              src={token.logoURI || getTokenFallbackIcon(token.symbol)}
-                              symbol={token.symbol}
-                              alt={token.symbol}
-                              width={24}
-                              height={24}
-                            />
-                            <span className="text-sm text-[#E6ECE9]">{token.name}</span>
-                      </button>
-                        ))
-                      ) : (
-                        <div className="px-3 py-2 text-xs text-[#8A929A]">
-                          {receiveTokenSearchQuery.trim() ? 'No tokens found' : walletChainType ? 'No tokens available for this wallet type' : 'Connect wallet to see tokens'}
-                        </div>
-                      )}
-                    </div>
-                  </details>
-                </div>
-
-                {/* Warning */}
-                <div className="rounded-xl bg-[#2B1F0D] px-1 py-3 text-xs text-center text-[#FFF]">
-                  Only send{" "}
-                  <span className="font-semibold">{displayReceiveToken.name} ({displayReceiveToken.symbol})</span> to this
-                  address. Other assets will be lost forever.
-                </div>
-
-                {/* QR + Address */}
-                <div className="">
-                  <div className="flex justify-center">
-                    <Image
-                      src="/qr-code2.svg"
-                      alt="QR Code"
-                      width={20}
-                      height={20}
-                      className="w-48 h-48 rounded-md"
-                    />
-                  </div>
-
-                  <div className="w-full">
-                    <p className="text-center pt-4 text-xs break-all text-[#B5B5B5]">
-                      {connectedAddress || 'Connect wallet to see address'}
-                    </p>
-
-                    <button 
-                      onClick={async () => {
-                        if (connectedAddress) {
-                          await navigator.clipboard.writeText(connectedAddress);
-                          setCopied(true);
-                          setTimeout(() => setCopied(false), 1500);
-                        }
-                      }}
-                      className="flex w-full items-center justify-center gap-2 rounded-full border border-[#B1F128] px-3 py-1.5 text-xs text-[#B1F128] mt-3"
-                    >
-                      {copied ? <FiCheck size={14} /> : <FiCopy size={14} />}
-                      {copied ? 'Copied!' : 'Copy Address'}
-                    </button>
-
-                    <button 
-                      onClick={() => setIsShareModalOpen(true)}
-                      className="flex w-full items-center justify-center gap-2 rounded-full border border-[#B1F128] px-3 py-1.5 text-xs text-[#B1F128] mt-2"
-                    >
-                      <GoShareAndroid size={14} />
-                      Share Address
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-          </>
-            )}
-
-            {/* ACTIVITIES - Unified (Token + NFT) */}
-            {activeTab === "activities" && (
-              <div className="animate-in fade-in slide-in-from-right-4 duration-300">
-            {activitiesLoading ? (
-              <TransactionListSkeleton />
-            ) : activitiesError ? (
-              <div className="flex flex-col items-center justify-center py-12">
-                <p className="text-red-400 text-sm mb-4">
-                  Error loading activities: {activitiesError}
-                </p>
-                      </div>
-            ) : unifiedActivities.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-12">
-                <p className="text-[#8A929A] text-sm">No activities found</p>
-                      </div>
-            ) : (
-              <div className="flex flex-col gap-6 mt-2">
-                {unifiedActivities.map((activity: any) => {
-                  if (activity.type === 'token' && activity.transaction) {
-                    return (
-                      <TransactionRow 
-                        key={activity.id} 
-                        transaction={activity.transaction} 
-                        isBalanceVisible={isBalanceVisible} 
-                      />
-                    );
-                  } else if (activity.type === 'nft' && activity.nftActivity) {
-                    return (
-                      <NFTActivityRow 
-                        key={activity.id} 
-                        activity={activity.nftActivity} 
-                      />
-                    );
-                  }
-                  return null;
-                })}
-                </div>
-            )}
-              </div>
+            )
+            }
+          </div >
         )}
-      </div>
+
+        {/* RECEIVE FLOW */}
+        {
+          activeTab === "receive" && (
+            <>
+              {tokensLoading ? (
+                <ReceiveSkeleton />
+              ) : (
+                <div className="space-y-4">
+                  <div className="bg-[#0F120F] p-4 rounded-xl">
+                    <p className="text-xs text-[#7C7C7C] mb-2">Select Asset</p>
+
+                    {/* Asset dropdown */}
+                    <details ref={receiveDropdownRef} className="bg-[#121712] rounded-full group relative w-full">
+                      {/* Trigger */}
+                      <summary className="w-full flex cursor-pointer list-none items-center rounded-full bg-[#121712] p-2 text-left outline-none">
+                        {/* Icon */}
+                        <TokenIcon
+                          src={displayReceiveToken.logoURI || getTokenFallbackIcon(displayReceiveToken.symbol)}
+                          symbol={displayReceiveToken.symbol}
+                          alt={displayReceiveToken.name}
+                          width={36}
+                          height={36}
+                          className="shrink-0"
+                        />
+
+                        {/* Text */}
+                        <div className="ml-3 leading-tight">
+                          <p className="text-sm font-semibold text-[#FFF]">{displayReceiveToken.symbol}</p>
+                          <p className="text-xs font-medium text-[#7C7C7C]">
+                            {displayReceiveToken.name}
+                          </p>
+                        </div>
+                        <IoChevronDown
+                          size={16}
+                          className="ml-auto text-[#B5B5B5] transition-transform group-open:rotate-180"
+                        />
+                      </summary>
+
+                      {/* Dropdown menu */}
+                      <div className="absolute left-0 z-10 mt-2 w-full min-w-55 max-h-[300px] overflow-y-auto rounded-xl bg-[#0B0F0A] p-2 shadow-[0_10px_30px_rgba(0,0,0,0.6)] dropdown-scrollbar">
+                        {/* Search input */}
+                        <div className="sticky top-0 mb-2 z-10 bg-[#0B0F0A]">
+                          <input
+                            type="text"
+                            placeholder="Search tokens..."
+                            value={receiveTokenSearchQuery}
+                            onChange={(e) => setReceiveTokenSearchQuery(e.target.value)}
+                            onClick={(e) => e.stopPropagation()}
+                            className="w-full px-3 py-2 rounded-lg bg-[#121712] border border-[#1f261e] text-sm text-white placeholder-[#7C7C7C] focus:outline-none focus:border-[#B1F128] transition-colors"
+                          />
+                        </div>
+                        {/* Token list */}
+                        {isLoadingSupportedTokens ? (
+                          <div className="px-3 py-2 text-xs text-[#8A929A]">
+                            Loading tokens...
+                          </div>
+                        ) : filteredReceiveTokens && filteredReceiveTokens.length > 0 ? (
+                          filteredReceiveTokens.map((token) => (
+                            <button
+                              key={`${token.chainId}-${token.address}`}
+                              onClick={() => {
+                                handleReceiveTokenSelect(token);
+                                setReceiveTokenSearchQuery(''); // Clear search on selection
+                              }}
+                              className="flex w-full items-center gap-3 rounded-lg px-3 py-2 hover:bg-[#141A16]"
+                            >
+                              <TokenIcon
+                                src={token.logoURI || getTokenFallbackIcon(token.symbol)}
+                                symbol={token.symbol}
+                                alt={token.symbol}
+                                width={24}
+                                height={24}
+                              />
+                              <span className="text-sm text-[#E6ECE9]">{token.name}</span>
+                            </button>
+                          ))
+                        ) : (
+                          <div className="px-3 py-2 text-xs text-[#8A929A]">
+                            {receiveTokenSearchQuery.trim() ? 'No tokens found' : walletChainType ? 'No tokens available for this wallet type' : 'Connect wallet to see tokens'}
+                          </div>
+                        )}
+                      </div>
+                    </details>
+                  </div>
+
+                  {/* Warning */}
+                  <div className="rounded-xl bg-[#2B1F0D] px-1 py-3 text-xs text-center text-[#FFF]">
+                    Only send{" "}
+                    <span className="font-semibold">{displayReceiveToken.name} ({displayReceiveToken.symbol})</span> to this
+                    address. Other assets will be lost forever.
+                  </div>
+
+                  {/* QR + Address */}
+                  <div className="">
+                    <div className="flex justify-center">
+                      <Image
+                        src="/qr-code2.svg"
+                        alt="QR Code"
+                        width={20}
+                        height={20}
+                        className="w-48 h-48 rounded-md"
+                      />
+                    </div>
+
+                    <div className="w-full">
+                      <p className="text-center pt-4 text-xs break-all text-[#B5B5B5]">
+                        {connectedAddress || 'Connect wallet to see address'}
+                      </p>
+
+                      <button
+                        onClick={async () => {
+                          if (connectedAddress) {
+                            await navigator.clipboard.writeText(connectedAddress);
+                            setCopied(true);
+                            setTimeout(() => setCopied(false), 1500);
+                          }
+                        }}
+                        className="flex w-full items-center justify-center gap-2 rounded-full border border-[#B1F128] px-3 py-1.5 text-xs text-[#B1F128] mt-3"
+                      >
+                        {copied ? <FiCheck size={14} /> : <FiCopy size={14} />}
+                        {copied ? 'Copied!' : 'Copy Address'}
+                      </button>
+
+                      <button
+                        onClick={() => setIsShareModalOpen(true)}
+                        className="flex w-full items-center justify-center gap-2 rounded-full border border-[#B1F128] px-3 py-1.5 text-xs text-[#B1F128] mt-2"
+                      >
+                        <GoShareAndroid size={14} />
+                        Share Address
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </>
+          )
+        }
+
+        {/* ACTIVITIES - Unified (Token + NFT) */}
+        {
+          activeTab === "activities" && (
+            <div className="animate-in fade-in slide-in-from-right-4 duration-300">
+              {activitiesLoading ? (
+                <TransactionListSkeleton />
+              ) : activitiesError ? (
+                <div className="flex flex-col items-center justify-center py-12">
+                  <p className="text-red-400 text-sm mb-4">
+                    Error loading activities: {activitiesError}
+                  </p>
+                </div>
+              ) : unifiedActivities.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-12">
+                  <p className="text-[#8A929A] text-sm">No activities found</p>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-6 mt-2">
+                  {unifiedActivities.map((activity: any) => {
+                    if (activity.type === 'token' && activity.transaction) {
+                      return (
+                        <TransactionRow
+                          key={activity.id}
+                          transaction={activity.transaction}
+                          isBalanceVisible={isBalanceVisible}
+                        />
+                      );
+                    } else if (activity.type === 'nft' && activity.nftActivity) {
+                      return (
+                        <NFTActivityRow
+                          key={activity.id}
+                          activity={activity.nftActivity}
+                        />
+                      );
+                    }
+                    return null;
+                  })}
+                </div>
+              )}
+            </div>
+          )
+        }
+      </div >
 
       {/* SECURITY FIX: Secure Password Modal - Replaces window.prompt() */}
-      <SecurePasswordModal
+      < SecurePasswordModal
         open={showPasswordModal}
         onOpenChange={(open) => {
           setShowPasswordModal(open);
@@ -3727,12 +4371,12 @@ function WalletPageMobile() {
       />
 
       {/* Share Wallet Modal */}
-      <ShareWalletModal
+      < ShareWalletModal
         open={isShareModalOpen}
         onOpenChange={setIsShareModalOpen}
         walletAddress={connectedAddress || ''}
       />
-    </div>
+    </div >
   );
 }
 

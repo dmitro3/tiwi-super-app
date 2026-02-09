@@ -50,19 +50,20 @@ export const useWalletStore = create<WalletStore>()(
       primaryWallet: null,
       secondaryWallet: null,
       secondaryAddress: null,
-      
+
       // New multi-wallet state
       connectedWallets: [],
       activeWalletId: null,
-      
+
       isConnecting: false,
+      isBackgroundConnection: false,
       error: null,
-      
+
 
       // Actions
       connect: async (walletId: string, chain: 'ethereum' | 'solana') => {
         set({ isConnecting: true, error: null });
-        
+
         try {
           // Disconnect any existing wallet first
           const currentWallet = get().primaryWallet;
@@ -79,16 +80,16 @@ export const useWalletStore = create<WalletStore>()(
 
           // Map wallet ID to provider ID expected by connector
           const providerId = mapWalletIdToProviderId(walletId);
-          
+
           // Connect to new wallet using mapped provider ID
           const account = await connectWallet(providerId, chain);
-          
+
           // Store the original wallet ID (not the provider ID) for consistency
           const accountWithOriginalId: WalletAccount = {
             ...account,
             provider: walletId, // Keep original wallet ID
           };
-          
+
           set({
             primaryWallet: accountWithOriginalId,
             isConnecting: false,
@@ -126,7 +127,7 @@ export const useWalletStore = create<WalletStore>()(
 
         // Check if same provider+chain but different address (account switch scenario)
         const existingWalletSameProvider = findWalletByProviderAndChain(state, account.provider, account.chain);
-        const isAccountSwitch = existingWalletSameProvider && 
+        const isAccountSwitch = existingWalletSameProvider &&
           existingWalletSameProvider.address.toLowerCase() !== account.address.toLowerCase();
 
         let newWallets = state.connectedWallets;
@@ -182,12 +183,12 @@ export const useWalletStore = create<WalletStore>()(
 
       disconnect: async () => {
         const state = get();
-        
+
         // Get the wallet to disconnect (active wallet or primaryWallet for backward compatibility)
-        const walletToDisconnect = state.activeWalletId 
+        const walletToDisconnect = state.activeWalletId
           ? state.connectedWallets.find(w => generateWalletId(w) === state.activeWalletId)
           : state.primaryWallet;
-        
+
         if (walletToDisconnect) {
           // Use removeWallet to properly handle multi-wallet structure
           const walletId = generateWalletId(walletToDisconnect);
@@ -204,17 +205,17 @@ export const useWalletStore = create<WalletStore>()(
             error: null,
             isConnecting: false,
           });
-          
+
           // Force clear all wallet-related localStorage to ensure disconnection persists
           if (typeof window !== 'undefined') {
             try {
               // Clear our store
               localStorage.removeItem(WALLET_STORAGE_KEY);
-              
+
               // Clear Wagmi storage
               localStorage.removeItem('wagmi.store');
               localStorage.removeItem('wagmi.connections');
-              
+
               // Clear chain-specific Wagmi storage
               const origin = window.location.origin;
               const chains = ['ethereum', 'mainnet', 'arbitrum', 'optimism', 'polygon', 'base', 'bsc', '56', '1', '42161', '10', '137', '8453'];
@@ -223,16 +224,16 @@ export const useWalletStore = create<WalletStore>()(
                 localStorage.removeItem(key);
               });
               localStorage.removeItem(origin);
-              
+
               // Clear LiFi/WalletConnect storage
-              const lifiKeys = Object.keys(localStorage).filter(key => 
-                key.toLowerCase().includes('lifi') || 
+              const lifiKeys = Object.keys(localStorage).filter(key =>
+                key.toLowerCase().includes('lifi') ||
                 key.toLowerCase().includes('walletconnect')
               );
               lifiKeys.forEach(key => {
                 localStorage.removeItem(key);
               });
-              
+
               console.log('[WalletStore] Cleared all wallet storage on disconnect');
             } catch (error) {
               console.warn('[WalletStore] Error clearing localStorage on disconnect:', error);
@@ -242,14 +243,14 @@ export const useWalletStore = create<WalletStore>()(
       },
 
       setSecondaryWallet: (wallet: WalletAccount | null) => {
-        set({ 
+        set({
           secondaryWallet: wallet,
           secondaryAddress: null, // Clear address when setting wallet
         });
       },
 
       setSecondaryAddress: (address: string | null) => {
-        set({ 
+        set({
           secondaryAddress: address,
           secondaryWallet: null, // Clear wallet when setting address
         });
@@ -262,9 +263,9 @@ export const useWalletStore = create<WalletStore>()(
       setConnecting: (connecting: boolean) => {
         set({ isConnecting: connecting });
       },
-      
+
       // ===== NEW MULTI-WALLET METHODS =====
-      
+
       /**
        * Add a wallet to the connected wallets array
        * @param wallet - Wallet account to add
@@ -273,29 +274,37 @@ export const useWalletStore = create<WalletStore>()(
       addWallet: (wallet: WalletAccount, setAsActive = false) => {
         const state = get();
         const walletId = generateWalletId(wallet);
-        
+
         // Check if exact walletId already exists
         const exists = state.connectedWallets.some((w) => generateWalletId(w) === walletId);
         if (exists) {
           console.warn(`[WalletStore] Wallet ${walletId} already connected`);
           return;
         }
-        
+
         // Check if same address+chain is connected via different provider (block duplicate)
         if (isAddressConnected(state, wallet.address, wallet.chain)) {
           const errorMessage = 'This address is already connected. Please select a different account.';
           set({ error: errorMessage });
           throw new Error(errorMessage);
         }
-        
+
         // Check if same provider+chain but different address (account switch scenario)
         const existingWalletSameProvider = findWalletByProviderAndChain(state, wallet.provider, wallet.chain);
-        const isAccountSwitch = existingWalletSameProvider && 
+        const isAccountSwitch = existingWalletSameProvider &&
           existingWalletSameProvider.address.toLowerCase() !== wallet.address.toLowerCase();
-        
+
         let newWallets = state.connectedWallets;
-        let newActiveId = setAsActive ? walletId : (state.activeWalletId || walletId);
-        
+        let newActiveId = state.activeWalletId; // Keep current active wallet
+
+        // Only change active wallet if explicitly requested
+        if (setAsActive) {
+          newActiveId = walletId;
+        } else if (!state.activeWalletId && state.connectedWallets.length === 0) {
+          // Special case: if this is the very first wallet, make it active
+          newActiveId = walletId;
+        }
+
         if (isAccountSwitch) {
           // Account switch: replace the existing wallet entry for this provider+chain
           const switchIndex = state.connectedWallets.findIndex(
@@ -323,15 +332,23 @@ export const useWalletStore = create<WalletStore>()(
           }
           newWallets = [...state.connectedWallets, wallet];
         }
-        
+
+        // Determine primary wallet for backward compatibility
+        let newPrimaryWallet = state.primaryWallet;
+        if (setAsActive) {
+          newPrimaryWallet = wallet;
+        } else if (!state.primaryWallet) {
+          // If no primary wallet exists, set this as primary (for backward compatibility)
+          newPrimaryWallet = wallet;
+        }
+
         set({
           connectedWallets: newWallets,
           activeWalletId: newActiveId,
-          // Update legacy primaryWallet for backward compatibility
-          primaryWallet: setAsActive ? wallet : state.primaryWallet || wallet,
+          primaryWallet: newPrimaryWallet,
         });
       },
-      
+
       /**
        * Remove a wallet from connected wallets
        * @param walletId - Unique wallet ID to remove
@@ -339,12 +356,12 @@ export const useWalletStore = create<WalletStore>()(
       removeWallet: async (walletId: WalletId) => {
         const state = get();
         const wallet = state.connectedWallets.find(w => generateWalletId(w) === walletId);
-        
+
         if (!wallet) {
           console.warn(`[WalletStore] Wallet ${walletId} not found`);
           return;
         }
-        
+
         // Disconnect from provider
         try {
           const mappedProviderId = mapWalletIdToProviderId(wallet.provider);
@@ -352,14 +369,14 @@ export const useWalletStore = create<WalletStore>()(
         } catch (error) {
           console.warn('[WalletStore] Error disconnecting wallet:', error);
         }
-        
+
         // Remove from array
         const newWallets = state.connectedWallets.filter(w => generateWalletId(w) !== walletId);
-        
+
         // If removed wallet was active, set new active wallet
         let newActiveId = state.activeWalletId;
         let newPrimaryWallet = state.primaryWallet;
-        
+
         if (state.activeWalletId === walletId) {
           newActiveId = newWallets.length > 0 ? generateWalletId(newWallets[0]) : null;
           // Update primaryWallet to new active wallet (or null if none)
@@ -368,7 +385,7 @@ export const useWalletStore = create<WalletStore>()(
           // The removed wallet was the primaryWallet but not active, update it
           newPrimaryWallet = newWallets[0] || null;
         }
-        
+
         set({
           connectedWallets: newWallets,
           activeWalletId: newActiveId,
@@ -381,17 +398,17 @@ export const useWalletStore = create<WalletStore>()(
             : state.secondaryWallet,
           isConnecting: false,
         });
-        
+
         // If no wallets remain, clear all storage to ensure disconnection persists
         if (newWallets.length === 0 && typeof window !== 'undefined') {
           try {
             // Clear our store
             localStorage.removeItem(WALLET_STORAGE_KEY);
-            
+
             // Clear Wagmi storage
             localStorage.removeItem('wagmi.store');
             localStorage.removeItem('wagmi.connections');
-            
+
             // Clear chain-specific Wagmi storage
             const origin = window.location.origin;
             const chains = ['ethereum', 'mainnet', 'arbitrum', 'optimism', 'polygon', 'base', 'bsc', '56', '1', '42161', '10', '137', '8453'];
@@ -400,23 +417,23 @@ export const useWalletStore = create<WalletStore>()(
               localStorage.removeItem(key);
             });
             localStorage.removeItem(origin);
-            
+
             // Clear LiFi/WalletConnect storage
-            const lifiKeys = Object.keys(localStorage).filter(key => 
-              key.toLowerCase().includes('lifi') || 
+            const lifiKeys = Object.keys(localStorage).filter(key =>
+              key.toLowerCase().includes('lifi') ||
               key.toLowerCase().includes('walletconnect')
             );
             lifiKeys.forEach(key => {
               localStorage.removeItem(key);
             });
-            
+
             console.log('[WalletStore] Cleared all wallet storage on disconnect');
           } catch (error) {
             console.warn('[WalletStore] Error clearing localStorage after removing last wallet:', error);
           }
         }
       },
-      
+
       /**
        * Set the active wallet (wallet that signs transactions)
        * @param walletId - Unique wallet ID to set as active
@@ -424,28 +441,28 @@ export const useWalletStore = create<WalletStore>()(
       setActiveWallet: (walletId: WalletId) => {
         const state = get();
         const wallet = state.connectedWallets.find(w => generateWalletId(w) === walletId);
-        
+
         if (!wallet) {
           throw new Error(`Wallet ${walletId} not found in connected wallets`);
         }
-        
+
         set({
           activeWalletId: walletId,
           // Update legacy primaryWallet for backward compatibility
           primaryWallet: wallet,
         });
       },
-      
+
       /**
        * Get the currently active wallet
        */
       getActiveWallet: () => {
         const state = get();
         if (!state.activeWalletId) return null;
-        
+
         return state.connectedWallets.find(w => generateWalletId(w) === state.activeWalletId) || null;
       },
-      
+
       /**
        * Check if a provider is already connected
        * @param providerId - Provider ID to check
@@ -455,7 +472,7 @@ export const useWalletStore = create<WalletStore>()(
         const state = get();
         return state.connectedWallets.some(w => w.provider === providerId);
       },
-      
+
       /**
        * Get wallet by address (case-insensitive)
        * @param address - Wallet address to find
@@ -466,7 +483,7 @@ export const useWalletStore = create<WalletStore>()(
         const addressLower = address.toLowerCase();
         return state.connectedWallets.find(w => w.address.toLowerCase() === addressLower) || null;
       },
-      
+
       /**
        * Connect an additional wallet without disconnecting existing ones
        * @param walletId - Wallet ID to connect
@@ -477,46 +494,55 @@ export const useWalletStore = create<WalletStore>()(
         walletId: string,
         chain: 'ethereum' | 'solana',
         setAsActive = true
-      ) => {
+      ): Promise<string> => {
         const state = get();
         const providerId = mapWalletIdToProviderId(walletId);
 
-        set({ isConnecting: true, error: null });
+        set({ isConnecting: true, isBackgroundConnection: !setAsActive, error: null });
 
         try {
           // Connect to new wallet
           const account = await connectWallet(providerId, chain);
-          
+
           // Store the original wallet ID (not the provider ID) for consistency
           const accountWithOriginalId: WalletAccount = {
             ...account,
             provider: walletId, // Keep original wallet ID
           };
-          
+
           // Block duplicates by address+chain, regardless of provider
           if (isAddressConnected(state, accountWithOriginalId.address, accountWithOriginalId.chain)) {
             throw new Error('This address is already connected. Please select a different account.');
           }
-          
+
           // Check wallet limit
           if (state.connectedWallets.length >= MAX_WALLETS) {
             throw new Error(`Maximum ${MAX_WALLETS} wallets allowed`);
           }
-          
+
           // Add wallet
           get().addWallet(accountWithOriginalId, setAsActive);
-          
+
           set({
             isConnecting: false,
+            isBackgroundConnection: false,
             error: null,
           });
+
+          return accountWithOriginalId.address;
         } catch (error: any) {
           set({
             isConnecting: false,
+            isBackgroundConnection: false,
             error: error?.message || 'Failed to connect wallet',
           });
           throw error;
         }
+      },
+
+      // Helper to manually set background connection flag
+      setIsBackgroundConnection: (isBackground: boolean) => {
+        set({ isBackgroundConnection: isBackground });
       },
     }),
     {
@@ -536,16 +562,16 @@ export const useWalletStore = create<WalletStore>()(
           // Migrate legacy primary/secondary to connectedWallets array
           if (state.connectedWallets.length === 0) {
             const wallets: WalletAccount[] = [];
-            
+
             // Migrate primary wallet
             if (state.primaryWallet) {
               wallets.push(state.primaryWallet);
             }
-            
+
             // Migrate secondary wallet (if it's a connected wallet, not just an address)
             if (state.secondaryWallet) {
               // Check if it's not already in the array (avoid duplicates)
-              const exists = wallets.some(w => 
+              const exists = wallets.some(w =>
                 w.address.toLowerCase() === state.secondaryWallet!.address.toLowerCase() &&
                 w.provider === state.secondaryWallet!.provider &&
                 w.chain === state.secondaryWallet!.chain
@@ -554,7 +580,7 @@ export const useWalletStore = create<WalletStore>()(
                 wallets.push(state.secondaryWallet);
               }
             }
-            
+
             // Set connected wallets and active wallet
             if (wallets.length > 0) {
               const activeId = state.activeWalletId || generateWalletId(wallets[0]);

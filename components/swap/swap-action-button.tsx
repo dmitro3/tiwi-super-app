@@ -16,6 +16,7 @@ interface SwapActionButtonProps {
   toCompatibleAddress?: string | null;
   fromTokenChainId?: number;
   toTokenChainId?: number;
+  customLabel?: string;
 }
 
 export default function SwapActionButton({
@@ -30,6 +31,7 @@ export default function SwapActionButton({
   toCompatibleAddress = null,
   fromTokenChainId,
   toTokenChainId,
+  customLabel,
 }: SwapActionButtonProps) {
   const isLimit = activeTab === "limit";
   const hasAmount = fromAmount && fromAmount.trim() !== "" && parseFloat(fromAmount) > 0;
@@ -62,7 +64,7 @@ export default function SwapActionButton({
             : !canSwap && missingChainName
               ? `Connect A ${missingChainName} Wallet`
               : hasAmount
-                ? "Swap"
+                ? (customLabel || "Swap")
                 : "Enter Amount"}
         </Button>
       )}

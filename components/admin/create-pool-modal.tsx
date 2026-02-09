@@ -33,15 +33,15 @@ export default function CreatePoolModal({
   const [step, setStep] = useState(1);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const { chains, isLoading: chainsLoading } = useChains(); // Fetches all supported chains
-  
+
   // Wallet connection
   const { address: connectedAddress, isConnected } = useAccount();
   const chainId = useChainId();
   const { openModal: openWalletModal, isModalOpen: isWalletModalOpen, closeModal: closeWalletModal } = useWalletConnection();
-  
+
   // Factory staking hook - for creating pools on-chain
   const factoryStaking = useFactoryStaking({ enabled: isConnected });
-  
+
   // Step 1 fields
   const [selectedChain, setSelectedChain] = useState<{ id: number; name: string } | null>(null);
   const [selectedToken, setSelectedToken] = useState<{
@@ -58,16 +58,15 @@ export default function CreatePoolModal({
   const [minStakeAmount, setMinStakeAmount] = useState("");
   const [maxStakeAmount, setMaxStakeAmount] = useState("");
   const [showChainDropdown, setShowChainDropdown] = useState(false);
-  const [countrySearchQuery, setCountrySearchQuery] = useState("");
-  const [showCountryDropdown, setShowCountryDropdown] = useState(false);
-  
+
+
   // Step 2 fields
   const [stakeModificationFee, setStakeModificationFee] = useState(false);
   const [timeBoost, setTimeBoost] = useState(false);
-  const [country, setCountry] = useState("");
+
   const [stakePoolCreationFee, setStakePoolCreationFee] = useState("0.15");
   const [rewardPoolCreationFee, setRewardPoolCreationFee] = useState("");
-  
+
   // Reward configuration fields
   const [maxTvl, setMaxTvl] = useState(""); // Maximum TVL or Total Staked Tokens
   const [poolReward, setPoolReward] = useState(""); // Pool Reward
@@ -75,31 +74,9 @@ export default function CreatePoolModal({
 
   const chainRef = useRef<HTMLDivElement>(null);
   const tokenRef = useRef<HTMLDivElement>(null);
-  const countryRef = useRef<HTMLDivElement>(null);
 
-  // Complete list of all countries
-  const allCountries = [
-    "Afghanistan", "Albania", "Algeria", "Andorra", "Angola", "Antigua and Barbuda", "Argentina", "Armenia", "Australia", "Austria",
-    "Azerbaijan", "Bahamas", "Bahrain", "Bangladesh", "Barbados", "Belarus", "Belgium", "Belize", "Benin", "Bhutan",
-    "Bolivia", "Bosnia and Herzegovina", "Botswana", "Brazil", "Brunei", "Bulgaria", "Burkina Faso", "Burundi", "Cabo Verde", "Cambodia",
-    "Cameroon", "Canada", "Central African Republic", "Chad", "Chile", "China", "Colombia", "Comoros", "Congo", "Costa Rica",
-    "Croatia", "Cuba", "Cyprus", "Czech Republic", "Denmark", "Djibouti", "Dominica", "Dominican Republic", "Ecuador", "Egypt",
-    "El Salvador", "Equatorial Guinea", "Eritrea", "Estonia", "Eswatini", "Ethiopia", "Fiji", "Finland", "France", "Gabon",
-    "Gambia", "Georgia", "Germany", "Ghana", "Greece", "Grenada", "Guatemala", "Guinea", "Guinea-Bissau", "Guyana",
-    "Haiti", "Honduras", "Hungary", "Iceland", "India", "Indonesia", "Iran", "Iraq", "Ireland", "Israel",
-    "Italy", "Jamaica", "Japan", "Jordan", "Kazakhstan", "Kenya", "Kiribati", "Korea, North", "Korea, South", "Kuwait",
-    "Kyrgyzstan", "Laos", "Latvia", "Lebanon", "Lesotho", "Liberia", "Libya", "Liechtenstein", "Lithuania", "Luxembourg",
-    "Madagascar", "Malawi", "Malaysia", "Maldives", "Mali", "Malta", "Marshall Islands", "Mauritania", "Mauritius", "Mexico",
-    "Micronesia", "Moldova", "Monaco", "Mongolia", "Montenegro", "Morocco", "Mozambique", "Myanmar", "Namibia", "Nauru",
-    "Nepal", "Netherlands", "New Zealand", "Nicaragua", "Niger", "Nigeria", "North Macedonia", "Norway", "Oman", "Pakistan",
-    "Palau", "Palestine", "Panama", "Papua New Guinea", "Paraguay", "Peru", "Philippines", "Poland", "Portugal", "Qatar",
-    "Romania", "Russia", "Rwanda", "Saint Kitts and Nevis", "Saint Lucia", "Saint Vincent and the Grenadines", "Samoa", "San Marino", "Sao Tome and Principe", "Saudi Arabia",
-    "Senegal", "Serbia", "Seychelles", "Sierra Leone", "Singapore", "Slovakia", "Slovenia", "Solomon Islands", "Somalia", "South Africa",
-    "South Sudan", "Spain", "Sri Lanka", "Sudan", "Suriname", "Sweden", "Switzerland", "Syria", "Taiwan", "Tajikistan",
-    "Tanzania", "Thailand", "Timor-Leste", "Togo", "Tonga", "Trinidad and Tobago", "Tunisia", "Turkey", "Turkmenistan", "Tuvalu",
-    "Uganda", "Ukraine", "United Arab Emirates", "United Kingdom", "United States", "Uruguay", "Uzbekistan", "Vanuatu", "Vatican City", "Venezuela",
-    "Vietnam", "Yemen", "Zambia", "Zimbabwe"
-  ].sort(); // Sort alphabetically
+
+
 
   // Debounce search query for API calls (400ms delay)
   const debouncedSearchQuery = useDebounce(tokenSearchQuery, 400);
@@ -127,7 +104,7 @@ export default function CreatePoolModal({
     if (open && selectedChain) {
       setIsLoadingTokens(true);
       // Fetch tokens - filter by selected chain
-      fetchTokens({ 
+      fetchTokens({
         chains: [selectedChain.id], // Filter tokens by selected chain
         limit: 1000, // High limit to get all available tokens from the selected chain
         query: debouncedSearchQuery.trim() || undefined, // Pass debounced search query to API
@@ -152,22 +129,22 @@ export default function CreatePoolModal({
   // Also filter by selected chain to ensure tokens match the chain
   const filteredTokens = useMemo(() => {
     let tokens = allTokens;
-    
+
     // Filter by selected chain if available (double-check chainId matches)
     if (selectedChain) {
       tokens = tokens.filter(token => {
         // Match by chainId if available, or by chain name
-        return token.chainId === selectedChain.id || 
-               token.chain === selectedChain.name ||
-               parseInt(token.chain) === selectedChain.id;
+        return token.chainId === selectedChain.id ||
+          token.chain === selectedChain.name ||
+          parseInt(token.chain) === selectedChain.id;
       });
     }
-    
+
     // If no search query, show all filtered tokens
     if (!tokenSearchQuery.trim()) {
       return tokens;
     }
-    
+
     // Instant client-side filtering while user types
     const query = tokenSearchQuery.toLowerCase().trim();
     return tokens.filter(
@@ -189,12 +166,11 @@ export default function CreatePoolModal({
       setMaxStakeAmount("");
       setStakeModificationFee(false);
       setTimeBoost(false);
-      setCountry("");
+
       setStakePoolCreationFee("0.15");
       setRewardPoolCreationFee("");
       setShowTokenDropdown(false);
-      setShowCountryDropdown(false);
-      setCountrySearchQuery("");
+
       // Reset reward configuration
       setMaxTvl("");
       setPoolReward("");
@@ -219,25 +195,14 @@ export default function CreatePoolModal({
       if (tokenRef.current && !tokenRef.current.contains(event.target as Node)) {
         setShowTokenDropdown(false);
       }
-      if (countryRef.current && !countryRef.current.contains(event.target as Node)) {
-        setShowCountryDropdown(false);
-      }
+
     };
 
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Filter countries by search query
-  const filteredCountries = useMemo(() => {
-    if (!countrySearchQuery.trim()) {
-      return allCountries;
-    }
-    const query = countrySearchQuery.toLowerCase().trim();
-    return allCountries.filter(country =>
-      country.toLowerCase().includes(query)
-    );
-  }, [countrySearchQuery]);
+
 
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -293,7 +258,7 @@ export default function CreatePoolModal({
         const minStakeAmountValue = parseSafeNumber(minStakeAmount, 0);
         const maxStakeAmountValue = maxStakeAmount ? parseSafeNumber(maxStakeAmount, 0) : undefined;
         const stakePoolCreationFeeValue = parseSafeNumber(stakePoolCreationFee, 0.15);
-        
+
         // Parse reward configuration (required for on-chain creation)
         const maxTvlValue = parseSafeNumber(maxTvl, 0);
         const poolRewardValue = parseSafeNumber(poolReward, 0);
@@ -307,7 +272,7 @@ export default function CreatePoolModal({
 
         // Get reward token address (defaults to staking token if same token for reward)
         const rewardTokenAddress = selectedToken.address as Address; // TODO: Allow admin to select reward token separately
-        
+
         // Step 1: Create pool on-chain via factory contract
         console.log("Creating pool on-chain...", {
           stakingToken: selectedToken.address,
@@ -316,7 +281,7 @@ export default function CreatePoolModal({
           rewardDurationSeconds: rewardDurationSecondsValue,
           maxTvl: maxTvlValue.toString(),
         });
-        
+
         const createdPoolId = await factoryStaking.createPool(
           selectedToken.address as Address,
           rewardTokenAddress,
@@ -360,7 +325,7 @@ export default function CreatePoolModal({
         }
 
         console.log("Using factory address:", factoryAddress, "for chain:", selectedChain.name);
-        
+
         console.log("Saving pool to database...", {
           poolId: poolIdNumber,
           factoryAddress: factoryAddress,
@@ -382,7 +347,7 @@ export default function CreatePoolModal({
           stakeModificationFee: stakeModificationFee,
           timeBoost: timeBoost,
           timeBoostConfig: timeBoost ? {} : undefined,
-          country: country || undefined,
+
           stakePoolCreationFee: stakePoolCreationFeeValue,
           rewardPoolCreationFee: rewardPoolCreationFee || undefined,
           apy: undefined, // Will be calculated from pool config
@@ -436,7 +401,7 @@ export default function CreatePoolModal({
         // Show success modal and refresh pools
         setShowSuccessModal(true);
         onOpenChange(false);
-        
+
         // Trigger refresh event
         window.dispatchEvent(new Event("stakingPoolUpdated"));
       } catch (error: any) {
@@ -591,8 +556,8 @@ export default function CreatePoolModal({
                     <div className="p-2 border-b border-[#1f261e] sticky top-0 bg-[#0b0f0a]">
                       <div className="relative">
                         <IoSearchOutline className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#7c7c7c]" />
-                <input
-                  type="text"
+                        <input
+                          type="text"
                           placeholder="Search by symbol, name, or address"
                           value={tokenSearchQuery}
                           onChange={(e) => setTokenSearchQuery(e.target.value)}
@@ -735,14 +700,12 @@ export default function CreatePoolModal({
                 </label>
                 <button
                   onClick={() => setStakeModificationFee(!stakeModificationFee)}
-                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                    stakeModificationFee ? "bg-[#b1f128]" : "bg-[#1f261e]"
-                  }`}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${stakeModificationFee ? "bg-[#b1f128]" : "bg-[#1f261e]"
+                    }`}
                 >
                   <span
-                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                      stakeModificationFee ? "translate-x-6" : "translate-x-1"
-                    }`}
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${stakeModificationFee ? "translate-x-6" : "translate-x-1"
+                      }`}
                   />
                 </button>
               </div>
@@ -758,71 +721,6 @@ export default function CreatePoolModal({
                 >
                   {timeBoost ? "Reset Option" : "+ Add Option"}
                 </button>
-              </div>
-
-              {/* Select your country */}
-              <div className="relative" ref={countryRef}>
-                <label className="block text-[#b5b5b5] text-sm font-medium mb-2">
-                  Select your country
-                </label>
-                <button
-                  onClick={() => {
-                    setShowCountryDropdown(!showCountryDropdown);
-                  }}
-                  className="w-full bg-[#0b0f0a] border border-[#1f261e] rounded-lg px-4 py-2.5 text-white flex items-center justify-between transition-colors hover:border-[#b1f128]"
-                >
-                  <div className="flex items-center gap-2">
-                    {country ? (
-                      <span className="text-white text-sm">{country}</span>
-                    ) : (
-                      <span className="text-[#7c7c7c] text-sm">Select a country</span>
-                    )}
-                  </div>
-                  <IoChevronDownOutline className="w-5 h-5 text-[#b5b5b5]" />
-                </button>
-                {showCountryDropdown && (
-                  <div className="absolute z-10 w-full mt-1 bg-[#0b0f0a] border border-[#1f261e] rounded-lg shadow-lg max-h-96 overflow-y-auto">
-                    <div className="p-2 border-b border-[#1f261e] sticky top-0 bg-[#0b0f0a]">
-                      <div className="relative">
-                        <IoSearchOutline className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#7c7c7c]" />
-                <input
-                  type="text"
-                          placeholder="Search countries"
-                          value={countrySearchQuery}
-                          onChange={(e) => setCountrySearchQuery(e.target.value)}
-                          onClick={(e) => e.stopPropagation()}
-                          className="w-full bg-[#121712] border border-[#1f261e] rounded-lg pl-10 pr-3 py-2 text-sm text-white placeholder-[#7c7c7c] focus:outline-none focus:border-[#b1f128]"
-                          autoFocus
-                        />
-                      </div>
-                    </div>
-                    {filteredCountries.length === 0 ? (
-                      <div className="p-8 text-center">
-                        <p className="text-[#b5b5b5] text-sm">
-                          {countrySearchQuery ? "No countries found matching your search." : "No countries available."}
-                        </p>
-                      </div>
-                    ) : (
-                      <div className="max-h-80 overflow-y-auto">
-                        {filteredCountries.map((countryName) => (
-                          <button
-                            key={countryName}
-                            onClick={() => {
-                              setCountry(countryName);
-                              setShowCountryDropdown(false);
-                              setCountrySearchQuery("");
-                            }}
-                            className="w-full text-left px-4 py-3 text-white hover:bg-[#121712] transition-colors border-b border-[#1f261e] last:border-b-0"
-                          >
-                            <div className="font-medium text-sm text-white">
-                              {countryName}
-                            </div>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
               </div>
 
               {/* Reward Configuration */}
@@ -952,7 +850,7 @@ export default function CreatePoolModal({
         onWalletConnect={() => {
           closeWalletModal();
         }}
-        onOpenExplorer={() => {}}
+        onOpenExplorer={() => { }}
       />
 
       <PoolSuccessModal

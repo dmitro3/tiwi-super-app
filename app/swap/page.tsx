@@ -12,7 +12,7 @@ import WalletExplorerModal from "@/components/wallet/wallet-explorer-modal";
 import ChainSelectionModal from "@/components/wallet/chain-selection-modal";
 import WalletConnectedToast from "@/components/wallet/wallet-connected-toast";
 import TokenSelectorModal from "@/components/swap/token-selector-modal";
-import { getWalletIconFromAccount, isWalletChainCompatible, isAddressChainCompatible } from "@/lib/frontend/utils/wallet-display";
+import { getWalletIconFromAccount, isWalletChainCompatible, isAddressChainCompatible, getAddressTypeLocal } from "@/lib/frontend/utils/wallet-display";
 import { sanitizeDecimal, parseNumber } from "@/lib/shared/utils/number";
 import {
   calculateLimitPriceUsd,
@@ -37,6 +37,7 @@ import ToAddressModal from "@/components/swap/to-address-modal";
 import { useLimitOrder } from "@/hooks/useLimitOrder";
 import { useWalletClient, useAccount, useSwitchChain, useConfig } from "wagmi";
 import { getEVMWalletClient, ensureCorrectChain } from "@/lib/frontend/services/swap-executor/utils/wallet-helpers";
+import { useWalletStore as useWalletStateStore } from "@/lib/wallet/state/store";
 
 // Default tokens (ensure chainId/address/logo for routing + display)
 export const DEFAULT_FROM_TOKEN: Token = {
@@ -151,8 +152,13 @@ export default function SwapPage() {
   // Use activeWalletAddress as primary source, fallback to connectedAddress for UI state
   const walletAddress = activeWalletAddress || connectedAddress;
 
-  // Get wallet icons
-  const fromWalletIcon = getWalletIconFromAccount(primaryWallet);
+  // Get wallet icons - find the wallet object matching the active address
+  const activeWalletObject = useMemo(() => {
+    if (!walletAddress) return primaryWallet;
+    return connectedWallets.find(w => w.address.toLowerCase() === walletAddress.toLowerCase()) || primaryWallet;
+  }, [walletAddress, connectedWallets, primaryWallet]);
+
+  const fromWalletIcon = getWalletIconFromAccount(activeWalletObject);
 
   // Determine recipient address (secondary wallet or manual address)
   const effectiveRecipientAddress = secondaryWallet?.address || secondaryAddress || null;
@@ -195,7 +201,7 @@ export default function SwapPage() {
     fromToken?.chainId
   );
   const toTokenBalance = useTokenBalance(
-    walletAddress,
+    recipientAddress || walletAddress,
     toToken?.address,
     toToken?.chainId
   );
@@ -232,6 +238,53 @@ export default function SwapPage() {
   const [isFromWalletModalOpen, setIsFromWalletModalOpen] = useState(false);
   const [isToAddressModalOpen, setIsToAddressModalOpen] = useState(false);
   const [isConnectingFromSection, setIsConnectingFromSection] = useState(false);
+  const [isConnectingToSection, setIsConnectingToSection] = useState(false);
+
+  // Determine the connected chain type (EVM or Solana) for filtering token selection
+  const connectedChainType = useMemo((): 'EVM' | 'Solana' | null => {
+    if (tokenModalType === 'from') {
+      // Prioritize fromAddressOverride (local connection)
+      if (activeWalletAddress) {
+        const type = getAddressTypeLocal(activeWalletAddress);
+        if (type === 'evm') return 'EVM';
+        if (type === 'solana') return 'Solana';
+      }
+      if (primaryWallet?.chain === 'ethereum') return 'EVM';
+      if (primaryWallet?.chain === 'solana') return 'Solana';
+    }
+
+    if (tokenModalType === 'to') {
+      if (recipientAddress) {
+        const type = getAddressTypeLocal(recipientAddress);
+        if (type === 'evm') return 'EVM';
+        if (type === 'solana') return 'Solana';
+      }
+      return null;
+    }
+
+    return null;
+  }, [tokenModalType, activeWalletAddress, recipientAddress, primaryWallet]);
+
+  // Determine button label based on context
+  const swapButtonLabel = useMemo(() => {
+    if (!walletAddress) return "Connect Wallet";
+    if (!recipientAddress) return "Swap";
+
+    // If sending to self (active wallet address), it's a swap
+    if (recipientAddress.toLowerCase() === walletAddress.toLowerCase()) {
+      return "Swap";
+    }
+
+    // If addresses are different:
+    // Check if tokens are same (Transfer)
+    if (fromToken?.address?.toLowerCase() === toToken?.address?.toLowerCase() &&
+      fromToken?.chainId === toToken?.chainId) {
+      return "Transfer";
+    }
+
+    // Different tokens, different address = Swap + Transfer
+    return "Swap/Transfer";
+  }, [walletAddress, recipientAddress, fromToken, toToken]);
 
   // Show error toast when quote error occurs
   useEffect(() => {
@@ -338,7 +391,7 @@ export default function SwapPage() {
     }
   };
 
-  const handle30PercentClick = () => handlePercentageClick(30);
+  const handle25PercentClick = () => handlePercentageClick(25);
   const handle50PercentClick = () => handlePercentageClick(50);
   const handle75PercentClick = () => handlePercentageClick(75);
 
@@ -433,23 +486,18 @@ export default function SwapPage() {
   };
 
   // Calculate To wallet icon based on recipient address
-  // For To wallet icon: use secondary wallet icon if recipient matches secondary wallet address
-  // Otherwise, if recipient matches primary wallet, use primary wallet icon
-  // Manual addresses won't have icons
   const toWalletIcon = useMemo(() => {
     if (!recipientAddress) return null;
 
-    if (secondaryWallet && recipientAddress.toLowerCase() === secondaryWallet.address.toLowerCase()) {
-      return getWalletIconFromAccount(secondaryWallet);
-    }
-
-    if (primaryWallet && recipientAddress.toLowerCase() === primaryWallet.address.toLowerCase()) {
-      return getWalletIconFromAccount(primaryWallet);
+    // Check all connected wallets
+    const matchingWallet = connectedWallets.find(w => w.address.toLowerCase() === recipientAddress.toLowerCase());
+    if (matchingWallet) {
+      return getWalletIconFromAccount(matchingWallet);
     }
 
     // Manual address - no icon
     return null;
-  }, [recipientAddress, secondaryWallet, primaryWallet]);
+  }, [recipientAddress, connectedWallets]);
 
   // Check chain compatibility when tokens change and auto-clear incompatible selections
   useEffect(() => {
@@ -652,6 +700,91 @@ export default function SwapPage() {
     try {
       setIsExecutingTransfer(true);
 
+      // Get wallet client for the specific user address to ensure correct signer
+      const { createWalletClient, custom } = await import("viem");
+      const { mainnet, arbitrum, optimism, polygon, base, bsc } = await import("viem/chains");
+      const { getWalletForChain } = await import("@/lib/wallet/connection/connector");
+
+      // Determine chain
+      const chainMap: Record<number, any> = {
+        1: mainnet,
+        42161: arbitrum,
+        10: optimism,
+        137: polygon,
+        8453: base,
+        56: bsc,
+      };
+      const chain = fromToken.chainId ? chainMap[fromToken.chainId] : undefined;
+
+      let specificWalletClient = undefined;
+
+      if (chain && walletAddress) {
+        // Find the specific wallet object
+        const activeWalletObject = connectedWallets.find(
+          w => w.address.toLowerCase() === walletAddress?.toLowerCase()
+        ) || primaryWallet;
+
+        if (activeWalletObject) {
+          try {
+            // 1. Get the provider
+            const provider = await getWalletForChain(activeWalletObject.provider, 'ethereum');
+
+            if (provider) {
+              // 2. STRICT VERIFICATION: Ensure provider is on the correct account
+              try {
+                const accounts = await provider.request({ method: 'eth_requestAccounts' });
+                const currentAccount = accounts && accounts.length > 0 ? accounts[0] : null;
+
+                if (!currentAccount || currentAccount.toLowerCase() !== walletAddress.toLowerCase()) {
+                  console.warn(`[executeSwapTransaction] Account mismatch! Provider active: ${currentAccount}, Requested: ${walletAddress}`);
+
+                  // Attempt force switch via permissions
+                  try {
+                    await provider.request({
+                      method: 'wallet_requestPermissions',
+                      params: [{ eth_accounts: {} }]
+                    });
+                    // Re-check after prompt
+                    const newAccounts = await provider.request({ method: 'eth_requestAccounts' });
+                    const newAccount = newAccounts && newAccounts[0];
+
+                    if (!newAccount || newAccount.toLowerCase() !== walletAddress.toLowerCase()) {
+                      throw new Error(`Please switch your wallet account to ${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}`);
+                    }
+                  } catch (switchError: any) {
+                    // If user rejected or switch failed
+                    throw new Error(`Wallet mismatch. Please switch your ${activeWalletObject.provider} wallet to account ${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}`);
+                  }
+                }
+              } catch (verifyError: any) {
+                console.error("Error verifying swap provider:", verifyError);
+                // Stop execution if verification failed
+                throw verifyError;
+              }
+
+              // 3. Create client with verified provider
+              specificWalletClient = createWalletClient({
+                chain,
+                transport: custom(provider),
+                account: walletAddress as `0x${string}`,
+              });
+            }
+          } catch (e: any) {
+            console.warn("Failed to create specific wallet client for swap:", e);
+            // If we failed strict verification, stop the swap
+            if (e.message && (e.message.includes("Please switch") || e.message.includes("Wallet mismatch"))) {
+              setToastState({
+                open: true,
+                stage: 'failed',
+                message: e.message,
+              });
+              setIsExecutingTransfer(false);
+              return;
+            }
+          }
+        }
+      }
+
       // Execute swap using the swap executor
       const result = await executeSwap({
         route,
@@ -661,12 +794,16 @@ export default function SwapPage() {
         userAddress: walletAddress,
         recipientAddress: recipientAddress || undefined,
         isFeeOnTransfer: true,
+        walletClient: specificWalletClient, // Pass the specific client
       });
 
       // Success - toast will be shown via swapStatus effect
       // Amounts will be cleared via swapStatus effect
       // Note: Balances will automatically refresh via useTokenBalance hook
       // The hook watches for changes and will refetch when needed
+      // Force immediate refetch to update UI instantly
+      fromTokenBalance.refetch();
+      toTokenBalance.refetch();
     } catch (error: any) {
       console.error("Swap execution error:", error);
 
@@ -903,12 +1040,126 @@ export default function SwapPage() {
       throw new Error(`Unsupported chain: ${fromToken.chainId}`);
     }
 
-    // Get provider from window (MetaMask, etc.)
-    if (typeof window === "undefined" || !(window as any).ethereum) {
-      throw new Error("No Ethereum wallet found. Please install MetaMask or another wallet.");
+    // Get provider for the specific connected wallet
+    const activeWalletObject = connectedWallets.find(
+      w => w.address.toLowerCase() === walletAddress?.toLowerCase()
+    ) || primaryWallet;
+
+    if (!activeWalletObject) {
+      throw new Error("Active wallet not found");
     }
 
-    const provider = (window as any).ethereum;
+    // Dynamic import to avoid circular dependencies
+    const { getWalletForChain } = await import("@/lib/wallet/connection/connector");
+
+    // Get the specific provider instance for this wallet (e.g., Rabby, MetaMask, etc.)
+    const provider = await getWalletForChain(activeWalletObject.provider, 'ethereum');
+
+    if (!provider) {
+      throw new Error(`Wallet provider not found for ${activeWalletObject.provider}`);
+    }
+
+    // CRITICAL FIX: Verify the provider's active account matches the requested wallet address
+    // This prevents "Invalid parameters... from should be same as current address" RPC errors
+    try {
+      // Request currently active accounts from the provider
+      const accounts = await provider.request({ method: 'eth_requestAccounts' });
+      const currentAccount = accounts && accounts.length > 0 ? accounts[0] : null;
+
+      if (!currentAccount || currentAccount.toLowerCase() !== walletAddress.toLowerCase()) {
+        console.warn(`[executeEVMTransfer] Account mismatch! Provider active: ${currentAccount}, Requested: ${walletAddress}`);
+
+        // Attempt to request permissions to force a switch (works for some wallets like MetaMask)
+        try {
+          await provider.request({
+            method: 'wallet_requestPermissions',
+            params: [{ eth_accounts: {} }]
+          });
+          // Re-check after prompt
+          if (!newAccount || newAccount.toLowerCase() !== walletAddress.toLowerCase()) {
+            // AUTO-SYNC: If mismatch persists, update the app state to match the wallet
+            if (newAccount) {
+              console.log(`[executeEVMTransfer] Auto-syncing wallet to ${newAccount}`);
+              useWalletStateStore.getState().setAccount({
+                address: newAccount,
+                chain: activeWalletObject.chain,
+                provider: activeWalletObject.provider
+              });
+
+              setToastState({
+                open: true,
+                stage: 'failed',
+                message: `Wallet synced to ${newAccount.slice(0, 6)}...${newAccount.slice(-4)}. Please try again.`,
+              });
+              return; // Stop execution, user needs to click again
+            }
+
+            throw new Error(`Please switch your wallet account to ${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}`);
+          }
+        } catch (switchError: any) {
+          // If user rejected or switch failed, try auto-sync if we have a valid account
+          const accounts = await provider.request({ method: 'eth_accounts' }).catch(() => []);
+          const actualAccount = accounts[0];
+
+          if (actualAccount && actualAccount.toLowerCase() !== walletAddress.toLowerCase()) {
+            console.log(`[executeEVMTransfer] Auto-syncing wallet (fallback) to ${actualAccount}`);
+            useWalletStateStore.getState().setAccount({
+              address: actualAccount,
+              chain: activeWalletObject.chain,
+              provider: activeWalletObject.provider
+            });
+
+            setToastState({
+              open: true,
+              stage: 'failed',
+              message: `Wallet synced to ${actualAccount.slice(0, 6)}...${actualAccount.slice(-4)}. Please try again.`,
+            });
+            return;
+          }
+
+          throw new Error(`Wallet mismatch. Please switch your ${activeWalletObject.provider} wallet transaction to account ${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}`);
+        }
+      }
+    } catch (e: any) {
+      console.error("Error verifying provider account:", e);
+      // Propagate the user-friendly error and STOP execution
+      if (e.message && (e.message.includes("Please switch") || e.message.includes("Wallet mismatch"))) {
+        setToastState({
+          open: true,
+          stage: 'failed',
+          message: `${e.message} - Open your wallet extension to switch.`,
+        });
+        return; // CRITICAL: Stop execution here
+      }
+    }
+
+    // CRITICAL FIX: Ensure wallet is on the correct chain before creating client
+    try {
+      const chainIdHex = `0x${fromToken.chainId.toString(16)}`;
+      // Check current chain first to avoid unnecessary prompts
+      const currentChainId = await provider.request({ method: 'eth_chainId' });
+
+      if (currentChainId !== chainIdHex && parseInt(currentChainId, 16) !== fromToken.chainId) {
+        console.log(`[executeEVMTransfer] Switching chain from ${currentChainId} to ${chainIdHex}`);
+        await provider.request({
+          method: 'wallet_switchEthereumChain',
+          params: [{ chainId: chainIdHex }],
+        });
+        // Short delay to ensure switch propagates
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+    } catch (switchError: any) {
+      console.error("Error switching chain:", switchError);
+      // If code 4902 (Chain not found), user needs to add it. 
+      // For now, we'll throw a clear error.
+      setToastState({
+        open: true,
+        stage: 'failed',
+        message: `Please switch your wallet network to ${fromToken.chain || 'the correct chain'}.`,
+      });
+      return;
+    }
+
     const walletClient = createWalletClient({
       chain,
       transport: custom(provider),
@@ -1004,6 +1255,15 @@ export default function SwapPage() {
     openModal();
   };
 
+  // Handler for connecting recipient wallet from "To" section (Hardcoded isolation)
+  const handleConnectRecipientWallet = () => {
+    console.log('[SwapPage] handleConnectRecipientWallet called - setting background flag');
+    setIsConnectingToSection(true);
+    // Ensure background connection flag is set in store for extra safety
+    useWalletStateStore.getState().setIsBackgroundConnection?.(true);
+    openModal();
+  };
+
   // Helper to determine chain from wallet ID
   const getChainForWallet = (walletId: string): 'ethereum' | 'solana' => {
     const solanaOnlyWallets = ['solflare', 'glow', 'slope', 'nightly', 'jupiter', 'phantom'];
@@ -1016,34 +1276,54 @@ export default function SwapPage() {
   // Unified wallet connection handler
   const handleWalletConnect = async (walletType: any) => {
     try {
-      if (isConnectingFromSection && connectedWallets.length > 0) {
-        // Connecting from "From" section with existing wallets - use connectAdditionalWallet
+      if ((isConnectingFromSection || isConnectingToSection) && connectedWallets.length >= 0) {
+        // Connecting from specific section - use connectAdditionalWallet to get address
+        // but DO NOT set as global active wallet
         let walletId: string;
         let chain: 'ethereum' | 'solana' = 'ethereum';
 
-        if (typeof walletType === 'string') {
-          // Simple wallet ID string
-          walletId = walletType;
-          chain = getChainForWallet(walletId);
-        } else if (walletType && typeof walletType === 'object') {
-          // WalletConnectWallet object
-          walletId = walletType.id || walletType.name?.toLowerCase() || '';
-          chain = getChainForWallet(walletId);
+        if (walletType === 'phantom') {
+          walletId = 'phantom';
+          chain = 'solana';
+        } else if (walletType === 'metamask') {
+          walletId = 'metamask';
+          chain = 'ethereum';
+        } else if (walletType === 'rabby') {
+          walletId = 'rabby';
+          chain = 'ethereum';
         } else {
-          throw new Error('Invalid wallet type');
+          // Default or other wallets
+          // Map simple walletType to likely providerId
+          walletId = walletType;
+          chain = 'ethereum'; // Default to EVM unless specified
         }
 
-        await connectAdditionalWallet(walletId, chain, true);
-        setIsConnectingFromSection(false);
+        // Connect, getting the new address back
+        const address = await connectAdditionalWallet(walletId, chain, false); // false = don't set as active
+
+        if (isConnectingFromSection) {
+          setFromAddressOverride(address);
+          setIsConnectingFromSection(false);
+          useWalletStateStore.getState().setIsBackgroundConnection?.(false);
+        } else if (isConnectingToSection) {
+          // For TO section, this acts like pasting an address to the recipient field
+          setRecipientAddress(address);
+          setIsConnectingToSection(false);
+          useWalletStateStore.getState().setIsBackgroundConnection?.(false);
+        }
+
         closeModal();
       } else {
-        // Regular connection (first wallet or from other places)
+        // Regular connection (global)
         await connectWallet(walletType);
         setIsConnectingFromSection(false);
+        setIsConnectingToSection(false);
       }
     } catch (error) {
       console.error('[SwapPage] Error connecting wallet:', error);
       setIsConnectingFromSection(false);
+      setIsConnectingToSection(false); // Also reset this on error
+      useWalletStateStore.getState().setIsBackgroundConnection?.(false);
     }
   };
 
@@ -1211,15 +1491,18 @@ export default function SwapPage() {
               onExpiresChange={setExpires}
               onCustomExpiryChange={useSwapStore((state) => state.setCustomExpiryMinutes)}
               onMaxClick={handleMaxClick}
-              on30PercentClick={handle30PercentClick}
+              on25PercentClick={handle25PercentClick}
               on50PercentClick={handle50PercentClick}
               on75PercentClick={handle75PercentClick}
               onSwapClick={handleSwapClick}
               onSwapTokens={handleSwapTokens}
               onConnectClick={handleConnectClick}
               onConnectFromSection={handleConnectFromSection}
+              onConnectToSection={handleConnectRecipientWallet}
+              onConnectToSection={handleConnectRecipientWallet}
               isConnected={!!walletAddress}
               isExecutingTransfer={isExecutingTransfer || isExecutingSwap}
+              swapButtonLabel={swapButtonLabel}
             />
           </div>
         </div>
@@ -1281,6 +1564,7 @@ export default function SwapPage() {
         connectedAddress={walletAddress}
         recipientAddress={recipientAddress}
         tokenModalType={tokenModalType}
+        connectedChainType={connectedChainType}
       />
 
       {/* Error Toast */}
