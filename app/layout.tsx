@@ -116,7 +116,7 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body
-        // className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+      // className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         <WalletProviders>
           <PrefetchProvider>
@@ -124,7 +124,7 @@ export default function RootLayout({
             <div className="min-h-screen bg-[#010501] relative">
               {/* Global Background System - Applied to all pages */}
               <GlobalBackground />
-              
+
               {/* Content Layers - Above background */}
               <div className="relative z-10">
                 <ConditionalLayout>{children}</ConditionalLayout>

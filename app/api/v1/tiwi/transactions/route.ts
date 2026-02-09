@@ -14,7 +14,7 @@ import type { TransactionType } from '@/lib/backend/types/wallet';
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    
+
     const {
       walletAddress,
       transactionHash,
@@ -74,7 +74,7 @@ export async function POST(req: NextRequest) {
     });
   } catch (error: any) {
     console.error('[API] /api/v1/tiwi/transactions POST error:', error);
-    
+
     return NextResponse.json(
       {
         success: false,

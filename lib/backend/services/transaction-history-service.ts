@@ -145,7 +145,7 @@ export class TransactionHistoryService {
       // Process chains in batches to control concurrency
       for (let i = 0; i < supportedChainIds.length; i += CONCURRENCY_LIMIT) {
         const batch = supportedChainIds.slice(i, i + CONCURRENCY_LIMIT);
-        
+
         // Fetch batch in parallel
         const batchPromises = batch.map(async (chainId) => {
           try {
@@ -165,7 +165,7 @@ export class TransactionHistoryService {
 
         // Wait for batch to complete (with graceful error handling)
         const batchResults = await Promise.allSettled(batchPromises);
-        
+
         // Collect successful results
         for (const result of batchResults) {
           if (result.status === 'fulfilled') {
@@ -196,10 +196,10 @@ export class TransactionHistoryService {
     limit: number = 20
   ): Promise<Transaction[]> {
     const allTransactions: Transaction[] = [];
-    
+
     // Determine address type once
     const addressType = getAddressType(address);
-    
+
     const CHAIN_ID_TO_MORALIS: Record<number, string> = {
       1: '0x1',
       10: '0xa',
@@ -216,7 +216,7 @@ export class TransactionHistoryService {
       59144: '0xe708',
       534352: '0x82750',
     };
-    
+
     // Fetch transactions for all chains in parallel with timeout
     const fetchPromises = chainIds.map(async (chainId) => {
       try {
@@ -224,7 +224,7 @@ export class TransactionHistoryService {
         const timeoutPromise = new Promise<Transaction[]>((resolve) => {
           setTimeout(() => resolve([]), 10000); // 10 second timeout
         });
-        
+
         const fetchPromise = (async () => {
           if (chainId === SOLANA_CHAIN_ID) {
             // Only fetch Solana if address is actually a Solana address
@@ -244,28 +244,28 @@ export class TransactionHistoryService {
             return [];
           }
         })();
-        
+
         return await Promise.race([fetchPromise, timeoutPromise]);
       } catch (error) {
         console.error(`[TransactionHistoryService] Error fetching transactions for chain ${chainId}:`, error);
         return [];
       }
     });
-    
+
     const results = await Promise.all(fetchPromises);
-    
+
     // Flatten and sort by timestamp (newest first)
     for (const transactions of results) {
       allTransactions.push(...transactions);
     }
-    
+
     allTransactions.sort((a, b) => b.timestamp - a.timestamp);
-    
+
     // Filter by types if specified
     if (types && types.length > 0) {
       return allTransactions.filter(tx => types.includes(tx.type));
     }
-    
+
     return allTransactions.slice(0, limit);
   }
 
@@ -283,35 +283,35 @@ export class TransactionHistoryService {
       if (!isValidEVMAddress(address)) {
         return [];
       }
-      
+
       const response = await getEVMWalletTransactions(address, chainId, moralisChain, limit);
-      
+
       const transactions: Transaction[] = [];
-      
+
       // Moralis REST API returns array directly or in result field
       const txList = Array.isArray(response) ? response : (response.result || []);
-      
+
       if (Array.isArray(txList)) {
         for (const tx of txList) {
           try {
             // Determine transaction type
             const txType = this.determineTransactionType(tx, address);
-            
+
             // Extract token information (if token transfer)
             const tokenAddress = tx.to_address?.address || '0x0000000000000000000000000000000000000000';
             const tokenSymbol = 'ETH'; // Default to native token
             const amount = tx.value || '0';
             const decimals = 18; // Native token decimals
-            
+
             // Format amount
             const amountFormatted = this.formatBalance(amount, decimals);
-            
+
             // Format date
-            const timestamp = tx.block_timestamp 
+            const timestamp = tx.block_timestamp
               ? new Date(tx.block_timestamp).getTime()
               : Date.now();
             const date = this.formatDate(timestamp);
-            
+
             transactions.push({
               id: tx.hash || `${chainId}-${tx.transaction_index || Date.now()}`,
               hash: tx.hash || '',
@@ -334,7 +334,7 @@ export class TransactionHistoryService {
           }
         }
       }
-      
+
       return transactions;
     } catch (error) {
       console.error('[TransactionHistoryService] Error fetching EVM transactions:', error);
@@ -354,33 +354,33 @@ export class TransactionHistoryService {
       if (!isValidSolanaAddress(address)) {
         return [];
       }
-      
+
       const response = await getSolanaTransactions(address, limit);
-      
+
       const transactions: Transaction[] = [];
-      
+
       // Moralis REST API returns array directly or in result field
       const txList = Array.isArray(response) ? response : (response.result || []);
-      
+
       if (txList && Array.isArray(txList)) {
         for (const tx of txList) {
           try {
             const txData = tx as any;
-            
+
             // Determine transaction type
             const txType = this.determineSolanaTransactionType(txData, address);
-            
+
             // Extract amount (in lamports)
             const amount = txData.amount || txData.lamports || '0';
             const decimals = 9; // SOL decimals
             const amountFormatted = this.formatBalance(amount, decimals);
-            
+
             // Format date
-            const timestamp = txData.blockTime 
-              ? txData.blockTime * 1000 
+            const timestamp = txData.blockTime
+              ? txData.blockTime * 1000
               : (txData.timestamp || Date.now());
             const date = this.formatDate(timestamp);
-            
+
             transactions.push({
               id: txData.signature || `${Date.now()}-${Math.random()}`,
               hash: txData.signature || '',
@@ -403,7 +403,7 @@ export class TransactionHistoryService {
           }
         }
       }
-      
+
       return transactions;
     } catch (error) {
       console.error('[TransactionHistoryService] Error fetching Solana transactions:', error);
@@ -418,26 +418,26 @@ export class TransactionHistoryService {
     const from = tx.from_address?.address?.toLowerCase() || '';
     const to = tx.to_address?.address?.toLowerCase() || '';
     const addressLower = address.toLowerCase();
-    
+
     // Check if it's a swap (interacts with DEX contract)
     if (tx.to_address?.address && this.isDEXContract(tx.to_address.address)) {
       return 'Swap';
     }
-    
+
     // Check if it's a stake/unstake (interacts with staking contract)
     if (tx.to_address?.address && this.isStakingContract(tx.to_address.address)) {
       return tx.value && BigInt(tx.value) > BigInt(0) ? 'Stake' : 'Unstake';
     }
-    
+
     // Check if sent or received
     if (from === addressLower && to !== addressLower) {
       return 'Sent';
     }
-    
+
     if (to === addressLower && from !== addressLower) {
       return 'Received';
     }
-    
+
     // Default to Transfer
     return 'Transfer';
   }
@@ -450,12 +450,12 @@ export class TransactionHistoryService {
     if (tx.programId && this.isSolanaDEXProgram(tx.programId)) {
       return 'Swap';
     }
-    
+
     // Check if it's a stake/unstake
     if (tx.programId && this.isSolanaStakingProgram(tx.programId)) {
       return tx.amount && parseFloat(tx.amount) > 0 ? 'Stake' : 'Unstake';
     }
-    
+
     // Check if sent or received
     const amount = parseFloat(tx.amount || tx.lamports || '0');
     if (amount > 0) {
@@ -463,7 +463,7 @@ export class TransactionHistoryService {
     } else if (amount < 0) {
       return 'Sent';
     }
-    
+
     return 'Transfer';
   }
 
@@ -483,7 +483,7 @@ export class TransactionHistoryService {
       // 1inch
       '0x1111111254fb6c44bac0bed2854e76f90643097d',
     ];
-    
+
     return dexContracts.includes(address.toLowerCase());
   }
 
@@ -570,11 +570,11 @@ export class TransactionHistoryService {
           case 'strict':
             // Only transactions that interact with Tiwi contracts
             return fromIsTiwi || toIsTiwi || tokenAddressIsTiwi;
-          
+
           case 'metadata':
             // Only transactions with Tiwi protocol metadata
             return protocolIsTiwi || dexIsTiwi;
-          
+
           case 'both':
           default:
             // Transactions that match contract addresses OR metadata
@@ -600,17 +600,17 @@ export class TransactionHistoryService {
   private formatBalance(balance: string, decimals: number): string {
     try {
       if (!balance || balance === '0') return '0';
-      
+
       const validDecimals = Math.max(0, Math.min(18, Math.floor(Number(decimals) || 18)));
       const balanceNum = BigInt(balance);
       const divisor = BigInt(10 ** validDecimals);
       const wholePart = balanceNum / divisor;
       const fractionalPart = balanceNum % divisor;
-      
+
       if (fractionalPart === BigInt(0)) {
         return wholePart.toString();
       }
-      
+
       const fractionalStr = fractionalPart.toString().padStart(validDecimals, '0');
       const trimmedFractional = fractionalStr.replace(/0+$/, '');
       return trimmedFractional ? `${wholePart}.${trimmedFractional}` : wholePart.toString();

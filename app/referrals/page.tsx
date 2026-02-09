@@ -229,7 +229,7 @@ export default function Referrals() {
           setIsModalOpen(true);
         }, 1000);
       }
-      
+
     } catch (error: any) {
       setApplyError(error.message || "Failed to apply referral code");
     } finally {
